@@ -1,4 +1,4 @@
-# pyoutline
+# pyoutlineapi
 
 `pyoutlineapi` is a Python package to interact with the Outline VPN Server API. The package includes Pydantic-based
 data validation, ensuring robust and reliable API interactions.
