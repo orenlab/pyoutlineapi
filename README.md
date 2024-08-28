@@ -21,7 +21,7 @@ for integrating with bots and other automated systems.
 
 ## Installation
 
-You can install PyOutline via [PyPI](https://pypi.org/project/pyoutlineapi/) using pip:
+You can install PyOutlineAPI via [PyPI](https://pypi.org/project/pyoutlineapi/) using pip:
 
 ```bash
 pip install pyoutlineapi
@@ -93,8 +93,10 @@ for user_id, bytes_transferred in metrics_data.bytesTransferredByUserId.items():
 
 ## Contributing
 
-We welcome contributions to PyOutlineAPI! Please follow the guidelines outlined in the CONTRIBUTING.md file.
+We welcome contributions to PyOutlineAPI! Please follow the guidelines outlined in
+the [CONTRIBUTING.md](https://github.com/orenlab/pyoutlineapi/blob/main/CONTRIBUTING.md) file.
 
 ## License
 
-PyOutlineAPI is licensed under the MIT [License](LICENSE). See the LICENSE file for more details.
+PyOutlineAPI is licensed under the MIT [License](https://github.com/orenlab/pyoutlineapi/blob/main/LICENSE). See the
+LICENSE file for more details.
