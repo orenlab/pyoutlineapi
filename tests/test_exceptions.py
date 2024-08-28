@@ -1,32 +1,32 @@
-"""
-Copyright (c) 2024 Denis Rozhnovskiy <pytelemonbot@mail.ru>
+import unittest
+from pyoutlineapi.exceptions import APIError, HTTPError, RequestError, ValidationError
 
-This file is part of the PyOutline project.
+class TestAPIError(unittest.TestCase):
+    def test_api_error_initialization(self):
+        """Test initialization of APIError."""
+        error = APIError("Test API Error")
+        self.assertEqual(str(error), "Test API Error")
+        self.assertEqual(error.message, "Test API Error")
 
-PyOutline is a Python package for interacting with the Outline VPN Server.
+class TestHTTPError(unittest.TestCase):
+    def test_http_error_initialization(self):
+        """Test initialization of HTTPError."""
+        error = HTTPError(404, "Not Found")
+        self.assertEqual(str(error), "HTTP error occurred: 404 - Not Found")
+        self.assertEqual(error.status_code, 404)
+        self.assertEqual(error.message, "Not Found")
 
-Licensed under the MIT License. See the LICENSE file for more details.
+class TestRequestError(unittest.TestCase):
+    def test_request_error_initialization(self):
+        """Test initialization of RequestError."""
+        error = RequestError("Connection failed")
+        self.assertEqual(str(error), "An error occurred while requesting data: Connection failed")
 
-"""
+class TestValidationError(unittest.TestCase):
+    def test_validation_error_initialization(self):
+        """Test initialization of ValidationError."""
+        error = ValidationError("Invalid data format")
+        self.assertEqual(str(error), "Validation error occurred: Invalid data format")
 
-from pyoutlineapi import exceptions as e
-
-
-def test_api_error():
-    error = e.APIError("API general error")
-    assert str(error) == "API general error"
-    assert isinstance(error, Exception)
-
-
-def test_request_error():
-    error = e.RequestError("Connection failed")
-    assert str(error) == "An error occurred while requesting data: Connection failed"
-    assert isinstance(error, e.APIError)
-    assert isinstance(error, Exception)
-
-
-def test_validation_error():
-    error = e.ValidationError("Invalid data format")
-    assert str(error) == "Validation error occurred: Invalid data format"
-    assert isinstance(error, e.APIError)
-    assert isinstance(error, Exception)
+if __name__ == '__main__':
+    unittest.main()

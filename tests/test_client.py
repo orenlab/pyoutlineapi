@@ -1,14 +1,3 @@
-"""
-Copyright (c) 2024 Denis Rozhnovskiy <pytelemonbot@mail.ru>
-
-This file is part of the PyOutline project.
-
-PyOutline is a Python package for interacting with the Outline VPN Server.
-
-Licensed under the MIT License. See the LICENSE file for more details.
-
-"""
-
 import unittest
 from unittest.mock import patch, Mock
 
@@ -17,7 +6,7 @@ import requests
 from pyoutlineapi import models as models, client as pyoutline_client, exceptions as exceptions
 
 
-class TestPyOutline(unittest.TestCase):
+class TestPyOutlineWrapper(unittest.TestCase):
     def setUp(self):
         """Setup for test cases."""
         self.api_url = "https://api.example.com"
@@ -62,7 +51,7 @@ class TestPyOutline(unittest.TestCase):
         }
         mock_request.return_value = mock_response
 
-        access_key = self.api.create_access_key()
+        access_key = self.api.create_access_key(name="Test Key", password="secret_password", port=1234)
         self.assertIsInstance(access_key, models.AccessKey)
         self.assertEqual(access_key.id, "key_id")
         self.assertEqual(access_key.name, "Test Key")
@@ -70,7 +59,20 @@ class TestPyOutline(unittest.TestCase):
         self.assertEqual(access_key.port, 1234)
         self.assertEqual(access_key.method, "method")
         self.assertEqual(access_key.accessUrl.get_secret_value(), "https://example.com")
-        mock_request.assert_called_once_with("POST", f"{self.api_url}/access-keys", json=None, verify=True)
+
+        # Print the actual call arguments for debugging
+        print("Actual call arguments:", mock_request.call_args)
+
+        # Ensure the correct URL and parameters are used
+        mock_request.assert_called_once_with(
+            "POST",
+            f"{self.api_url}/access-keys",
+            json={
+                "name": "Test Key",
+                "password": "secret_password",
+                "port": 1234
+            },
+            verify=True)
 
     @patch('pyoutlineapi.client.requests.Session.request')
     def test_get_access_keys(self, mock_request):
@@ -189,12 +191,10 @@ class TestPyOutline(unittest.TestCase):
         """Test handling of invalid data from get_server_info."""
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "unexpectedField": "unexpectedValue"
-        }
+        mock_response.json.return_value = {"unexpectedField": "unexpectedValue"}
         mock_request.return_value = mock_response
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(exceptions.ValidationError):
             self.api.get_server_info()
 
     @patch('pyoutlineapi.client.requests.Session.request')
@@ -206,14 +206,13 @@ class TestPyOutline(unittest.TestCase):
             "id": "key_id",
             "name": "Test Key",
             "password": "secret_password",
-            "port": 1234,
-            "method": "method"
+            "port": 1234
             # Missing 'accessUrl'
         }
         mock_request.return_value = mock_response
 
-        with self.assertRaises(ValueError):
-            self.api.create_access_key()
+        with self.assertRaises(exceptions.ValidationError):
+            self.api.create_access_key(name="Test Key", password="secret_password", port=1234)
 
 
 if __name__ == '__main__':
