@@ -14,9 +14,7 @@ from unittest.mock import patch, Mock
 
 import requests
 
-from pyoutlineapi import client as pyoutline_client
-from pyoutlineapi import exceptions as exceptions
-from pyoutlineapi import models as models
+from src.pyoutlineapi import models as models, client as pyoutline_client, exceptions as exceptions
 
 
 class TestPyOutline(unittest.TestCase):

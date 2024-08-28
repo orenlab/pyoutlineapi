@@ -9,7 +9,7 @@ Licensed under the MIT License. See the LICENSE file for more details.
 
 """
 
-from pyoutlineapi import exceptions as e
+from src.pyoutlineapi import exceptions as e
 
 
 def test_api_error():

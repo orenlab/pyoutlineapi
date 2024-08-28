@@ -29,7 +29,7 @@ poetry add pyoutlineapi
 Initialize the Client:
 
 ```python
-from pyoutlineapi.client import PyOutlineWrapper
+from src.pyoutlineapi.client import PyOutlineWrapper
 
 api_url = "https://your-outline-url.com"
 cert_sha256 = "your-cert-sha256-fingerprint"

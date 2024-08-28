@@ -14,7 +14,7 @@ import logging
 import unittest
 from logging import StreamHandler
 
-from pyoutlineapi import logger
+from src.pyoutlineapi import logger
 
 
 class TestLoggerSetup(unittest.TestCase):

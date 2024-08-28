@@ -13,8 +13,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from pyoutlineapi import models as m
-
+from src.pyoutlineapi import models as m
 
 
 class TestPyOutlineModels(unittest.TestCase):
