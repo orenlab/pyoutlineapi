@@ -3,6 +3,8 @@
 `pyoutlineapi` is a Python package to interact with the Outline VPN Server API. The package includes Pydantic-based
 data validation, ensuring robust and reliable API interactions.
 
+[![Python application tests](https://github.com/orenlab/pyoutlineapi/actions/workflows/python_tests.yml/badge.svg)](https://github.com/orenlab/pyoutlineapi/actions/workflows/python_tests.yml)
+
 ## Features
 
 - **Server Management**: Retrieve server information, update hostnames, manage ports, and more.
