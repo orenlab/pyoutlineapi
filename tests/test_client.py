@@ -24,7 +24,7 @@ class TestPyOutline(unittest.TestCase):
         self.cert_sha256 = "dummy_cert_sha256"
         self.api = pyoutline_client.PyOutlineWrapper(self.api_url, self.cert_sha256)
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_get_server_info(self, mock_request):
         """Test the get_server_info method."""
         mock_response = Mock()
@@ -47,7 +47,7 @@ class TestPyOutline(unittest.TestCase):
         self.assertEqual(server_info.portForNewAccessKeys, 8080)
         mock_request.assert_called_once_with("GET", f"{self.api_url}/server", json=None, verify=True)
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_create_access_key(self, mock_request):
         """Test the create_access_key method."""
         mock_response = Mock()
@@ -72,7 +72,7 @@ class TestPyOutline(unittest.TestCase):
         self.assertEqual(access_key.accessUrl.get_secret_value(), "https://example.com")
         mock_request.assert_called_once_with("POST", f"{self.api_url}/access-keys", json=None, verify=True)
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_get_access_keys(self, mock_request):
         """Test the get_access_keys method."""
         mock_response = Mock()
@@ -106,7 +106,7 @@ class TestPyOutline(unittest.TestCase):
         self.assertEqual(access_key_list.accessKeys[1].id, "key_id2")
         mock_request.assert_called_once_with("GET", f"{self.api_url}/access-keys", json=None, verify=True)
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_delete_access_key(self, mock_request):
         """Test the delete_access_key method."""
         mock_response = Mock()
@@ -116,7 +116,7 @@ class TestPyOutline(unittest.TestCase):
         self.api.delete_access_key("key_id")
         mock_request.assert_called_once_with("DELETE", f"{self.api_url}/access-keys/key_id", json=None, verify=True)
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_update_server_port(self, mock_request):
         """Test the update_server_port method."""
         mock_response = Mock()
@@ -130,7 +130,7 @@ class TestPyOutline(unittest.TestCase):
         mock_request.assert_called_once_with("PUT", f"{self.api_url}/server/port-for-new-access-keys",
                                              json={"port": 1234}, verify=True)
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_set_access_key_data_limit(self, mock_request):
         """Test the set_access_key_data_limit method."""
         mock_response = Mock()
@@ -144,7 +144,7 @@ class TestPyOutline(unittest.TestCase):
         mock_request.assert_called_once_with("PUT", f"{self.api_url}/access-keys/key_id/data-limit",
                                              json={"bytes": 1000000}, verify=True)
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_set_metrics_enabled(self, mock_request):
         """Test the set_metrics_enabled method."""
         mock_response = Mock()
@@ -158,7 +158,7 @@ class TestPyOutline(unittest.TestCase):
         mock_request.assert_called_once_with("PUT", f"{self.api_url}/server/metrics/enabled", json={"enabled": True},
                                              verify=True)
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_get_metrics(self, mock_request):
         """Test the get_metrics method."""
         mock_response = Mock()
@@ -176,7 +176,7 @@ class TestPyOutline(unittest.TestCase):
         self.assertEqual(metrics.bytesTransferredByUserId, {"0": 3353820783, "1": 12827443528})
         mock_request.assert_called_once_with("GET", f"{self.api_url}/metrics/transfer", json=None, verify=True)
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_request_error_handling(self, mock_request):
         """Test the error handling in _request method."""
         mock_request.side_effect = requests.RequestException("Test exception")
@@ -184,7 +184,7 @@ class TestPyOutline(unittest.TestCase):
         with self.assertRaises(exceptions.APIError):
             self.api._request("GET", "server")
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_get_server_info_invalid_data(self, mock_request):
         """Test handling of invalid data from get_server_info."""
         mock_response = Mock()
@@ -197,7 +197,7 @@ class TestPyOutline(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.api.get_server_info()
 
-    @patch('client.requests.Session.request')
+    @patch('pyoutlineapi.client.requests.Session.request')
     def test_create_access_key_invalid_data(self, mock_request):
         """Test handling of invalid data from create_access_key."""
         mock_response = Mock()
