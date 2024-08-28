@@ -12,9 +12,9 @@ Licensed under the MIT License. See the LICENSE file for more details.
 import requests
 from requests_toolbelt.adapters.fingerprint import FingerprintAdapter
 
-from src.pyoutlineapi.exceptions import APIError, ValidationError
-from src.pyoutlineapi.logger import setup_logger
-from src.pyoutlineapi.models import (
+from pyoutlineapi.exceptions import APIError, ValidationError
+from pyoutlineapi.logger import setup_logger
+from pyoutlineapi.models import (
     Server,
     AccessKey,
     AccessKeyList,
