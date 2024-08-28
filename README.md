@@ -12,7 +12,7 @@ data validation, ensuring robust and reliable API interactions.
 
 ## Installation
 
-You can install PyOutline via [PyPI](https://pypi.org/project/pyoutline/) using pip:
+You can install PyOutline via [PyPI](https://pypi.org/project/pyoutlineapi/) using pip:
 
 ```bash
 pip install pyoutlineapi
