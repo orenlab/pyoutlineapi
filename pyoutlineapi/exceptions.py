@@ -26,7 +26,7 @@ class HTTPError(APIError):
 
     def __init__(self, status_code: int, message: str):
         self.status_code = status_code
-        super().__init__(f"HTTP error occurred: {status_code} - {message}")
+        super().__init__(message)
 
     def __str__(self):
         return f"HTTP error occurred: {self.status_code} - {self.message}"

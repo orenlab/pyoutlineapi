@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, SecretStr, constr, field_validator
 
 
 class Server(BaseModel):
+    """Model for server information."""
     name: str
     serverId: str
     metricsEnabled: bool
@@ -23,31 +24,44 @@ class Server(BaseModel):
 
 
 class DataLimit(BaseModel):
+    """Model for data limit information."""
     bytes: int = Field(ge=0, description="Data limit in bytes must be non-negative")
 
 
 class AccessKey(BaseModel):
+    """Model for access key information."""
     id: str
-    name: Optional[str]
+    name: str
     password: SecretStr = Field(..., min_length=1, description="Password must not be empty")
     port: int = Field(ge=1, le=65535, description="Port must be between 1 and 65535")
     method: str
     accessUrl: SecretStr = Field(..., min_length=1, description="Access URL must not be empty")
 
 
-class AccessKeyList(BaseModel):
-    accessKeys: List[AccessKey]
-
-
 class ServerPort(BaseModel):
+    """Model for server port information."""
     port: int = Field(ge=1, le=65535, description="Port must be between 1 and 65535")
 
 
+class AccessKeyCreateRequest(BaseModel):
+    """Model for creating access key information."""
+    name: Optional[str]
+    password: Optional[str]
+    port: Optional[int] = Field(..., ge=0, le=65535, description="Port must be between 0 and 65535")
+
+
+class AccessKeyList(BaseModel):
+    """Model for access key list information."""
+    accessKeys: List[AccessKey]
+
+
 class MetricsEnabled(BaseModel):
+    """Model for metrics enabled information."""
     enabled: bool
 
 
 class Metrics(BaseModel):
+    """Model for metrics information."""
     bytesTransferredByUserId: Dict[constr(min_length=1), int] = Field(
         description="User IDs must be non-empty strings and byte values must be non-negative")
 

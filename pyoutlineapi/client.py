@@ -1,20 +1,13 @@
-"""
-Copyright (c) 2024 Denis Rozhnovskiy <pytelemonbot@mail.ru>
-
-This file is part of the PyOutline project.
-
-PyOutline is a Python package for interacting with the Outline VPN Server.
-
-Licensed under the MIT License. See the LICENSE file for more details.
-
-"""
+from typing import Optional
 
 import requests
+from pydantic import SecretStr, ValidationError as PydanticValidationError
 from requests_toolbelt.adapters.fingerprint import FingerprintAdapter
 
 from pyoutlineapi.exceptions import APIError, ValidationError
 from pyoutlineapi.logger import setup_logger
 from pyoutlineapi.models import (
+    AccessKeyCreateRequest,
     Server,
     AccessKey,
     AccessKeyList,
@@ -86,20 +79,55 @@ class PyOutlineWrapper:
         try:
             response = self._request("GET", "server")
             return Server(**response.json())
-        except ValidationError as e:
+        except PydanticValidationError as e:
             raise ValidationError(f"Failed to get server info: {e}")
 
-    def create_access_key(self) -> AccessKey:
+    def create_access_key(self, name: Optional[str] = None, password: Optional[str] = None,
+                          port: Optional[int] = None) -> AccessKey:
         """
         Create a new access key.
 
+        Args:
+            name (Optional[str]): Name of the access key. Defaults to None.
+            password (Optional[str]): Password for the access key. Defaults to None.
+            port (Optional[int]): Port for the access key. Defaults to None.
+
         Returns:
             AccessKey: An object containing information about the new access key.
+
+        Raises:
+            ValidationError: If the server response is not 201 or if there's an issue with the request.
         """
+        # Create request_data dictionary only with non-None values
+        request_data = {
+            "name": name,
+            "password": password,
+            "port": port,
+        }
+        request_data = {key: value for key, value in request_data.items() if value is not None}
+
         try:
-            response = self._request("POST", "access-keys")
-            return AccessKey(**response.json())
-        except ValidationError as e:
+            if request_data:
+                request_data = AccessKeyCreateRequest(**request_data).model_dump(mode="json")
+            else:
+                request_data = {}
+
+            response = self._request("POST", "access-keys", json_data=request_data)
+
+            if response.status_code == 201:
+                data = response.json()
+                return AccessKey(
+                    id=data['id'],
+                    name=data.get('name'),
+                    password=SecretStr(data['password']),
+                    port=data['port'],
+                    method=data['method'],
+                    accessUrl=SecretStr(data['accessUrl'])
+                )
+            else:
+                raise ValidationError(f"Failed to create access key: {response.status_code} - {response.text}")
+
+        except (PydanticValidationError, KeyError, requests.RequestException) as e:
             raise ValidationError(f"Failed to create access key: {e}")
 
     def get_access_keys(self) -> AccessKeyList:
@@ -112,7 +140,7 @@ class PyOutlineWrapper:
         try:
             response = self._request("GET", "access-keys")
             return AccessKeyList(**response.json())
-        except ValidationError as e:
+        except PydanticValidationError as e:
             raise ValidationError(f"Failed to get access keys: {e}")
 
     def delete_access_key(self, key_id: str):
@@ -127,7 +155,7 @@ class PyOutlineWrapper:
         """
         try:
             self._request("DELETE", f"access-keys/{key_id}")
-        except ValidationError as e:
+        except PydanticValidationError as e:
             raise ValidationError(f"Failed to delete access key with ID {key_id}: {e}")
 
     def update_server_port(self, port: int) -> ServerPort:
@@ -143,7 +171,7 @@ class PyOutlineWrapper:
         try:
             response = self._request("PUT", "server/port-for-new-access-keys", {"port": port})
             return ServerPort(**response.json())
-        except ValidationError as e:
+        except PydanticValidationError as e:
             raise ValidationError(f"Failed to update server port: {e}")
 
     def set_access_key_data_limit(self, key_id: str, limit: int) -> DataLimit:
@@ -160,7 +188,7 @@ class PyOutlineWrapper:
         try:
             response = self._request("PUT", f"access-keys/{key_id}/data-limit", {"bytes": limit})
             return DataLimit(**response.json())
-        except ValidationError as e:
+        except PydanticValidationError as e:
             raise ValidationError(f"Failed to set data limit for access key with ID {key_id}: {e}")
 
     def set_metrics_enabled(self, enabled: bool) -> MetricsEnabled:
@@ -176,7 +204,7 @@ class PyOutlineWrapper:
         try:
             response = self._request("PUT", "server/metrics/enabled", {"enabled": enabled})
             return MetricsEnabled(**response.json())
-        except ValidationError as e:
+        except PydanticValidationError as e:
             raise ValidationError(f"Failed to set metrics enabled state: {e}")
 
     def get_metrics(self) -> Metrics:
@@ -189,5 +217,5 @@ class PyOutlineWrapper:
         try:
             response = self._request("GET", "metrics/transfer")
             return Metrics(**response.json())
-        except ValidationError as e:
+        except PydanticValidationError as e:
             raise ValidationError(f"Failed to get metrics: {e}")
