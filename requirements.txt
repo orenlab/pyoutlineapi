@@ -8,6 +8,7 @@ packaging==24.1
 pluggy==1.5.0
 pydantic==2.8.2
 pydantic_core==2.20.1
+-e git+https://github.com/orenlab/pyoutlineapi.git@3749896418502d548ef86d9e3184f3bf2e44de32#egg=pyoutlineapi
 pytest==8.3.2
 pytest-cov==5.0.0
 requests==2.32.3
