@@ -15,13 +15,13 @@ data validation, ensuring robust and reliable API interactions.
 You can install PyOutline via [PyPI](https://pypi.org/project/pyoutline/) using pip:
 
 ```bash
-pip install pyoutline
+pip install pyoutlineapi
 ```
 
 Or via [Poetry](https://python-poetry.org/):
 
 ```bash
-poetry add pyoutline
+poetry add pyoutlineapi
 ```
 
 ## Usage
