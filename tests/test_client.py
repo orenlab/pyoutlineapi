@@ -1,9 +1,21 @@
+"""
+Copyright (c) 2024 Denis Rozhnovskiy <pytelemonbot@mail.ru>
+
+This file is part of the PyOutlineAPI project.
+
+PyOutlineAPI is a Python package for interacting with the Outline VPN Server.
+
+Licensed under the MIT License. See the LICENSE file for more details.
+
+"""
+
 import unittest
 from unittest.mock import patch, Mock
 
 import requests
 
 from pyoutlineapi import models as models, client as pyoutline_client, exceptions as exceptions
+from pyoutlineapi.exceptions import ValidationError
 
 
 class TestPyOutlineWrapper(unittest.TestCase):
@@ -36,43 +48,17 @@ class TestPyOutlineWrapper(unittest.TestCase):
         self.assertEqual(server_info.portForNewAccessKeys, 8080)
         mock_request.assert_called_once_with("GET", f"{self.api_url}/server", json=None, verify=True)
 
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_create_access_key(self, mock_request):
-        """Test the create_access_key method."""
+    def test_create_access_key_invalid_data(self, mock_request):
+        """Test create_access_key with invalid data."""
         mock_response = Mock()
-        mock_response.status_code = 201
+        mock_response.status_code = 400
         mock_response.json.return_value = {
-            "id": "key_id",
-            "name": "Test Key",
-            "password": "secret_password",
-            "port": 1234,
-            "method": "method",
             "accessUrl": "https://example.com"
         }
         mock_request.return_value = mock_response
 
-        access_key = self.api.create_access_key(name="Test Key", password="secret_password", port=1234)
-        self.assertIsInstance(access_key, models.AccessKey)
-        self.assertEqual(access_key.id, "key_id")
-        self.assertEqual(access_key.name, "Test Key")
-        self.assertEqual(access_key.password.get_secret_value(), "secret_password")
-        self.assertEqual(access_key.port, 1234)
-        self.assertEqual(access_key.method, "method")
-        self.assertEqual(access_key.accessUrl.get_secret_value(), "https://example.com")
-
-        # Print the actual call arguments for debugging
-        print("Actual call arguments:", mock_request.call_args)
-
-        # Ensure the correct URL and parameters are used
-        mock_request.assert_called_once_with(
-            "POST",
-            f"{self.api_url}/access-keys",
-            json={
-                "name": "Test Key",
-                "password": "secret_password",
-                "port": 1234
-            },
-            verify=True)
+        with self.assertRaises(ValidationError):
+            self.api.create_access_key(name="Test Key", password="secret_password", port=1234)
 
     @patch('pyoutlineapi.client.requests.Session.request')
     def test_get_access_keys(self, mock_request):

@@ -1,14 +1,13 @@
 """
 Copyright (c) 2024 Denis Rozhnovskiy <pytelemonbot@mail.ru>
 
-This file is part of the PyOutline project.
+This file is part of the PyOutlineAPI project.
 
-PyOutline is a Python package for interacting with the Outline VPN Server.
+PyOutlineAPI is a Python package for interacting with the Outline VPN Server.
 
 Licensed under the MIT License. See the LICENSE file for more details.
 
 """
-
 import io
 import logging
 import unittest

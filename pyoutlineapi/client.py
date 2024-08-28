@@ -1,3 +1,14 @@
+"""
+Copyright (c) 2024 Denis Rozhnovskiy <pytelemonbot@mail.ru>
+
+This file is part of the PyOutlineAPI project.
+
+PyOutlineAPI is a Python package for interacting with the Outline VPN Server.
+
+Licensed under the MIT License. See the LICENSE file for more details.
+
+"""
+
 from typing import Optional
 
 import requests
@@ -98,7 +109,6 @@ class PyOutlineWrapper:
         Raises:
             ValidationError: If the server response is not 201 or if there's an issue with the request.
         """
-        # Create request_data dictionary only with non-None values
         request_data = {
             "name": name,
             "password": password,
@@ -110,7 +120,7 @@ class PyOutlineWrapper:
             if request_data:
                 request_data = AccessKeyCreateRequest(**request_data).model_dump(mode="json")
             else:
-                request_data = {}
+                request_data = None  # Use None instead of an empty dictionary
 
             response = self._request("POST", "access-keys", json_data=request_data)
 
