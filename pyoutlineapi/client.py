@@ -62,7 +62,7 @@ class PyOutlineWrapper:
         Args:
             method (str): HTTP method (GET, POST, PUT, DELETE).
             endpoint (str): API endpoint.
-            json_data (dict, optional): Data to send in the request body.
+            json_data (Dict[str, Any], optional): Data to send in the request body.
 
         Returns:
             requests.Response: The HTTP response object.
@@ -72,13 +72,16 @@ class PyOutlineWrapper:
         """
         url = f"{self.api_url}/{endpoint}"
         try:
-            logger.debug(f"Making {method} request to {url} with data: {json_data}")
-            response = self.session.request(method, url, json=json_data, verify=self.verify_tls)
+            response = self.session.request(
+                method,
+                url,
+                json=json_data,
+                verify=self.verify_tls,
+            )
             response.raise_for_status()
-            logger.debug(f"Response from {url}: {response.status_code}")
             return response
-        except requests.RequestException as e:
-            raise APIError(f"Request to {url} failed: {e}")
+        except requests.RequestException as exception:
+            raise APIError(f"Request to {url} failed: {exception}")
 
     def get_server_info(self) -> Server:
         """
