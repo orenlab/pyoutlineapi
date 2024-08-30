@@ -1,27 +1,7 @@
-"""
-Copyright (c) 2024 Denis Rozhnovskiy <pytelemonbot@mail.ru>
-
-This file is part of the PyOutlineAPI project.
-
-PyOutlineAPI is a Python package for interacting with the Outline VPN Server.
-
-This module provides a wrapper around the Outline VPN Server API, allowing
-users to programmatically manage access keys, server settings, and monitor
-data usage.
-
-Typical usage example:
-
-    api = PyOutlineWrapper(api_url="https://example.com", cert_sha256="abc123...")
-    server_info = api.get_server_info()
-    access_key = api.create_access_key(name="User1")
-
-Licensed under the MIT License. See the LICENSE file for more details.
-"""
-
-from typing import Optional
+from typing import Optional, Type, Any
 
 import requests
-from pydantic import SecretStr, ValidationError as PydanticValidationError
+from pydantic import BaseModel, ValidationError as PydanticValidationError
 from requests_toolbelt.adapters.fingerprint import FingerprintAdapter
 
 from pyoutlineapi.exceptions import APIError, ValidationError, HTTPError
@@ -39,6 +19,10 @@ from pyoutlineapi.models import (
 # Set up logging
 logger = setup_logger(__name__)
 
+__all__ = [
+    'PyOutlineWrapper'
+]
+
 
 class PyOutlineWrapper:
     """
@@ -53,7 +37,7 @@ class PyOutlineWrapper:
         _verify_tls (bool): Whether to verify the TLS certificate.
     """
 
-    def __init__(self, api_url: str, cert_sha256: str, verify_tls: bool = True):
+    def __init__(self, api_url: str, cert_sha256: str, verify_tls: bool = True, json_format: Optional[bool] = False):
         """
         Initialize PyOutlineAPI.
 
@@ -61,10 +45,12 @@ class PyOutlineWrapper:
             api_url (str): The base URL of the API.
             cert_sha256 (str): SHA-256 fingerprint of the certificate.
             verify_tls (bool, optional): Whether to verify the TLS certificate. Defaults to True.
+            json_format (bool, optional): Whether to return responses in JSON format. Defaults to False.
         """
         self._api_url = api_url
         self._cert_sha256 = cert_sha256
         self._verify_tls = verify_tls
+        self._json_format = json_format
         self._session = requests.Session()
         self._session.mount(self._api_url, FingerprintAdapter(self._cert_sha256))
 
@@ -97,12 +83,34 @@ class PyOutlineWrapper:
         except (requests.RequestException, HTTPError) as exception:
             raise APIError(f"Request to {url} failed: {exception}")
 
-    def get_server_info(self) -> Server:
+    def _parse_response(self, response: requests.Response, model: Type[BaseModel]) -> Any:
+        """
+        Validate response data and optionally convert to JSON format.
+
+        Args:
+            response (requests.Response): The HTTP response object.
+            model (Type[BaseModel]): The Pydantic model class for validation.
+
+        Returns:
+            Any: The validated and optionally JSON-formatted response data.
+
+        Raises:
+            ValidationError: If the response data is invalid.
+        """
+        try:
+            data = model(**response.json())
+            if self._json_format:
+                return data.model_dump_json()
+            return data
+        except PydanticValidationError as e:
+            raise ValidationError(f"Validation error: {e}")
+
+    def get_server_info(self) -> Any:
         """
         Get information about the server.
 
         Returns:
-            Server: An object containing server information.
+            Any: An object containing server information, or JSON-formatted data if json_format is True.
 
         Raises:
             APIError: If the request fails.
@@ -113,12 +121,12 @@ class PyOutlineWrapper:
         """
         try:
             response = self._request("GET", "server")
-            return Server(**response.json())
+            return self._parse_response(response, Server)
         except PydanticValidationError as e:
             raise ValidationError(f"Failed to get server info: {e}")
 
     def create_access_key(self, name: Optional[str] = None, password: Optional[str] = None,
-                          port: Optional[int] = None) -> AccessKey:
+                          port: Optional[int] = None) -> Any:
         """
         Create a new access key.
 
@@ -128,7 +136,7 @@ class PyOutlineWrapper:
             port (Optional[int]): Port for the access key. Defaults to None.
 
         Returns:
-            AccessKey: An object containing information about the new access key.
+            Any: An object containing information about the new access key, or JSON-formatted data if json_format is True.
 
         Raises:
             ValidationError: If the server response is not 201 or if there's an issue with the request.
@@ -147,32 +155,24 @@ class PyOutlineWrapper:
             if request_data:
                 request_data = AccessKeyCreateRequest(**request_data).model_dump(mode="json")
             else:
-                request_data = None  # Use None instead of an empty dictionary
+                request_data = None
 
             response = self._request("POST", "access-keys", json_data=request_data)
 
             if response.status_code == 201:
-                data = response.json()
-                return AccessKey(
-                    id=data['id'],
-                    name=data.get('name'),
-                    password=SecretStr(data['password']),
-                    port=data['port'],
-                    method=data['method'],
-                    accessUrl=SecretStr(data['accessUrl'])
-                )
+                return self._parse_response(response, AccessKey)
             else:
                 raise ValidationError(f"Failed to create access key: {response.status_code} - {response.text}")
 
         except (PydanticValidationError, KeyError, requests.RequestException) as e:
             raise ValidationError(f"Failed to create access key: {e}")
 
-    def get_access_keys(self) -> AccessKeyList:
+    def get_access_keys(self) -> Any:
         """
         Get a list of all access keys.
 
         Returns:
-            AccessKeyList: An object containing a list of access keys.
+            Any: An object containing a list of access keys, or JSON-formatted data if json_format is True.
 
         Raises:
             APIError: If the request fails.
@@ -183,7 +183,7 @@ class PyOutlineWrapper:
         """
         try:
             response = self._request("GET", "access-keys")
-            return AccessKeyList(**response.json())
+            return self._parse_response(response, AccessKeyList)
         except PydanticValidationError as e:
             raise ValidationError(f"Failed to get access keys: {e}")
 
@@ -204,17 +204,17 @@ class PyOutlineWrapper:
             success = api.delete_access_key(key_id="some_key_id")
         """
         try:
-            query = self._request("DELETE", f"access-keys/{key_id}")
-            return query.status_code == 204
+            response = self._request("DELETE", f"access-keys/{key_id}")
+            return response.status_code == 204
         except HTTPError as e:
             raise APIError(f"Failed to delete access key with ID {key_id}: {e}")
 
-    def update_server_port(self, port: ServerPort) -> bool:
+    def update_server_port(self, port: ServerPort | int) -> bool:
         """
         Update the port for new access keys.
 
         Args:
-            port (int): The new port.
+            port (ServerPort): The new port.
 
         Returns:
             bool: True if the server port was successfully updated, False otherwise.
@@ -239,7 +239,7 @@ class PyOutlineWrapper:
 
         Args:
             key_id (str): The ID of the access key.
-            limit (int): The data limit in bytes.
+            limit (DataLimit): The data limit in bytes.
 
         Returns:
             bool: True if the data limit was successfully set, False otherwise.
@@ -272,6 +272,6 @@ class PyOutlineWrapper:
         """
         try:
             response = self._request("GET", "metrics/transfer")
-            return Metrics(**response.json())
+            return self._parse_response(response, Metrics)
         except PydanticValidationError as e:
             raise ValidationError(f"Failed to get metrics: {e}")
