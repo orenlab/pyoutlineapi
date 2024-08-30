@@ -1,14 +1,3 @@
-"""
-Copyright (c) 2024 Denis Rozhnovskiy <pytelemonbot@mail.ru>
-
-This file is part of the PyOutlineAPI project.
-
-PyOutlineAPI is a Python package for interacting with the Outline VPN Server.
-
-Licensed under the MIT License. See the LICENSE file for more details.
-
-"""
-
 import unittest
 from unittest.mock import patch, Mock
 
@@ -20,6 +9,7 @@ from pyoutlineapi.exceptions import ValidationError, APIError
 from pyoutlineapi.models import (
     Server,
     AccessKey,
+    AccessKeyList,
     ServerPort,
     DataLimit,
     Metrics
@@ -182,15 +172,21 @@ class TestPyOutlineWrapper(unittest.TestCase):
             self.wrapper.get_metrics()
 
     @patch('pyoutlineapi.client.requests.Session.request')
-    def test_rate_limiting(self, mock_request):
+    def test_get_access_keys_empty(self, mock_request):
         mock_response = Mock()
-        mock_response.status_code = 429
-        mock_response.raise_for_status.side_effect = requests.HTTPError("429 Client Error: Too Many Requests")
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"accessKeys": []}
         mock_request.return_value = mock_response
 
+        access_keys = self.wrapper.get_access_keys()
+        self.assertIsInstance(access_keys, AccessKeyList)
+        self.assertEqual(len(access_keys.accessKeys), 0)
+
+    @patch('pyoutlineapi.client.requests.Session.request')
+    def test_handle_api_error(self, mock_request):
+        mock_request.side_effect = requests.exceptions.HTTPError("500 Internal Server Error")
         with self.assertRaises(APIError):
-            for _ in range(5):
-                self.wrapper.get_server_info()  # Simulate rapid consecutive calls
+            self.wrapper.get_server_info()
 
 
 if __name__ == '__main__':
