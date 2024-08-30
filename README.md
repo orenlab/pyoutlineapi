@@ -42,53 +42,88 @@ fingerprint:
 
 ```python
 from pyoutlineapi.client import PyOutlineWrapper
-
-api_url = "https://your-outline-url.com"
-cert_sha256 = "your-cert-sha256-fingerprint"
-# If a self-signed certificate is used, set "verify_tls" to False.
-api_client = PyOutlineWrapper(api_url=api_url, cert_sha256=cert_sha256, verify_tls=False)
-
-# Retrieve Server Information
-from pyoutlineapi.models import Server
-
-server_info: Server = api_client.get_server_info()
-print("Server Information:", server_info)
-
-# Create a New Access Key:
-from pyoutlineapi.models import AccessKey
-
-new_access_key: AccessKey = api_client.create_access_key(name="my_access_key", password="secure_password", port=8080)
-print("New Access Key:", new_access_key)
-
-# List All Access Keys:
-from pyoutlineapi.models import AccessKeyList
-
-access_key_list: AccessKeyList = api_client.get_access_keys()
-print("Access Key List:")
-for access_key in access_key_list.accessKeys:
-    print(f"- ID: {access_key.id}, Name: {access_key.name}, Port: {access_key.port}")
-
-# Delete Access Key:
-api_client.delete_access_key("your-key-id")
-print("Access Key Deleted Successfully")
-
-# Update Server Port:
-update_success: bool = api_client.update_server_port(9090)
-print("Server Port Updated:", update_success)
-
-# Set Data Limit for Access Key:
 from pyoutlineapi.models import DataLimit
 
-data_limit: bool = api_client.set_access_key_data_limit("your-key-id", DataLimit(bytes=50000000))
-print("Data Limit Set:", data_limit)
+# Initialize the API client
+api_url = "https://your-outline-url.com"
+cert_sha256 = "your-cert-sha256-fingerprint"
+# If using a self-signed certificate, set "verify_tls" to False.
+# If answers need to be returned in JSON format, set "json_format" to True. 
+# Defaults to False - Pydantic models will be returned.
+api_client = PyOutlineWrapper(api_url=api_url, cert_sha256=cert_sha256, verify_tls=False, json_format=True)
 
-# Retrieve Metrics:
-from pyoutlineapi.models import Metrics
+# Retrieve server information
+try:
+    server_info = api_client.get_server_info()
+    print("Server Information:", server_info)
+    if isinstance(server_info, str):  # Check for JSON format
+        print("JSON Format Server Information:", server_info)
+    else:
+        print("Server Name:", server_info.name)
+        print("Server ID:", server_info.serverId)
+        print("Metrics Enabled:", server_info.metricsEnabled)
+        print("Created Timestamp (ms):", server_info.createdTimestampMs)
+        print("Port for New Access Keys:", server_info.portForNewAccessKeys)
+except Exception as e:
+    print(f"An error occurred: {e}")
 
-metrics_data: Metrics = api_client.get_metrics()
-print("Metrics Data:")
-for user_id, bytes_transferred in metrics_data.bytesTransferredByUserId.items():
-    print(f"- User ID: {user_id}, Bytes Transferred: {bytes_transferred}")
+# Create a new access key
+try:
+    new_access_key = api_client.create_access_key(name="my_access_key", password="secure_password", port=8080)
+    print("New Access Key:", new_access_key)
+    if isinstance(new_access_key, str):  # Check for JSON format
+        print("JSON Format New Access Key:", new_access_key)
+    else:
+        print("Access Key ID:", new_access_key.id)
+        print("Access Key Name:", new_access_key.name)
+        print("Access Key Port:", new_access_key.port)
+except Exception as e:
+    print(f"An error occurred: {e}")
+
+# Retrieve a list of all access keys
+try:
+    access_key_list = api_client.get_access_keys()
+    print("Access Key List:")
+    if isinstance(access_key_list, str):  # Check for JSON format
+        print("JSON Format Access Key List:", access_key_list)
+    else:
+        for access_key in access_key_list.accessKeys:
+            print(f"- ID: {access_key.id}, Name: {access_key.name}, Port: {access_key.port}")
+except Exception as e:
+    print(f"An error occurred: {e}")
+
+# Delete an access key
+try:
+    success = api_client.delete_access_key("example-key-id")
+    print("Access Key Deleted Successfully" if success else "Failed to Delete Access Key")
+except Exception as e:
+    print(f"An error occurred: {e}")
+
+# Update the server port
+try:
+    update_success = api_client.update_server_port(9090)
+    print("Server Port Updated:", update_success)
+except Exception as e:
+    print(f"An error occurred: {e}")
+
+# Set data limit for an access key
+try:
+    data_limit = api_client.set_access_key_data_limit("example-key-id", DataLimit(bytes=50000000))
+    print("Data Limit Set:", data_limit)
+except Exception as e:
+    print(f"An error occurred: {e}")
+
+# Retrieve metrics
+try:
+    metrics_data = api_client.get_metrics()
+    print("Metrics Data:")
+    if isinstance(metrics_data, str):  # Check for JSON format
+        print("JSON Format Metrics Data:", metrics_data)
+    else:
+        for user_id, bytes_transferred in metrics_data.bytesTransferredByUserId.items():
+            print(f"- User ID: {user_id}, Bytes Transferred: {bytes_transferred}")
+except Exception as e:
+    print(f"An error occurred: {e}")
 ```
 
 ## Contributing
