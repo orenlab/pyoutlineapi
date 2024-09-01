@@ -1,11 +1,8 @@
-# pyoutlineapi
+# PyOutlineAPI
 
 `pyoutlineapi` is a Python package designed to interact with the Outline VPN Server API, providing robust data
-validation through Pydantic models. This ensures reliable and secure API interactions.
-
-Whether you're building a Telegram bot or another application that requires accurate and secure API communication,
-`pyoutlineapi` offers comprehensive validation for both incoming and outgoing data. This makes it an excellent choice
-for integrating with bots and other automated systems.
+validation through Pydantic models. This ensures reliable and secure API interactions, making it an excellent choice for
+integrating with bots and other automated systems that require accurate and secure communication.
 
 [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=orenlab_pyoutlineapi&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=orenlab_pyoutlineapi)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=orenlab_pyoutlineapi&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=orenlab_pyoutlineapi)
@@ -18,6 +15,16 @@ for integrating with bots and other automated systems.
 - **Access Key Management**: Create, list, rename, and delete access keys, as well as set data limits.
 - **Metrics**: Enable or disable metrics sharing and retrieve data transfer metrics.
 - **Experimental Endpoints**: Access and manage experimental features of the Outline Server API.
+
+## Quick Start
+
+To get started with `pyoutlineapi`, follow these steps:
+
+1. Install the package using pip or Poetry.
+2. Initialize the `PyOutlineWrapper` client with your Outline VPN server URL and certificate fingerprint.
+3. Use the provided methods to interact with the server and access keys.
+
+See the examples below for more detailed information.
 
 ## Installation
 
@@ -33,12 +40,9 @@ Or via [Poetry](https://python-poetry.org/):
 poetry add pyoutlineapi
 ```
 
-## Usage
+## Basic Operations
 
-Initialize the Client:
-
-To get started, you need to initialize the PyOutlineWrapper client with your Outline VPN server URL and certificate
-fingerprint:
+### Initialize the Client
 
 ```python
 from pyoutlineapi.client import PyOutlineWrapper
@@ -47,83 +51,57 @@ from pyoutlineapi.models import DataLimit
 # Initialize the API client
 api_url = "https://your-outline-url.com"
 cert_sha256 = "your-cert-sha256-fingerprint"
-# If using a self-signed certificate, set "verify_tls" to False.
-# If answers need to be returned in JSON format, set "json_format" to True. 
-# Defaults to False - Pydantic models will be returned.
+# Set "verify_tls" to False if using a self-signed certificate.
+# Set "json_format" to True if answers need to be returned in JSON format. Defaults to False - Pydantic models will be returned.
 api_client = PyOutlineWrapper(api_url=api_url, cert_sha256=cert_sha256, verify_tls=False, json_format=True)
+```
 
-# Retrieve server information
-try:
-    server_info = api_client.get_server_info()
-    print("Server Information:", server_info)
-    if isinstance(server_info, str):  # Check for JSON format
-        print("JSON Format Server Information:", server_info)
-    else:
-        print("Server Name:", server_info.name)
-        print("Server ID:", server_info.serverId)
-        print("Metrics Enabled:", server_info.metricsEnabled)
-        print("Created Timestamp (ms):", server_info.createdTimestampMs)
-        print("Port for New Access Keys:", server_info.portForNewAccessKeys)
-except Exception as e:
-    print(f"An error occurred: {e}")
+### Retrieve Server Information
 
-# Create a new access key
-try:
-    new_access_key = api_client.create_access_key(name="my_access_key", password="secure_password", port=8080)
-    print("New Access Key:", new_access_key)
-    if isinstance(new_access_key, str):  # Check for JSON format
-        print("JSON Format New Access Key:", new_access_key)
-    else:
-        print("Access Key ID:", new_access_key.id)
-        print("Access Key Name:", new_access_key.name)
-        print("Access Key Port:", new_access_key.port)
-except Exception as e:
-    print(f"An error occurred: {e}")
+```python
+server_info = api_client.get_server_info()
+print("Server Information:", server_info)
+```
 
-# Retrieve a list of all access keys
-try:
-    access_key_list = api_client.get_access_keys()
-    print("Access Key List:")
-    if isinstance(access_key_list, str):  # Check for JSON format
-        print("JSON Format Access Key List:", access_key_list)
-    else:
-        for access_key in access_key_list.accessKeys:
-            print(f"- ID: {access_key.id}, Name: {access_key.name}, Port: {access_key.port}")
-except Exception as e:
-    print(f"An error occurred: {e}")
+### Create a New Access Key
 
-# Delete an access key
-try:
-    success = api_client.delete_access_key("example-key-id")
-    print("Access Key Deleted Successfully" if success else "Failed to Delete Access Key")
-except Exception as e:
-    print(f"An error occurred: {e}")
+```python
+# Create a new access key with default values
+new_access_key = api_client.create_access_key()
+# Create a new access key with custom values
+new_access_key = api_client.create_access_key(name="my_access_key", password="secure_password", port=8080)
 
-# Update the server port
-try:
-    update_success = api_client.update_server_port(9090)
-    print("Server Port Updated:", update_success)
-except Exception as e:
-    print(f"An error occurred: {e}")
+print("New Access Key:", new_access_key)
+```
 
-# Set data limit for an access key
-try:
-    data_limit = api_client.set_access_key_data_limit("example-key-id", DataLimit(bytes=50000000))
-    print("Data Limit Set:", data_limit)
-except Exception as e:
-    print(f"An error occurred: {e}")
+### Delete Access Key
 
-# Retrieve metrics
-try:
-    metrics_data = api_client.get_metrics()
-    print("Metrics Data:")
-    if isinstance(metrics_data, str):  # Check for JSON format
-        print("JSON Format Metrics Data:", metrics_data)
-    else:
-        for user_id, bytes_transferred in metrics_data.bytesTransferredByUserId.items():
-            print(f"- User ID: {user_id}, Bytes Transferred: {bytes_transferred}")
-except Exception as e:
-    print(f"An error occurred: {e}")
+```python
+success = api_client.delete_access_key("example-key-id")
+print("Access Key Deleted Successfully" if success else "Failed to Delete Access Key")
+```
+
+## Additional Functions
+
+### Update Server Port
+
+```python
+update_success = api_client.update_server_port(9090)
+print("Server Port Updated:", update_success)
+```
+
+### Set Data Limit for an Access Key
+
+```python
+data_limit = api_client.set_access_key_data_limit("example-key-id", DataLimit(bytes=50000000))
+print("Data Limit Set:", data_limit)
+```
+
+### Retrieve Metrics
+
+```python
+metrics_data = api_client.get_metrics()
+print("Metrics Data:", metrics_data)
 ```
 
 ## Contributing
@@ -135,3 +113,17 @@ the [CONTRIBUTING.md](https://github.com/orenlab/pyoutlineapi/blob/main/CONTRIBU
 
 PyOutlineAPI is licensed under the MIT [License](https://github.com/orenlab/pyoutlineapi/blob/main/LICENSE). See the
 LICENSE file for more details.
+
+## Frequently Asked Questions (FAQ)
+
+___
+**How to use self-signed certificates?**
+
+Set the `verify_tls` parameter to `False` when initializing the client.
+___
+___
+**How to change the response format to Pydantic models?**
+
+Set the `json_format` parameter to `False` when initializing the client if you need to receive responses in Pydantic
+models.
+___
