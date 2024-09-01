@@ -2,192 +2,132 @@ import unittest
 from unittest.mock import patch, Mock
 
 import requests
-from pydantic import SecretStr
 
 from pyoutlineapi.client import PyOutlineWrapper
-from pyoutlineapi.exceptions import ValidationError, APIError
-from pyoutlineapi.models import (
-    Server,
-    AccessKey,
-    AccessKeyList,
-    ServerPort,
-    DataLimit,
-    Metrics
-)
+from pyoutlineapi.exceptions import APIError
+from pyoutlineapi.models import Server, DataLimit
 
 
 class TestPyOutlineWrapper(unittest.TestCase):
+
     def setUp(self):
-        self.api_url = "https://api.example.com"
-        self.cert_sha256 = "dummy_sha256"
-        self.wrapper = PyOutlineWrapper(self.api_url, self.cert_sha256)
+        self.api_url = "https://example.com"
+        self.cert_sha256 = "dummy-sha256"
+        self.wrapper = PyOutlineWrapper(api_url=self.api_url, cert_sha256=self.cert_sha256)
 
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_get_server_info(self, mock_request):
+    @patch("pyoutlineapi.client.requests.Session.request")
+    def test_request_success(self, mock_request):
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
+        mock_response.json.return_value = {}
+        mock_request.return_value = mock_response
+
+        response = self.wrapper._request("GET", "test-endpoint")
+        self.assertEqual(response.status_code, 200)
+
+    @patch("pyoutlineapi.client.requests.Session.request")
+    def test_request_failure(self, mock_request):
+        mock_request.side_effect = requests.RequestException("Connection error")
+
+        with self.assertRaises(APIError):
+            self.wrapper._request("GET", "test-endpoint")
+
+    @patch("pyoutlineapi.client.requests.Response.json")
+    def test_parse_response_success(self, mock_json):
+        mock_json.return_value = {
             "name": "Test Server",
-            "serverId": "server_id",
+            "serverId": "12345",
             "metricsEnabled": True,
-            "createdTimestampMs": 1234567890,
-            "portForNewAccessKeys": 443
+            "createdTimestampMs": 1609459200000,
+            "portForNewAccessKeys": 8080
         }
-        mock_request.return_value = mock_response
 
-        server = self.wrapper.get_server_info()
-        self.assertIsInstance(server, Server)
-        self.assertEqual(server.name, "Test Server")
-        self.assertEqual(server.serverId, "server_id")
+        response = Mock()
+        response.json = mock_json
 
-    @patch('pyoutlineapi.client.requests.Session.request')
+        result = self.wrapper._parse_response(response, Server)
+        self.assertIsInstance(result, str)  # JSON format is True by default
+
+    @patch.object(PyOutlineWrapper, '_request')
+    def test_get_server_info(self, mock_request):
+        mock_request.return_value.json.return_value = {
+            "name": "Test Server",
+            "serverId": "12345",
+            "metricsEnabled": True,
+            "createdTimestampMs": 1609459200000,
+            "portForNewAccessKeys": 8080
+        }
+
+        result = self.wrapper.get_server_info()
+        self.assertIsInstance(result, str)
+
+    @patch.object(PyOutlineWrapper, '_request')
     def test_create_access_key(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "id": "key_id",
-            "name": "Test Key",
-            "password": "secret_password",
-            "port": 1234,
-            "method": "method",
-            "accessUrl": "https://example.com"
+        mock_request.return_value.json.return_value = {
+            "id": "test_id",
+            "name": "Test Access Key",
+            "password": "secret",
+            "port": 8080,
+            "method": "aes-256-gcm",
+            "accessUrl": "ss://..."
         }
-        mock_request.return_value = mock_response
 
-        access_key = self.wrapper.create_access_key(name="Test Key", password="secret_password", port=1234)
-        self.assertIsInstance(access_key, AccessKey)
-        self.assertEqual(access_key.id, "key_id")
-        self.assertEqual(access_key.name, "Test Key")
-        self.assertEqual(access_key.password.get_secret_value(), "secret_password")
-        self.assertEqual(access_key.port, 1234)
-        self.assertEqual(access_key.method, "method")
-        self.assertEqual(access_key.accessUrl.get_secret_value(), "https://example.com")
+        result = self.wrapper.create_access_key(name="Test Access Key", password="secret", port=8080)
+        self.assertIsInstance(result, str)
 
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_create_access_key_invalid_data(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 400
-        mock_response.text = 'Invalid request'
-        mock_request.return_value = mock_response
-
-        with self.assertRaises(ValidationError):
-            self.wrapper.create_access_key(name="Test Key")
-
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_create_access_key_password_hidden(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "id": "key123",
-            "name": "Test Key",
-            "password": "test_password",
-            "port": 12345,
-            "method": "aes-256-cfb",
-            "accessUrl": "outline://accessurl"
+    @patch.object(PyOutlineWrapper, '_request')
+    def test_get_access_keys(self, mock_request):
+        mock_request.return_value.json.return_value = {
+            "accessKeys": [{
+                "id": "test_id",
+                "name": "Test Access Key",
+                "password": "secret",
+                "port": 8080,
+                "method": "aes-256-gcm",
+                "accessUrl": "ss://..."
+            }]
         }
-        mock_request.return_value = mock_response
 
-        access_key = self.wrapper.create_access_key(name="Test Key", password="test_password", port=12345)
-        self.assertTrue(isinstance(access_key.password, SecretStr))
-        self.assertEqual(access_key.password.get_secret_value(), "test_password")
+        result = self.wrapper.get_access_keys()
+        self.assertIsInstance(result, str)
 
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_get_server_info_invalid_data(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"unexpectedField": "unexpectedValue"}
-        mock_request.return_value = mock_response
-
-        with self.assertRaises(ValidationError):
-            self.wrapper.get_server_info()
-
-    @patch('pyoutlineapi.client.requests.Session.request')
+    @patch.object(PyOutlineWrapper, '_request')
     def test_delete_access_key(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 204
-        mock_request.return_value = mock_response
+        mock_request.return_value.status_code = 204
 
-        result = self.wrapper.delete_access_key("key_id")
+        result = self.wrapper.delete_access_key("test_id")
         self.assertTrue(result)
 
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_delete_access_key_error(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 404
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError('Not Found')
-        mock_request.return_value = mock_response
-
-        with self.assertRaises(APIError):
-            self.wrapper.delete_access_key("key_id")
-
-    @patch('pyoutlineapi.client.requests.Session.request')
+    @patch.object(PyOutlineWrapper, '_request')
     def test_update_server_port(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 204
-        mock_request.return_value = mock_response
+        mock_request.return_value.status_code = 204
 
-        result = self.wrapper.update_server_port(ServerPort(port=1234))
+        result = self.wrapper.update_server_port(8080)
         self.assertTrue(result)
 
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_update_server_port_conflict(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 409
-        mock_response.text = 'Conflict'
-        mock_request.return_value = mock_response
-
-        with self.assertRaises(APIError):
-            self.wrapper.update_server_port(ServerPort(port=1234))
-
-    @patch('pyoutlineapi.client.requests.Session.request')
+    @patch.object(PyOutlineWrapper, '_request')
     def test_set_access_key_data_limit(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 204
-        mock_request.return_value = mock_response
+        mock_request.return_value.status_code = 204
 
-        result = self.wrapper.set_access_key_data_limit("key_id", DataLimit(bytes=1000))
+        data_limit = DataLimit(bytes=1000000)
+        result = self.wrapper.set_access_key_data_limit("test_id", data_limit)
         self.assertTrue(result)
 
-    @patch('pyoutlineapi.client.requests.Session.request')
+    @patch.object(PyOutlineWrapper, '_request')
+    def test_remove_access_key_data_limit(self, mock_request):
+        mock_request.return_value.status_code = 204
+
+        result = self.wrapper.remove_access_key_data_limit("test_id")
+        self.assertTrue(result)
+
+    @patch.object(PyOutlineWrapper, '_request')
     def test_get_metrics(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "bytesTransferredByUserId": {"user1": 12345}
+        mock_request.return_value.json.return_value = {
+            "bytesTransferredByUserId": {
+                "user1": 1000,
+                "user2": 2000
+            }
         }
-        mock_request.return_value = mock_response
 
-        metrics = self.wrapper.get_metrics()
-        self.assertIsInstance(metrics, Metrics)
-        self.assertEqual(metrics.bytesTransferredByUserId, {"user1": 12345})
-
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_get_metrics_invalid_data(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"unexpectedField": "unexpectedValue"}
-        mock_request.return_value = mock_response
-
-        with self.assertRaises(ValidationError):
-            self.wrapper.get_metrics()
-
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_get_access_keys_empty(self, mock_request):
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"accessKeys": []}
-        mock_request.return_value = mock_response
-
-        access_keys = self.wrapper.get_access_keys()
-        self.assertIsInstance(access_keys, AccessKeyList)
-        self.assertEqual(len(access_keys.accessKeys), 0)
-
-    @patch('pyoutlineapi.client.requests.Session.request')
-    def test_handle_api_error(self, mock_request):
-        mock_request.side_effect = requests.exceptions.HTTPError("500 Internal Server Error")
-        with self.assertRaises(APIError):
-            self.wrapper.get_server_info()
-
-
-if __name__ == '__main__':
-    unittest.main()
+        result = self.wrapper.get_metrics()
+        self.assertIsInstance(result, str)

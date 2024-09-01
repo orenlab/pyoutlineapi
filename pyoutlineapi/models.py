@@ -10,7 +10,7 @@ Licensed under the MIT License. See the LICENSE file for more details.
 
 from typing import Optional, List, Dict
 
-from pydantic import BaseModel, Field, SecretStr, constr, field_validator
+from pydantic import BaseModel, Field, constr, field_validator
 
 
 class Server(BaseModel):
@@ -48,17 +48,17 @@ class AccessKey(BaseModel):
     Attributes:
         id (str): The unique identifier for the access key.
         name (str): The name of the access key.
-        password (SecretStr): The password for the access key, must not be empty.
+        password (str): The password for the access key, must not be empty.
         port (int): The port used by the access key, must be between 1 and 65535.
         method (str): The encryption method used by the access key.
-        accessUrl (SecretStr): The URL used to access the server, must not be empty.
+        accessUrl (str): The URL used to access the server, must not be empty.
     """
     id: str
     name: str
-    password: SecretStr = Field(..., min_length=1, description="Password must not be empty")
+    password: str = Field(..., min_length=1, description="Password must not be empty")
     port: int = Field(ge=1, le=65535, description="Port must be between 1 and 65535")
     method: str
-    accessUrl: SecretStr = Field(..., min_length=1, description="Access URL must not be empty")
+    accessUrl: str = Field(..., min_length=1, description="Access URL must not be empty")
 
 
 class ServerPort(BaseModel):
