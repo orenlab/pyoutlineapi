@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pyoutlineapi"
-version = "0.1.2"
+version = "0.1.3"
 description = "A Python package to interact with the Outline VPN Server API"
 authors = ["Denis Rozhnovskiy <pytelemonbot@mail.ru>"]
 readme = "README.md"
