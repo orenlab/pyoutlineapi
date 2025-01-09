@@ -1,211 +1,598 @@
-from typing import Union, Optional, Type
+from __future__ import annotations
 
-import requests
-from pydantic import BaseModel, ValidationError
-from requests_toolbelt.adapters.fingerprint import FingerprintAdapter
+import binascii
+from typing import Any, Literal, TypeAlias, Union, overload, Optional
+from urllib.parse import urlparse
 
-from pyoutlineapi.exceptions import APIError
-from pyoutlineapi.models import DataLimit, ServerPort, Metrics, AccessKeyList, AccessKey, AccessKeyCreateRequest, Server
+import aiohttp
+from aiohttp import ClientResponse, Fingerprint
+from pydantic import BaseModel
+
+from .models import (
+    AccessKey,
+    AccessKeyCreateRequest,
+    AccessKeyList,
+    DataLimit,
+    ErrorResponse,
+    MetricsPeriod,
+    MetricsStatusResponse,
+    Server,
+    ServerMetrics,
+)
 
 
-class PyOutlineWrapper:
+class OutlineError(Exception):
+    """Base exception for Outline client errors."""
+
+
+class APIError(OutlineError):
+    """Raised when API requests fail."""
+
+
+# Type aliases
+JsonDict: TypeAlias = dict[str, Any]
+
+
+class AsyncOutlineClient:
     """
-    Class for interacting with the Outline VPN Server API.
+    Asynchronous client for the Outline VPN Server API.
 
-    This class provides methods to interact with the Outline VPN Server, including:
+    Args:
+        api_url: Base URL for the Outline server API
+        cert_sha256: SHA-256 fingerprint of the server's TLS certificate
+        json_format: Return raw JSON instead of Pydantic models
+        timeout: Request timeout in seconds
 
-    - Retrieving server information
-    - Creating, listing, and deleting access keys
-    - Updating server ports
-    - Setting and removing data limits for access keys
-    - Retrieving metrics
-
-    The class uses the `requests` library for making HTTP requests and `pydantic` for data validation.
-    Responses can be returned either as Pydantic models or in JSON format, depending on the `json_format` parameter.
+    Examples:
+        >>> async def doo_something():
+        ...     async with AsyncOutlineClient(
+        ...         "https://example.com:1234/secret",
+        ...         "ab12cd34..."
+        ...     ) as client:
+        ...         server_info = await client.get_server_info()
     """
 
-    def __init__(self, api_url: str, cert_sha256: str, verify_tls: bool = True, json_format: bool = True):
-        """
-        Initializes the PyOutlineWrapper with the given API URL, certificate fingerprint, and options for TLS verification
-        and response format.
-
-        Args:
-            api_url (str): The base URL of the Outline VPN Server API.
-            cert_sha256 (str): The SHA-256 fingerprint of the server's certificate.
-            verify_tls (bool, optional): Whether to verify the server's TLS certificate. Defaults to True.
-            json_format (bool, optional): Whether to return responses in JSON format. Defaults to True.
-        """
-        self._api_url = api_url
+    def __init__(
+            self,
+            api_url: str,
+            cert_sha256: str,
+            *,
+            json_format: bool = True,
+            timeout: float = 30.0,
+    ) -> None:
+        self._api_url = api_url.rstrip("/")
         self._cert_sha256 = cert_sha256
-        self._verify_tls = verify_tls
         self._json_format = json_format
-        self._session = requests.Session()
-        self._session.mount(self._api_url, FingerprintAdapter(self._cert_sha256))
+        self._timeout = aiohttp.ClientTimeout(total=timeout)
+        self._ssl_context = None
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._in_context = False
 
-    def _request(self, method: str, endpoint: str, json_data=None) -> requests.Response:
+    async def __aenter__(self) -> AsyncOutlineClient:
+        """Set up client session for context manager."""
+        self._session = aiohttp.ClientSession(
+            timeout=self._timeout, raise_for_status=True
+        )
+        self._in_context = True
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Clean up client session."""
+        if self._session:
+            await self._session.close()
+            self._session = None
+        self._in_context = False
+
+    def _ensure_context(self):
+        """Ensure the session context is valid."""
+        if not self._session or self._session.closed:
+            raise RuntimeError("Client session is not initialized or already closed.")
+
+    @overload
+    async def _parse_response(
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: Literal[True],
+    ) -> JsonDict:
+        ...
+
+    @overload
+    async def _parse_response(
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: Literal[False],
+    ) -> BaseModel:
+        ...
+
+    @overload
+    async def _parse_response(
+            self, response: ClientResponse, model: type[BaseModel], json_format: bool
+    ) -> Union[JsonDict, BaseModel]:
+        ...
+
+    async def _parse_response(
+            self, response: ClientResponse, model: type[BaseModel], json_format: bool = True
+    ) -> Union[JsonDict, BaseModel]:
         """
-        Makes an HTTP request to the API.
+        Parse and validate API response data.
 
         Args:
-            method (str): The HTTP method to use (e.g., 'GET', 'POST', 'PUT', 'DELETE').
-            endpoint (str): The API endpoint to call.
-            json_data (optional): The JSON data to send with the request.
+            response: API response to parse
+            model: Pydantic model for validation
+            json_format: Whether to return raw JSON
 
         Returns:
-            requests.Response: The HTTP response object.
+            Validated response data
 
         Raises:
-            APIError: If the request fails or the response status is not successful.
+            ValueError: If response validation fails
         """
-        url = f"{self._api_url}/{endpoint}"
+        self._ensure_context()
+
         try:
-            response = self._session.request(
+            data = await response.json()
+        except aiohttp.ContentTypeError:
+            raise ValueError("Invalid response format") from None
+        try:
+            validated = model.model_validate(data)
+            return validated.model_dump() if json_format else validated
+        except Exception as e:
+            raise ValueError(f"Value error: {e}") from e
+
+    @staticmethod
+    async def _handle_error_response(response: ClientResponse) -> None:
+        """Handle error responses from the API."""
+        try:
+            error_data = await response.json()
+            error = ErrorResponse.model_validate(error_data)
+            raise APIError(f"{error.code}: {error.message}")
+        except ValueError:
+            raise APIError(f"HTTP {response.status}: {response.reason}")
+
+    async def _request(
+            self,
+            method: str,
+            endpoint: str,
+            *,
+            json: Any = None,
+            params: Optional[dict[str, Any]] = None,
+    ) -> Any:
+        """Make an API request."""
+        self._ensure_context()
+
+        url = self._build_url(endpoint)
+        ssl_context = self._get_ssl_context()
+
+        async with self._session.request(
                 method,
                 url,
-                json=json_data,
-                verify=self._verify_tls,
-                timeout=15
-            )
-            response.raise_for_status()
-            return response
-        except requests.RequestException as exception:
-            raise APIError(f"Request to {url} failed: {exception}")
+                json=json,
+                params=params,
+                ssl=ssl_context,
+                raise_for_status=False,
+                timeout=self._timeout,
+        ) as response:
+            if response.status >= 400:
+                await self._handle_error_response(response)
 
-    def _parse_response(self, response: requests.Response, model: Type[BaseModel]) -> Union[BaseModel, str]:
-        """
-        Parses the response from the API.
+            if response.status == 204:
+                return True  # No content response
 
-        Args:
-            response (requests.Response): The HTTP response object.
-            model (Type[BaseModel]): The Pydantic model to validate the response data.
+            try:
+                await response.json()
+                return response
+            except aiohttp.ContentTypeError:
+                return await response.text()  # Fallback for non-JSON responses
+            except Exception as e:
+                raise APIError(f"Failed to parse response from {url}: {e}") from e
 
-        Returns:
-            Union[BaseModel, str]: The validated data as a Pydantic model or a JSON string, depending on the json_format parameter.
+    def _build_url(self, endpoint: str) -> str:
+        """Build and validate the full URL for the API request."""
+        if not isinstance(endpoint, str):
+            raise ValueError("Endpoint must be a string")
 
-        Raises:
-            ValidationError: If the response data does not match the Pydantic model.
-        """
+        endpoint = endpoint.lstrip("/")
+        url = f"{self._api_url}/{endpoint}"
+
+        parsed_url = urlparse(url)
+        if not parsed_url.scheme or not parsed_url.netloc:
+            raise ValueError(f"Invalid URL: {url}")
+
+        return url
+
+    def _get_ssl_context(self) -> Optional[Fingerprint]:
+        """Create an SSL context if a certificate fingerprint is provided."""
+        if not self._cert_sha256:
+            return None
+
         try:
-            json_data = response.json()
-            data = model.model_validate(json_data)
-            return data.model_dump_json() if self._json_format else data
-        except ValidationError as e:
-            raise ValidationError(f"Validation error: {e}")
+            fingerprint = binascii.unhexlify(self._cert_sha256)
+            return Fingerprint(fingerprint)
+        except binascii.Error as e:
+            raise ValueError(f"Invalid certificate SHA256: {self._cert_sha256}") from e
+        except Exception as e:
+            raise OutlineError("Error while creating SSL context") from e
 
-    def get_server_info(self) -> Union[Server, str]:
+    async def get_server_info(self) -> Union[JsonDict, Server]:
         """
-        Retrieves information about the Outline VPN server.
+        Get server information.
 
         Returns:
-            Union[Server, str]: The server information as a Pydantic model or a JSON string.
-        """
-        response = self._request("GET", "server")
-        return self._parse_response(response, Server)
+            Server information including name, ID, and configuration.
 
-    def create_access_key(self, name: Optional[str] = None, password: Optional[str] = None,
-                          port: Optional[int] = None) -> Union[AccessKey, str]:
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         server = await client.get_server_info()
+            ...         print(f"Server {server.name} running version {server.version}")
         """
-        Creates a new access key.
+        response = await self._request("GET", "server")
+        return await self._parse_response(
+            response, Server, json_format=self._json_format
+        )
+
+    async def rename_server(self, name: str) -> bool:
+        """
+        Rename the server.
 
         Args:
-            name (Optional[str]): The name of the access key.
-            password (Optional[str]): The password for the access key.
-            port (Optional[int]): The port for the access key.
+            name: New server name
 
         Returns:
-            Union[AccessKey, str]: The created access key as a Pydantic model or a JSON string.
+            True if successful
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...     success = await client.rename_server("My VPN Server")
+            ...     if success:
+            ...         print("Server renamed successfully")
         """
-        request_data = {
-            "name": name,
-            "password": password,
-            "port": port,
-        }
-        request_data = {key: value for key, value in request_data.items() if value is not None}
+        return await self._request("PUT", "name", json={"name": name})
 
-        if request_data:
-            request_data = AccessKeyCreateRequest(**request_data).model_dump()
-
-        response = self._request("POST", "access-keys", json_data=request_data)
-        return self._parse_response(response, AccessKey)
-
-    def get_access_keys(self) -> Union[AccessKeyList, str]:
+    async def set_hostname(self, hostname: str) -> bool:
         """
-        Retrieves a list of all access keys.
-
-        Returns:
-            Union[AccessKeyList, str]: The list of access keys as a Pydantic model or a JSON string.
-        """
-        response = self._request("GET", "access-keys")
-        return self._parse_response(response, AccessKeyList)
-
-    def delete_access_key(self, key_id: str) -> bool:
-        """
-        Deletes an access key by its ID.
+        Set server hostname for access keys.
 
         Args:
-            key_id (str): The ID of the access key to delete.
+            hostname: New hostname or IP address
 
         Returns:
-            bool: True if the access key was successfully deleted, False otherwise.
-        """
-        response = self._request("DELETE", f"access-keys/{key_id}")
-        return response.status_code == 204
-
-    def update_server_port(self, port: int) -> bool:
-        """
-        Updates the port for new access keys on the server.
-
-        Args:
-            port (int): The new port number.
-
-        Returns:
-            bool: True if the port was successfully updated, False otherwise.
+            True if successful
 
         Raises:
-            APIError: If the port is already in use.
-        """
-        verified_port = ServerPort(port=port)
-        response = self._request("PUT", "server/port-for-new-access-keys", {"port": verified_port.port})
-        if response.status_code == 409:
-            raise APIError(f"Port {verified_port.port} is already in use")
-        return response.status_code == 204
+            APIError: If hostname is invalid
 
-    def set_access_key_data_limit(self, key_id: str, limit: DataLimit) -> bool:
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         await client.set_hostname("vpn.example.com")
+            ...         # Or use IP address
+            ...         await client.set_hostname("203.0.113.1")
         """
-        Sets a data limit for an access key.
+        return await self._request(
+            "PUT", "server/hostname-for-access-keys", json={"hostname": hostname}
+        )
+
+    async def set_default_port(self, port: int) -> bool:
+        """
+        Set default port for new access keys.
 
         Args:
-            key_id (str): The ID of the access key.
-            limit (DataLimit): The data limit to set.
+            port: Port number (1025-65535)
 
         Returns:
-            bool: True if the data limit was successfully set, False otherwise.
-        """
-        response = self._request("PUT", f"access-keys/{key_id}/data-limit", {"bytes": limit.bytes})
-        return response.status_code == 204
+            True if successful
 
-    def get_metrics(self) -> Union[Metrics, str]:
+        Raises:
+            APIError: If port is invalid or in use
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         await client.set_default_port(8388)
+
         """
-        Retrieves transfer metrics from the server.
+        return await self._request(
+            "PUT", "server/port-for-new-access-keys", json={"port": port}
+        )
+
+    async def get_metrics_status(self) -> dict[str, Any] | BaseModel:
+        """
+        Get whether metrics collection is enabled.
 
         Returns:
-            Union[Metrics, str]: The metrics data as a Pydantic model or a JSON string.
-        """
-        response = self._request("GET", "metrics/transfer")
-        return self._parse_response(response, Metrics)
+            Current metrics collection status
 
-    def remove_access_key_data_limit(self, key_id: str) -> bool:
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         if await client.get_metrics_status():
+            ...             print("Metrics collection is enabled")
         """
-        Removes the data limit for an access key.
+        response = await self._request("GET", "metrics/enabled")
+        data = await self._parse_response(
+            response, MetricsStatusResponse, json_format=self._json_format
+        )
+        return data
+
+    async def set_metrics_status(self, enabled: bool) -> bool:
+        """
+        Enable or disable metrics collection.
 
         Args:
-            key_id (str): The ID of the access key.
+            enabled: Whether to enable metrics
 
         Returns:
-            bool: True if the data limit was successfully removed, False otherwise.
+            True if successful
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         # Enable metrics
+            ...         await client.set_metrics_status(True)
+            ...         # Check new status
+            ...         is_enabled = await client.get_metrics_status()
         """
-        response = self._request("DELETE", f"access-keys/{key_id}/data-limit")
-        return response.status_code == 204
+        return await self._request(
+            "PUT", "metrics/enabled", json={"metricsEnabled": enabled}
+        )
 
+    async def get_transfer_metrics(
+            self, period: MetricsPeriod = MetricsPeriod.MONTHLY
+    ) -> Union[JsonDict, ServerMetrics]:
+        """
+        Get transfer metrics for specified period.
 
-__all__ = ["PyOutlineWrapper"]
+        Args:
+            period: Time period for metrics (DAILY, WEEKLY, or MONTHLY)
+
+        Returns:
+            Transfer metrics data for each access key
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         # Get monthly metrics
+            ...         metrics = await client.get_transfer_metrics()
+            ...         # Or get daily metrics
+            ...         daily = await client.get_transfer_metrics(MetricsPeriod.DAILY)
+            ...         for user_id, bytes_transferred in daily.bytes_transferred_by_user_id.items():
+            ...             print(f"User {user_id}: {bytes_transferred / 1024**3:.2f} GB")
+        """
+        response = await self._request(
+            "GET", "metrics/transfer", params={"period": period.value}
+        )
+        return await self._parse_response(
+            response, ServerMetrics, json_format=self._json_format
+        )
+
+    async def create_access_key(
+            self,
+            *,
+            name: Optional[str] = None,
+            password: Optional[str] = None,
+            port: Optional[int] = None,
+            method: Optional[str] = None,
+            limit: Optional[DataLimit] = None,
+    ) -> Union[JsonDict, AccessKey]:
+        """
+        Create a new access key.
+
+        Args:
+            name: Optional key name
+            password: Optional password
+            port: Optional port number (1-65535)
+            method: Optional encryption method
+            limit: Optional data transfer limit
+
+        Returns:
+            New access key details
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         # Create basic key
+            ...         key = await client.create_access_key(name="User 1")
+            ...
+            ...         # Create key with data limit
+            ...         _limit = DataLimit(bytes=5 * 1024**3)  # 5 GB
+            ...         key = await client.create_access_key(
+            ...             name="Limited User",
+            ...             port=8388,
+            ...             limit=_limit
+            ...         )
+            ...         print(f"Created key: {key.access_url}")
+        """
+        request = AccessKeyCreateRequest(
+            name=name, password=password, port=port, method=method, limit=limit
+        )
+        response = await self._request(
+            "POST", "access-keys", json=request.model_dump(exclude_none=True)
+        )
+        return await self._parse_response(
+            response, AccessKey, json_format=self._json_format
+        )
+
+    async def get_access_keys(self) -> Union[JsonDict, AccessKeyList]:
+        """
+        Get all access keys.
+
+        Returns:
+            List of all access keys
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         keys = await client.get_access_keys()
+            ...         for key in keys.access_keys:
+            ...             print(f"Key {key.id}: {key.name or 'unnamed'}")
+            ...             if key.data_limit:
+            ...                 print(f"  Limit: {key.data_limit.bytes / 1024**3:.1f} GB")
+        """
+        response = await self._request("GET", "access-keys")
+        return await self._parse_response(
+            response, AccessKeyList, json_format=self._json_format
+        )
+
+    async def get_access_key(self, key_id: int) -> Union[JsonDict, AccessKey]:
+        """
+        Get specific access key.
+
+        Args:
+            key_id: Access key ID
+
+        Returns:
+            Access key details
+
+        Raises:
+            APIError: If key doesn't exist
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         key = await client.get_access_key(1)
+            ...         print(f"Port: {key.port}")
+            ...         print(f"URL: {key.access_url}")
+        """
+        response = await self._request("GET", f"access-keys/{key_id}")
+        return await self._parse_response(
+            response, AccessKey, json_format=self._json_format
+        )
+
+    async def rename_access_key(self, key_id: int, name: str) -> bool:
+        """
+        Rename access key.
+
+        Args:
+            key_id: Access key ID
+            name: New name
+
+        Returns:
+            True if successful
+
+        Raises:
+            APIError: If key doesn't exist
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         # Rename key
+            ...         await client.rename_access_key(1, "Alice")
+            ...
+            ...         # Verify new name
+            ...         key = await client.get_access_key(1)
+            ...         assert key.name == "Alice"
+        """
+        return await self._request(
+            "PUT", f"access-keys/{key_id}/name", json={"name": name}
+        )
+
+    async def delete_access_key(self, key_id: int) -> bool:
+        """
+        Delete access key.
+
+        Args:
+            key_id: Access key ID
+
+        Returns:
+            True if successful
+
+        Raises:
+            APIError: If key doesn't exist
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         if await client.delete_access_key(1):
+            ...             print("Key deleted")
+
+        """
+        return await self._request("DELETE", f"access-keys/{key_id}")
+
+    async def set_access_key_data_limit(self, key_id: int, bytes_limit: int) -> bool:
+        """
+        Set data transfer limit for access key.
+
+        Args:
+            key_id: Access key ID
+            bytes_limit: Limit in bytes (must be positive)
+
+        Returns:
+            True if successful
+
+        Raises:
+            APIError: If key doesn't exist or limit is invalid
+
+        Examples:
+            >>> async def doo_something():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         # Set 5 GB limit
+            ...         limit = 5 * 1024**3  # 5 GB in bytes
+            ...         await client.set_access_key_data_limit(1, limit)
+            ...
+            ...         # Verify limit
+            ...         key = await client.get_access_key(1)
+            ...         assert key.data_limit and key.data_limit.bytes == limit
+        """
+        return await self._request(
+            "PUT",
+            f"access-keys/{key_id}/data-limit",
+            json={"limit": {"bytes": bytes_limit}},
+        )
+
+    async def remove_access_key_data_limit(self, key_id: str) -> bool:
+        """
+        Remove data transfer limit from access key.
+
+        Args:
+            key_id: Access key ID
+
+        Returns:
+            True if successful
+
+        Raises:
+            APIError: If key doesn't exist
+        """
+        return await self._request("DELETE", f"access-keys/{key_id}/data-limit")

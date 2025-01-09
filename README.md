@@ -1,8 +1,7 @@
 # PyOutlineAPI
 
-`pyoutlineapi` is a Python package designed to interact with the Outline VPN Server API, providing robust data
-validation through Pydantic models. This ensures reliable and secure API interactions, making it an excellent choice for
-integrating with bots and other automated systems that require accurate and secure communication.
+A modern, async-first Python client for the Outline VPN Server API with comprehensive data validation through Pydantic
+models.
 
 [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=orenlab_pyoutlineapi&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=orenlab_pyoutlineapi)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=orenlab_pyoutlineapi&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=orenlab_pyoutlineapi)
@@ -12,119 +11,171 @@ integrating with bots and other automated systems that require accurate and secu
 
 ## Features
 
-- **Server Management**: Retrieve server information, update hostnames, manage ports, and more.
-- **Access Key Management**: Create, list, rename, and delete access keys, as well as set data limits.
-- **Metrics**: Enable or disable metrics sharing and retrieve data transfer metrics.
-- **Experimental Endpoints**: Access and manage experimental features of the Outline Server API.
-
-## Quick Start
-
-To get started with `pyoutlineapi`, follow these steps:
-
-1. Install the package using pip or Poetry.
-2. Initialize the `PyOutlineWrapper` client with your Outline VPN server URL and certificate fingerprint.
-3. Use the provided methods to interact with the server and access keys.
-
-See the examples below for more detailed information.
+- **Async-First Design**: Built with modern async/await patterns for optimal performance
+- **Type Safety**: Full typing support with runtime validation via Pydantic
+- **Comprehensive API Coverage**: Support for all Outline VPN Server
+  API [endpoints](https://github.com/Jigsaw-Code/outline-server/blob/master/src/shadowbox/server/api.yml)
+- **Error Handling**: Robust error handling with custom exception types
+- **SSL/TLS Security**: Certificate fingerprint verification for enhanced security
+- **Flexible Response Format**: Choose between Pydantic models or JSON responses
+- **Data Transfer Metrics**: Built-in support for monitoring server and key usage
+- **Rate Limiting**: Built-in handling of API rate limits
+- **Context Manager Support**: Clean resource management with async context managers
 
 ## Installation
 
-You can install PyOutlineAPI via [PyPI](https://pypi.org/project/pyoutlineapi/) using pip:
+Install via pip:
 
 ```bash
 pip install pyoutlineapi
 ```
 
-Or via [Poetry](https://python-poetry.org/):
+Or using Poetry:
 
 ```bash
 poetry add pyoutlineapi
 ```
 
-## Basic Operations
+## Quick Start
 
-### Initialize the Client
+Here's a simple example to get you started:
 
 ```python
-from pyoutlineapi.client import PyOutlineWrapper
-from pyoutlineapi.models import DataLimit
+import asyncio
+from pyoutlineapi import AsyncOutlineClient
 
-# Initialize the API client
-api_url = "https://your-outline-url.com"
-cert_sha256 = "your-cert-sha256-fingerprint"
-# Set "verify_tls" to False if using a self-signed certificate.
-# Set "json_format" to True if answers need to be returned in JSON format. Defaults to False - Pydantic models will be returned.
-api_client = PyOutlineWrapper(api_url=api_url, cert_sha256=cert_sha256, verify_tls=False, json_format=True)
+
+async def main():
+    async with AsyncOutlineClient(
+            api_url="https://your-outline-server:port/api",
+            cert_sha256="your-certificate-fingerprint"
+    ) as client:
+        # Get server info
+        server = await client.get_server_info()
+        print(f"Connected to {server.name} running version {server.version}")
+
+        # Create a new access key
+        key = await client.create_access_key(name="TestUser")
+        print(f"Created key: {key.access_url}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-### Retrieve Server Information
+## Detailed Usage
+
+### Client Configuration
+
+The client can be configured with several options:
 
 ```python
-server_info = api_client.get_server_info()
-print("Server Information:", server_info)
+from pyoutlineapi import AsyncOutlineClient
+
+client = AsyncOutlineClient(
+    api_url="https://your-outline-server:port/api",
+    cert_sha256="your-certificate-fingerprint",
+    json_format=True,  # Return JSON instead of Pydantic models
+    timeout=30.0  # Request timeout in seconds
+)
 ```
 
-### Create a New Access Key
+### Managing Access Keys
+
+Create and manage access keys:
 
 ```python
-# Create a new access key with default values
-new_access_key = api_client.create_access_key()
-# Create a new access key with custom values
-new_access_key = api_client.create_access_key(name="my_access_key", password="secure_password", port=8080)
+async def manage_keys():
+    async with AsyncOutlineClient(...) as client:
+        # Create a key with data limit
+        key = await client.create_access_key(
+            name="Limited User",
+            port=8388,
+            limit=DataLimit(bytes=5 * 1024 ** 3)  # 5 GB limit
+        )
 
-print("New Access Key:", new_access_key)
+        # List all keys
+        keys = await client.get_access_keys()
+        for key in keys.access_keys:
+            print(f"Key {key.id}: {key.name or 'unnamed'}")
+
+        # Modify a key
+        await client.rename_access_key(1, "New Name")
+        await client.set_access_key_data_limit(1, 10 * 1024 ** 3)  # 10 GB
+
+        # Delete a key
+        await client.delete_access_key(1)
 ```
 
-### Delete Access Key
+### Server Management
+
+Configure server settings:
 
 ```python
-success = api_client.delete_access_key("example-key-id")
-print("Access Key Deleted Successfully" if success else "Failed to Delete Access Key")
+async def configure_server():
+    async with AsyncOutlineClient(...) as client:
+        # Update server name
+        await client.rename_server("My VPN Server")
+
+        # Set hostname for access keys
+        await client.set_hostname("vpn.example.com")
+
+        # Configure default port for new keys
+        await client.set_default_port(8388)
 ```
 
-## Additional Functions
+### Metrics Collection
 
-### Update Server Port
+Monitor server usage:
 
 ```python
-update_success = api_client.update_server_port(9090)
-print("Server Port Updated:", update_success)
+from pyoutlineapi.models import MetricsPeriod
+
+
+async def get_metrics():
+    async with AsyncOutlineClient(...) as client:
+        # Enable metrics collection
+        await client.set_metrics_status(True)
+
+        # Get transfer metrics
+        metrics = await client.get_transfer_metrics(MetricsPeriod.MONTHLY)
+        for user_id, bytes_transferred in metrics.bytes_transferred_by_user_id.items():
+            print(f"User {user_id}: {bytes_transferred / 1024 ** 3:.2f} GB")
+
+        # Get detailed metrics
+        detailed = await client.get_experimental_metrics()
+        for server in detailed.server:
+            print(f"Location: {server.location}")
+            print(f"Data: {server.data_transferred.bytes / 1024 ** 2:.2f} MB")
 ```
 
-### Set Data Limit for an Access Key
+## Error Handling
+
+The client provides custom exceptions for different error scenarios:
 
 ```python
-data_limit = api_client.set_access_key_data_limit("example-key-id", DataLimit(bytes=50000000))
-print("Data Limit Set:", data_limit)
-```
+from pyoutlineapi import OutlineError, APIError
 
-### Retrieve Metrics
 
-```python
-metrics_data = api_client.get_metrics()
-print("Metrics Data:", metrics_data)
+async def handle_errors():
+    try:
+        async with AsyncOutlineClient(...) as client:
+            await client.get_server_info()
+    except APIError as e:
+        print(f"API error: {e}")
+    except OutlineError as e:
+        print(f"Client error: {e}")
 ```
 
 ## Contributing
 
-We welcome contributions to PyOutlineAPI! Please follow the guidelines outlined in
-the [CONTRIBUTING.md](https://github.com/orenlab/pyoutlineapi/blob/main/CONTRIBUTING.md) file.
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on how to submit pull
+requests, report issues, and contribute to the project.
+
+## Security
+
+If you discover any security-related issues, please email security@example.com instead of using the issue tracker.
 
 ## License
 
-PyOutlineAPI is licensed under the MIT [License](https://github.com/orenlab/pyoutlineapi/blob/main/LICENSE). See the
-LICENSE file for more details.
-
-## Frequently Asked Questions (FAQ)
-
-___
-**How to use self-signed certificates?**
-
-Set the `verify_tls` parameter to `False` when initializing the client.
-___
-___
-**How to change the response format to Pydantic models?**
-
-Set the `json_format` parameter to `False` when initializing the client if you need to receive responses in Pydantic
-models.
-___
+PyOutlineAPI is open-sourced software licensed under the [MIT license](LICENSE).
