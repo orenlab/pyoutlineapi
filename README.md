@@ -133,20 +133,14 @@ from pyoutlineapi.models import MetricsPeriod
 
 
 async def get_metrics():
-    async with AsyncOutlineClient(...) as client:
-        # Enable metrics collection
-        await client.set_metrics_status(True)
+  async with AsyncOutlineClient(...) as client:
+    # Enable metrics collection
+    await client.set_metrics_status(True)
 
-        # Get transfer metrics
-        metrics = await client.get_transfer_metrics(MetricsPeriod.MONTHLY)
-        for user_id, bytes_transferred in metrics.bytes_transferred_by_user_id.items():
-            print(f"User {user_id}: {bytes_transferred / 1024 ** 3:.2f} GB")
-
-        # Get detailed metrics
-        detailed = await client.get_experimental_metrics()
-        for server in detailed.server:
-            print(f"Location: {server.location}")
-            print(f"Data: {server.data_transferred.bytes / 1024 ** 2:.2f} MB")
+    # Get transfer metrics
+    metrics = await client.get_transfer_metrics(MetricsPeriod.MONTHLY)
+    for user_id, bytes_transferred in metrics.bytes_transferred_by_user_id.items():
+      print(f"User {user_id}: {bytes_transferred / 1024 ** 3:.2f} GB")
 ```
 
 ## Error Handling
@@ -174,7 +168,7 @@ requests, report issues, and contribute to the project.
 
 ## Security
 
-If you discover any security-related issues, please email security@example.com instead of using the issue tracker.
+If you discover any security-related issues, please email `pytelemonbot@mail.ru` instead of using the issue tracker.
 
 ## License
 
