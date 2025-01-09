@@ -53,12 +53,12 @@ class AsyncOutlineClient:
     """
 
     def __init__(
-            self,
-            api_url: str,
-            cert_sha256: str,
-            *,
-            json_format: bool = True,
-            timeout: float = 30.0,
+        self,
+        api_url: str,
+        cert_sha256: str,
+        *,
+        json_format: bool = True,
+        timeout: float = 30.0,
     ) -> None:
         self._api_url = api_url.rstrip("/")
         self._cert_sha256 = cert_sha256
@@ -90,30 +90,27 @@ class AsyncOutlineClient:
 
     @overload
     async def _parse_response(
-            self,
-            response: ClientResponse,
-            model: type[BaseModel],
-            json_format: Literal[True],
-    ) -> JsonDict:
-        ...
+        self,
+        response: ClientResponse,
+        model: type[BaseModel],
+        json_format: Literal[True],
+    ) -> JsonDict: ...
 
     @overload
     async def _parse_response(
-            self,
-            response: ClientResponse,
-            model: type[BaseModel],
-            json_format: Literal[False],
-    ) -> BaseModel:
-        ...
+        self,
+        response: ClientResponse,
+        model: type[BaseModel],
+        json_format: Literal[False],
+    ) -> BaseModel: ...
 
     @overload
     async def _parse_response(
-            self, response: ClientResponse, model: type[BaseModel], json_format: bool
-    ) -> Union[JsonDict, BaseModel]:
-        ...
+        self, response: ClientResponse, model: type[BaseModel], json_format: bool
+    ) -> Union[JsonDict, BaseModel]: ...
 
     async def _parse_response(
-            self, response: ClientResponse, model: type[BaseModel], json_format: bool = True
+        self, response: ClientResponse, model: type[BaseModel], json_format: bool = True
     ) -> Union[JsonDict, BaseModel]:
         """
         Parse and validate API response data.
@@ -152,12 +149,12 @@ class AsyncOutlineClient:
             raise APIError(f"HTTP {response.status}: {response.reason}")
 
     async def _request(
-            self,
-            method: str,
-            endpoint: str,
-            *,
-            json: Any = None,
-            params: Optional[dict[str, Any]] = None,
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        json: Any = None,
+        params: Optional[dict[str, Any]] = None,
     ) -> Any:
         """Make an API request."""
         self._ensure_context()
@@ -166,13 +163,13 @@ class AsyncOutlineClient:
         ssl_context = self._get_ssl_context()
 
         async with self._session.request(
-                method,
-                url,
-                json=json,
-                params=params,
-                ssl=ssl_context,
-                raise_for_status=False,
-                timeout=self._timeout,
+            method,
+            url,
+            json=json,
+            params=params,
+            ssl=ssl_context,
+            raise_for_status=False,
+            timeout=self._timeout,
         ) as response:
             if response.status >= 400:
                 await self._handle_error_response(response)
@@ -359,7 +356,7 @@ class AsyncOutlineClient:
         )
 
     async def get_transfer_metrics(
-            self, period: MetricsPeriod = MetricsPeriod.MONTHLY
+        self, period: MetricsPeriod = MetricsPeriod.MONTHLY
     ) -> Union[JsonDict, ServerMetrics]:
         """
         Get transfer metrics for specified period.
@@ -391,13 +388,13 @@ class AsyncOutlineClient:
         )
 
     async def create_access_key(
-            self,
-            *,
-            name: Optional[str] = None,
-            password: Optional[str] = None,
-            port: Optional[int] = None,
-            method: Optional[str] = None,
-            limit: Optional[DataLimit] = None,
+        self,
+        *,
+        name: Optional[str] = None,
+        password: Optional[str] = None,
+        port: Optional[int] = None,
+        method: Optional[str] = None,
+        limit: Optional[DataLimit] = None,
     ) -> Union[JsonDict, AccessKey]:
         """
         Create a new access key.
