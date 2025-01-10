@@ -16,7 +16,17 @@ from __future__ import annotations
 
 import binascii
 from functools import wraps
-from typing import Any, Literal, TypeAlias, Union, overload, Optional, ParamSpec, TypeVar, Callable
+from typing import (
+    Any,
+    Literal,
+    TypeAlias,
+    Union,
+    overload,
+    Optional,
+    ParamSpec,
+    TypeVar,
+    Callable,
+)
 from urllib.parse import urlparse
 
 import aiohttp
@@ -88,12 +98,12 @@ class AsyncOutlineClient:
     """
 
     def __init__(
-            self,
-            api_url: str,
-            cert_sha256: str,
-            *,
-            json_format: bool = True,
-            timeout: float = 30.0,
+        self,
+        api_url: str,
+        cert_sha256: str,
+        *,
+        json_format: bool = True,
+        timeout: float = 30.0,
     ) -> None:
         self._api_url = api_url.rstrip("/")
         self._cert_sha256 = cert_sha256
@@ -119,31 +129,28 @@ class AsyncOutlineClient:
 
     @overload
     async def _parse_response(
-            self,
-            response: ClientResponse,
-            model: type[BaseModel],
-            json_format: Literal[True],
-    ) -> JsonDict:
-        ...
+        self,
+        response: ClientResponse,
+        model: type[BaseModel],
+        json_format: Literal[True],
+    ) -> JsonDict: ...
 
     @overload
     async def _parse_response(
-            self,
-            response: ClientResponse,
-            model: type[BaseModel],
-            json_format: Literal[False],
-    ) -> BaseModel:
-        ...
+        self,
+        response: ClientResponse,
+        model: type[BaseModel],
+        json_format: Literal[False],
+    ) -> BaseModel: ...
 
     @overload
     async def _parse_response(
-            self, response: ClientResponse, model: type[BaseModel], json_format: bool
-    ) -> Union[JsonDict, BaseModel]:
-        ...
+        self, response: ClientResponse, model: type[BaseModel], json_format: bool
+    ) -> Union[JsonDict, BaseModel]: ...
 
     @ensure_context
     async def _parse_response(
-            self, response: ClientResponse, model: type[BaseModel], json_format: bool = True
+        self, response: ClientResponse, model: type[BaseModel], json_format: bool = True
     ) -> ResponseType:
         """
         Parse and validate API response data.
@@ -182,22 +189,22 @@ class AsyncOutlineClient:
 
     @ensure_context
     async def _request(
-            self,
-            method: str,
-            endpoint: str,
-            *,
-            json: Any = None,
-            params: Optional[dict[str, Any]] = None,
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        json: Any = None,
+        params: Optional[dict[str, Any]] = None,
     ) -> Any:
         """Make an API request."""
         url = self._build_url(endpoint)
 
         async with self._session.request(
-                method,
-                url,
-                json=json,
-                params=params,
-                raise_for_status=False,
+            method,
+            url,
+            json=json,
+            params=params,
+            raise_for_status=False,
         ) as response:
             if response.status >= 400:
                 await self._handle_error_response(response)
@@ -330,6 +337,9 @@ class AsyncOutlineClient:
             ...         await client.set_default_port(8388)
 
         """
+        if port < 1025 or port > 65535:
+            raise ValueError("Privileged ports are not allowed. Use range: 1025-65535")
+
         return await self._request(
             "PUT", "server/port-for-new-access-keys", json={"port": port}
         )
@@ -382,7 +392,7 @@ class AsyncOutlineClient:
         )
 
     async def get_transfer_metrics(
-            self, period: MetricsPeriod = MetricsPeriod.MONTHLY
+        self, period: MetricsPeriod = MetricsPeriod.MONTHLY
     ) -> Union[JsonDict, ServerMetrics]:
         """
         Get transfer metrics for specified period.
@@ -414,13 +424,13 @@ class AsyncOutlineClient:
         )
 
     async def create_access_key(
-            self,
-            *,
-            name: Optional[str] = None,
-            password: Optional[str] = None,
-            port: Optional[int] = None,
-            method: Optional[str] = None,
-            limit: Optional[DataLimit] = None,
+        self,
+        *,
+        name: Optional[str] = None,
+        password: Optional[str] = None,
+        port: Optional[int] = None,
+        method: Optional[str] = None,
+        limit: Optional[DataLimit] = None,
     ) -> Union[JsonDict, AccessKey]:
         """
         Create a new access key.
@@ -605,7 +615,7 @@ class AsyncOutlineClient:
             json={"limit": {"bytes": bytes_limit}},
         )
 
-    async def remove_access_key_data_limit(self, key_id: str) -> bool:
+    async def remove_access_key_data_limit(self, key_id: int) -> bool:
         """
         Remove data transfer limit from access key.
 

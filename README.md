@@ -20,7 +20,6 @@ models.
 - **SSL/TLS Security**: Certificate fingerprint verification for enhanced security
 - **Flexible Response Format**: Choose between Pydantic models or JSON responses
 - **Data Transfer Metrics**: Built-in support for monitoring server and key usage
-- **Rate Limiting**: Built-in handling of API rate limits
 - **Context Manager Support**: Clean resource management with async context managers
 
 ## Installation
@@ -86,6 +85,10 @@ client = AsyncOutlineClient(
 Create and manage access keys:
 
 ```python
+
+from pyoutlineapi import AsyncOutlineClient, DataLimit
+
+
 async def manage_keys():
     async with AsyncOutlineClient(...) as client:
         # Create a key with data limit
@@ -113,6 +116,10 @@ async def manage_keys():
 Configure server settings:
 
 ```python
+
+from pyoutlineapi import AsyncOutlineClient
+
+
 async def configure_server():
     async with AsyncOutlineClient(...) as client:
         # Update server name
@@ -130,7 +137,7 @@ async def configure_server():
 Monitor server usage:
 
 ```python
-from pyoutlineapi.models import MetricsPeriod
+from pyoutlineapi import AsyncOutlineClient, MetricsPeriod
 
 
 async def get_metrics():
@@ -149,7 +156,7 @@ async def get_metrics():
 The client provides custom exceptions for different error scenarios:
 
 ```python
-from pyoutlineapi import OutlineError, APIError
+from pyoutlineapi import AsyncOutlineClient, OutlineError, APIError
 
 
 async def handle_errors():
