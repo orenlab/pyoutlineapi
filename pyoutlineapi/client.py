@@ -1,7 +1,21 @@
+"""
+PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+
+Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
+All rights reserved.
+
+This software is licensed under the MIT License.
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
+
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
+"""
 from __future__ import annotations
 
 import binascii
-from typing import Any, Literal, TypeAlias, Union, overload, Optional
+from functools import wraps
+from typing import Any, Literal, TypeAlias, Union, overload, Optional, ParamSpec, TypeVar, Callable
 from urllib.parse import urlparse
 
 import aiohttp
@@ -20,6 +34,14 @@ from .models import (
     ServerMetrics,
 )
 
+# Type variables for decorator
+P = ParamSpec('P')
+T = TypeVar('T')
+
+# Type aliases
+JsonDict: TypeAlias = dict[str, Any]
+ResponseType = Union[JsonDict, BaseModel]
+
 
 class OutlineError(Exception):
     """Base exception for Outline client errors."""
@@ -28,9 +50,21 @@ class OutlineError(Exception):
 class APIError(OutlineError):
     """Raised when API requests fail."""
 
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
-# Type aliases
-JsonDict: TypeAlias = dict[str, Any]
+
+def ensure_context(func: Callable[P, T]) -> Callable[P, T]:
+    """Decorator to ensure client session is initialized."""
+
+    @wraps(func)
+    async def wrapper(self: AsyncOutlineClient, *args: P.args, **kwargs: P.kwargs) -> T:
+        if not self._session or self._session.closed:
+            raise RuntimeError("Client session is not initialized or already closed.")
+        return await func(self, *args, **kwargs)
+
+    return wrapper
 
 
 class AsyncOutlineClient:
@@ -53,27 +87,27 @@ class AsyncOutlineClient:
     """
 
     def __init__(
-        self,
-        api_url: str,
-        cert_sha256: str,
-        *,
-        json_format: bool = True,
-        timeout: float = 30.0,
+            self,
+            api_url: str,
+            cert_sha256: str,
+            *,
+            json_format: bool = True,
+            timeout: float = 30.0,
     ) -> None:
         self._api_url = api_url.rstrip("/")
         self._cert_sha256 = cert_sha256
         self._json_format = json_format
         self._timeout = aiohttp.ClientTimeout(total=timeout)
-        self._ssl_context = None
+        self._ssl_context: Optional[Fingerprint] = None
         self._session: Optional[aiohttp.ClientSession] = None
-        self._in_context = False
 
     async def __aenter__(self) -> AsyncOutlineClient:
         """Set up client session for context manager."""
         self._session = aiohttp.ClientSession(
-            timeout=self._timeout, raise_for_status=True
+            timeout=self._timeout,
+            raise_for_status=False,
+            connector=aiohttp.TCPConnector(ssl=self._get_ssl_context())
         )
-        self._in_context = True
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -81,37 +115,38 @@ class AsyncOutlineClient:
         if self._session:
             await self._session.close()
             self._session = None
-        self._in_context = False
-
-    def _ensure_context(self):
-        """Ensure the session context is valid."""
-        if not self._session or self._session.closed:
-            raise RuntimeError("Client session is not initialized or already closed.")
 
     @overload
     async def _parse_response(
-        self,
-        response: ClientResponse,
-        model: type[BaseModel],
-        json_format: Literal[True],
-    ) -> JsonDict: ...
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: Literal[True],
+    ) -> JsonDict:
+        ...
 
     @overload
     async def _parse_response(
-        self,
-        response: ClientResponse,
-        model: type[BaseModel],
-        json_format: Literal[False],
-    ) -> BaseModel: ...
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: Literal[False],
+    ) -> BaseModel:
+        ...
 
     @overload
     async def _parse_response(
-        self, response: ClientResponse, model: type[BaseModel], json_format: bool
-    ) -> Union[JsonDict, BaseModel]: ...
-
-    async def _parse_response(
-        self, response: ClientResponse, model: type[BaseModel], json_format: bool = True
+            self, response: ClientResponse, model: type[BaseModel], json_format: bool
     ) -> Union[JsonDict, BaseModel]:
+        ...
+
+    @ensure_context
+    async def _parse_response(
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: bool = True
+    ) -> ResponseType:
         """
         Parse and validate API response data.
 
@@ -126,17 +161,14 @@ class AsyncOutlineClient:
         Raises:
             ValueError: If response validation fails
         """
-        self._ensure_context()
-
         try:
             data = await response.json()
-        except aiohttp.ContentTypeError:
-            raise ValueError("Invalid response format") from None
-        try:
             validated = model.model_validate(data)
             return validated.model_dump() if json_format else validated
+        except aiohttp.ContentTypeError as e:
+            raise ValueError("Invalid response format") from e
         except Exception as e:
-            raise ValueError(f"Value error: {e}") from e
+            raise ValueError(f"Validation error: {e}") from e
 
     @staticmethod
     async def _handle_error_response(response: ClientResponse) -> None:
@@ -144,57 +176,52 @@ class AsyncOutlineClient:
         try:
             error_data = await response.json()
             error = ErrorResponse.model_validate(error_data)
-            raise APIError(f"{error.code}: {error.message}")
+            raise APIError(f"{error.code}: {error.message}", response.status)
         except ValueError:
-            raise APIError(f"HTTP {response.status}: {response.reason}")
+            raise APIError(f"HTTP {response.status}: {response.reason}", response.status)
 
+    @ensure_context
     async def _request(
-        self,
-        method: str,
-        endpoint: str,
-        *,
-        json: Any = None,
-        params: Optional[dict[str, Any]] = None,
+            self,
+            method: str,
+            endpoint: str,
+            *,
+            json: Any = None,
+            params: Optional[dict[str, Any]] = None,
     ) -> Any:
         """Make an API request."""
-        self._ensure_context()
-
         url = self._build_url(endpoint)
-        ssl_context = self._get_ssl_context()
 
         async with self._session.request(
-            method,
-            url,
-            json=json,
-            params=params,
-            ssl=ssl_context,
-            raise_for_status=False,
-            timeout=self._timeout,
+                method,
+                url,
+                json=json,
+                params=params,
+                raise_for_status=False,
         ) as response:
             if response.status >= 400:
                 await self._handle_error_response(response)
 
             if response.status == 204:
-                return True  # No content response
+                return True
 
             try:
                 await response.json()
                 return response
             except aiohttp.ContentTypeError:
-                return await response.text()  # Fallback for non-JSON responses
+                return await response.text()
             except Exception as e:
-                raise APIError(f"Failed to parse response from {url}: {e}") from e
+                raise APIError(f"Failed to parse response: {e}", response.status)
 
     def _build_url(self, endpoint: str) -> str:
         """Build and validate the full URL for the API request."""
         if not isinstance(endpoint, str):
             raise ValueError("Endpoint must be a string")
 
-        endpoint = endpoint.lstrip("/")
-        url = f"{self._api_url}/{endpoint}"
-
+        url = f"{self._api_url}/{endpoint.lstrip('/')}"
         parsed_url = urlparse(url)
-        if not parsed_url.scheme or not parsed_url.netloc:
+
+        if not all([parsed_url.scheme, parsed_url.netloc]):
             raise ValueError(f"Invalid URL: {url}")
 
         return url
@@ -205,12 +232,11 @@ class AsyncOutlineClient:
             return None
 
         try:
-            fingerprint = binascii.unhexlify(self._cert_sha256)
-            return Fingerprint(fingerprint)
+            return Fingerprint(binascii.unhexlify(self._cert_sha256))
         except binascii.Error as e:
             raise ValueError(f"Invalid certificate SHA256: {self._cert_sha256}") from e
         except Exception as e:
-            raise OutlineError("Error while creating SSL context") from e
+            raise OutlineError("Failed to create SSL context") from e
 
     async def get_server_info(self) -> Union[JsonDict, Server]:
         """
@@ -356,7 +382,7 @@ class AsyncOutlineClient:
         )
 
     async def get_transfer_metrics(
-        self, period: MetricsPeriod = MetricsPeriod.MONTHLY
+            self, period: MetricsPeriod = MetricsPeriod.MONTHLY
     ) -> Union[JsonDict, ServerMetrics]:
         """
         Get transfer metrics for specified period.
@@ -388,13 +414,13 @@ class AsyncOutlineClient:
         )
 
     async def create_access_key(
-        self,
-        *,
-        name: Optional[str] = None,
-        password: Optional[str] = None,
-        port: Optional[int] = None,
-        method: Optional[str] = None,
-        limit: Optional[DataLimit] = None,
+            self,
+            *,
+            name: Optional[str] = None,
+            password: Optional[str] = None,
+            port: Optional[int] = None,
+            method: Optional[str] = None,
+            limit: Optional[DataLimit] = None,
     ) -> Union[JsonDict, AccessKey]:
         """
         Create a new access key.

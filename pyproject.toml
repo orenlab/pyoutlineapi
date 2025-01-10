@@ -43,9 +43,10 @@ ruff = "^0.3.0"
 pdoc = "^15.0.1"
 
 [tool.pytest.ini_options]
-addopts = "--cov=pyoutlineapi --cov-report=term-missing --cov-report=xml --cov-report=html"
-testpaths = ["tests"]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=pyoutlineapi --cov-report=html --cov-report=xml"
 
 [tool.black]
 line-length = 88
@@ -66,7 +67,6 @@ lint.select = ["E", "F", "B", "I"]
 
 [tool.poetry.urls]
 homepage = "https://github.com/orenlab/pyoutlineapi"
-repository = "https://github.com/orenlab/pyoutlineapi"
 documentation = "https://github.com/orenlab/pyoutlineapi/blob/main/README.md"
 changelog = "https://github.com/orenlab/pyoutlineapi/blob/main/CHANGELOG.md"
 
