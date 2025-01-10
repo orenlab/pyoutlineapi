@@ -7,6 +7,7 @@ models.
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=orenlab_pyoutlineapi&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=orenlab_pyoutlineapi)
 [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=orenlab_pyoutlineapi&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=orenlab_pyoutlineapi)
 [![tests](https://github.com/orenlab/pyoutlineapi/actions/workflows/python_tests.yml/badge.svg)](https://github.com/orenlab/pyoutlineapi/actions/workflows/python_tests.yml)
+[![codecov](https://codecov.io/gh/orenlab/pyoutlineapi/branch/development/graph/badge.svg?token=D0MPKCKFJQ)](https://codecov.io/gh/orenlab/pyoutlineapi)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/pyoutlineapi)
 
 ## Features
@@ -133,14 +134,14 @@ from pyoutlineapi.models import MetricsPeriod
 
 
 async def get_metrics():
-  async with AsyncOutlineClient(...) as client:
-    # Enable metrics collection
-    await client.set_metrics_status(True)
+    async with AsyncOutlineClient(...) as client:
+        # Enable metrics collection
+        await client.set_metrics_status(True)
 
-    # Get transfer metrics
-    metrics = await client.get_transfer_metrics(MetricsPeriod.MONTHLY)
-    for user_id, bytes_transferred in metrics.bytes_transferred_by_user_id.items():
-      print(f"User {user_id}: {bytes_transferred / 1024 ** 3:.2f} GB")
+        # Get transfer metrics
+        metrics = await client.get_transfer_metrics(MetricsPeriod.MONTHLY)
+        for user_id, bytes_transferred in metrics.bytes_transferred_by_user_id.items():
+            print(f"User {user_id}: {bytes_transferred / 1024 ** 3:.2f} GB")
 ```
 
 ## Error Handling
