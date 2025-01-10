@@ -1,7 +1,7 @@
 # Contributing to PyOutlineAPI
 
 Thank you for considering contributing to PyOutlineAPI! Whether you have suggestions, bug reports, or code improvements,
-your input is valuable. Here are some guidelines to help you contribute effectively:
+your input is valuable.
 
 ## How to Contribute
 
@@ -9,87 +9,204 @@ your input is valuable. Here are some guidelines to help you contribute effectiv
 
 If you encounter any issues or bugs, please follow these steps:
 
-1. **Search for Existing Issues**: Check the [Issues](https://github.com/orenlab/pyoutlineapi/issues) section to see
-   if your issue has already been reported.
+1. **Search for Existing Issues**: Check the [Issues](https://github.com/orenlab/pyoutlineapi/issues) section to see if
+   your issue has already been reported.
 2. **Create a New Issue**: If you don't find an existing
-   issue, [open a new issue](https://github.com/orenlab/pyoutlineapi/issues/new) with a clear description of the
-   problem. Include:
+   issue, [open a new issue](https://github.com/orenlab/pyoutlineapi/issues/new) with:
     - A descriptive title
     - Steps to reproduce the issue
     - Expected and actual results
-    - Any relevant code snippets or logs
+    - Python version (3.10+) and PyOutlineAPI version
+    - Any relevant code snippets or error messages
+    - Environment details (OS, Outline server version)
 
 ### Suggesting Enhancements
 
-If you have an idea for a new feature or improvement:
+For new feature or improvement suggestions:
 
-1. **Check Existing Feature Requests**: Look through the [Issues](https://github.com/orenlab/pyoutlineapi/issues) to
-   see if a similar feature has already been suggested.
+1. **Check Existing Feature Requests**: Review the [Issues](https://github.com/orenlab/pyoutlineapi/issues) to see if
+   similar features have been suggested.
 2. **Open a New Feature Request**: [Submit a new feature request](https://github.com/orenlab/pyoutlineapi/issues/new)
    with:
     - A descriptive title
-    - A detailed description of the proposed feature
+    - Detailed description of the proposed feature
     - Use cases and benefits
-    - Any related documentation or examples
+    - Example code or API design if applicable
 
 ### Contributing Code
 
 To contribute code:
 
-1. **Fork the Repository**: Create a fork of the repository on GitHub.
-2. **Clone Your Fork**: Clone your fork locally.
+1. **Fork and Clone**:
    ```bash
    git clone https://github.com/orenlab/pyoutlineapi.git
+   cd pyoutlineapi
    ```
-3. **Create a New Branch**: Create a new branch for your changes.
+
+2. **Set Up Development Environment**:
    ```bash
-   git checkout -b my-feature-branch
+   # Install Poetry if you haven't already
+   curl -sSL https://install.python-poetry.org | python3 -
+
+   # Install dependencies
+   poetry install
+
+   # Activate virtual environment
+   poetry shell
    ```
-4. **Make Your Changes**: Implement your changes, ensuring to follow existing code styles and conventions.
-5. **Write Tests**: Add or update tests to cover your changes.
-6. **Run Tests**: Ensure all tests pass before submitting a pull request.
-7. **Commit and Push**: Commit your changes and push them to your fork.
+
+3. **Create a Feature Branch**:
    ```bash
-   git add .
-   git commit -m "Add new feature or fix bug"
-   git push origin my-feature-branch
+   git checkout -b feature/your-feature-name
+   # or
+   git checkout -b fix/issue-description
    ```
-8. **Submit a Pull Request**: Open a pull request from your branch to the `main` branch of the original repository.
-   Provide a clear description of your changes and any relevant details.
 
-## Code of Conduct
+4. **Make Your Changes**:
+    - Follow the existing code structure
+    - Use type hints consistently (Python 3.10+ typing features)
+    - Add docstrings with examples (see existing code)
+    - Update tests if needed
 
-Please adhere to our [Code of Conduct](CODE_OF_CONDUCT.md) in all interactions. Respectful and constructive
-communication is essential for a positive and productive community.
+5. **Test Your Changes**:
+   ```bash
+   # Run tests with coverage
+   poetry run pytest
 
-## Style Guide
+   # Type checking
+   poetry run mypy pyoutlineapi
 
-Follow these guidelines to ensure consistency in the codebase:
+   # Code formatting
+   poetry run black pyoutlineapi tests
 
-- **Code Style**: Adhere to [PEP 8](https://pep8.org/) for Python code style.
-- **Documentation**: Update documentation as needed to reflect code changes. Use clear, concise language and proper
-  formatting.
-- **Commit Messages**: Write clear and descriptive commit messages. Use the following format:
+   # Linting
+   poetry run flake8 pyoutlineapi tests
+   ```
+
+6. **Submit a Pull Request**:
+    - Write a clear PR description
+    - Link related issues
+    - Include any necessary documentation updates
+
+## Code Style Guidelines
+
+We follow strict coding standards to maintain consistency:
+
+### Python Style
+
+- Follow [PEP 8](https://pep8.org/) conventions
+- Use modern type hints (Python 3.10+)
+- Maximum line length: 88 characters (Black default)
+- Use descriptive variable names
+
+### Documentation
+
+- Use Google-style docstrings with type information
+- For non-private methods, include examples in docstrings (see existing code)
+- Example:
+  ```python
+  async def create_access_key(
+      self,
+      *,
+      name: Optional[str] = None,
+      port: Optional[int] = None,
+  ) -> Union[JsonDict, AccessKey]:
+      """
+      Create a new access key.
+
+      Args:
+          name: Optional key name
+          port: Optional port number (1-65535)
+
+      Returns:
+          New access key details
+
+      Examples:
+          >>> async with AsyncOutlineClient(...) as client:
+          ...     key = await client.create_access_key(name="User 1")
+          ...     print(f"Created key: {key.access_url}")
+      """
   ```
-  [type]: [short summary]
 
-  [longer description, if necessary]
-  ```
+### Testing
 
-  Types of commits might include:
-    - `feat`: A new feature
-    - `fix`: A bug fix
-    - `docs`: Documentation changes
-    - `style`: Code style improvements (non-functional changes)
-    - `refactor`: Code refactoring (no functional changes)
-    - `test`: Adding or updating tests
-    - `chore`: Other changes (e.g., build process, CI configuration)
+- Write unit tests for new features
+- Use pytest fixtures and parametrize when appropriate
+- Mock external dependencies
+- Maintain high test coverage (enforced by pytest-cov)
+
+### Commit Messages
+
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer]
+```
+
+Types:
+
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style/formatting changes
+- `refactor`: Code refactoring
+- `test`: Adding/updating tests
+- `chore`: Maintenance tasks
+
+Example:
+
+```
+feat(client): add support for custom encryption methods
+
+- Added method parameter to create_access_key
+- Updated documentation with examples
+- Added unit tests for new functionality
+
+Closes #123
+```
+
+## Development Setup
+
+1. **Required Dependencies**:
+    - Python 3.10 or higher
+    - Poetry for package management
+    - Outline server (for integration testing)
+
+2. **Development Tools**:
+   All development dependencies are managed by Poetry and include:
+    - pytest-cov for test coverage
+    - black for code formatting
+    - mypy for type checking
+    - flake8 for linting
+
+3. **Environment Variables for Testing**:
+   ```bash
+   OUTLINE_API_URL=https://your-server:port/secret
+   OUTLINE_CERT_SHA256=your-cert-fingerprint
+   ```
+
+## Project Configuration
+
+Key project settings are managed in `pyproject.toml`, including:
+
+- Python version requirement (3.10+)
+- Dependencies:
+    - pydantic (^2.9.2)
+    - aiohttp (^3.11.11)
+- Development dependencies for testing and code quality
+- Pytest configuration with coverage reporting
 
 ## Contact
 
-For any questions or additional information, feel free to reach out:
+- **Issues**: [GitHub Issues](https://github.com/orenlab/pyoutlineapi/issues)
+- **Email**: `pytelemonbot@mail.ru`
 
-- **Email**: pytelemonbot@mail.ru
-- **GitHub Issues**: [Link](https://github.com/orenlab/pyoutlineapi/issues)
+## License
+
+By contributing, you agree that your contributions will be licensed under the MIT License.
 
 Thank you for contributing to PyOutlineAPI!
