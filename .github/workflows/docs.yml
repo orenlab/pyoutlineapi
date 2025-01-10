@@ -4,10 +4,7 @@ name: website
 on:
   push:
     branches:
-      - development
-    # Alternative: only build for tags.
-    # tags:
-    #   - '*'
+      - main
 
 # security: restrict permissions for CI jobs.
 permissions:
@@ -22,12 +19,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
-      # ADJUST THIS: install all dependencies (including pdoc)
       - run: pip install -e .
       - run: pip install pdoc
-      # ADJUST THIS: build your documentation into docs/.
-      # We use a custom build script for pdoc itself, ideally you just run `pdoc -o docs/ ...` here.
       - run: pdoc -d google pyoutlineapi --output-dir docs
 
       - uses: actions/upload-pages-artifact@v3
