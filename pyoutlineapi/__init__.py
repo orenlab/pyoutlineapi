@@ -14,7 +14,7 @@ Source code repository:
 import sys
 from typing import TYPE_CHECKING
 
-if sys.version_info < (3, 10):
+if sys.version_info < (3, 9):
     raise RuntimeError("PyOutlineAPI requires Python 3.10 or higher")
 
 from .client import AsyncOutlineClient, OutlineError, APIError

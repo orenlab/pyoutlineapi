@@ -619,3 +619,7 @@ class AsyncOutlineClient:
             APIError: If key doesn't exist
         """
         return await self._request("DELETE", f"access-keys/{key_id}/data-limit")
+
+    @property
+    def session(self):
+        return self._session
