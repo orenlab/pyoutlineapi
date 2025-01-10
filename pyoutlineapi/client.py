@@ -16,12 +16,7 @@ from __future__ import annotations
 
 import binascii
 from functools import wraps
-
-try:
-    from typing import TypeAlias
-except ImportError:
-    from typing_extensions import TypeAlias
-from typing import Any, Literal, Union, overload, Optional, ParamSpec, TypeVar, Callable
+from typing import Any, Literal, TypeAlias, Union, overload, Optional, ParamSpec, TypeVar, Callable
 from urllib.parse import urlparse
 
 import aiohttp
