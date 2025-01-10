@@ -11,11 +11,17 @@ You can find the full license text at:
 Source code repository:
     https://github.com/orenlab/pyoutlineapi
 """
+
 from __future__ import annotations
 
 import binascii
 from functools import wraps
-from typing import Any, Literal, TypeAlias, Union, overload, Optional, ParamSpec, TypeVar, Callable
+
+try:
+    from typing import TypeAlias
+except ImportError:
+    from typing_extensions import TypeAlias
+from typing import Any, Literal, Union, overload, Optional, ParamSpec, TypeVar, Callable
 from urllib.parse import urlparse
 
 import aiohttp
@@ -35,8 +41,8 @@ from .models import (
 )
 
 # Type variables for decorator
-P = ParamSpec('P')
-T = TypeVar('T')
+P = ParamSpec("P")
+T = TypeVar("T")
 
 # Type aliases
 JsonDict: TypeAlias = dict[str, Any]
@@ -106,7 +112,7 @@ class AsyncOutlineClient:
         self._session = aiohttp.ClientSession(
             timeout=self._timeout,
             raise_for_status=False,
-            connector=aiohttp.TCPConnector(ssl=self._get_ssl_context())
+            connector=aiohttp.TCPConnector(ssl=self._get_ssl_context()),
         )
         return self
 
@@ -142,10 +148,7 @@ class AsyncOutlineClient:
 
     @ensure_context
     async def _parse_response(
-            self,
-            response: ClientResponse,
-            model: type[BaseModel],
-            json_format: bool = True
+            self, response: ClientResponse, model: type[BaseModel], json_format: bool = True
     ) -> ResponseType:
         """
         Parse and validate API response data.
@@ -178,7 +181,9 @@ class AsyncOutlineClient:
             error = ErrorResponse.model_validate(error_data)
             raise APIError(f"{error.code}: {error.message}", response.status)
         except ValueError:
-            raise APIError(f"HTTP {response.status}: {response.reason}", response.status)
+            raise APIError(
+                f"HTTP {response.status}: {response.reason}", response.status
+            )
 
     @ensure_context
     async def _request(

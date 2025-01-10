@@ -6,9 +6,7 @@ import pytest
 from aiohttp import ClientSession
 
 from pyoutlineapi import AsyncOutlineClient, APIError
-from pyoutlineapi.models import (
-    DataLimit
-)
+from pyoutlineapi.models import DataLimit
 
 # Constants for testing
 TEST_API_URL = "https://example.com:1234/secret"
@@ -45,7 +43,7 @@ def server_info() -> Dict:
         "version": "1.0.0",
         "portForNewAccessKeys": 8388,
         "hostnameForAccessKeys": "vpn.example.com",
-        "accessKeyDataLimit": None
+        "accessKeyDataLimit": None,
     }
 
 
@@ -59,16 +57,14 @@ def access_key_data() -> Dict:
         "port": 8388,
         "method": "chacha20-ietf-poly1305",
         "accessUrl": "ss://test-url",
-        "dataLimit": None
+        "dataLimit": None,
     }
 
 
 @pytest.fixture
 def access_key_list_data(access_key_data) -> Dict:
     """Access key list fixture."""
-    return {
-        "accessKeys": [access_key_data]
-    }
+    return {"accessKeys": [access_key_data]}
 
 
 @pytest.fixture
@@ -77,7 +73,7 @@ def metrics_data() -> Dict:
     return {
         "bytesTransferredByUserId": {
             "1": 1024 * 1024 * 100,  # 100 MB
-            "2": 1024 * 1024 * 200  # 200 MB
+            "2": 1024 * 1024 * 200,  # 200 MB
         }
     }
 
@@ -85,11 +81,7 @@ def metrics_data() -> Dict:
 @pytest.fixture
 async def client() -> AsyncGenerator[AsyncOutlineClient, None]:
     """Fixture for AsyncOutlineClient with mocked session."""
-    client = AsyncOutlineClient(
-        TEST_API_URL,
-        TEST_CERT_SHA256,
-        json_format=True
-    )
+    client = AsyncOutlineClient(TEST_API_URL, TEST_CERT_SHA256, json_format=True)
 
     # Create mock session
     mock_session = MagicMock(spec=ClientSession)
@@ -119,11 +111,7 @@ def mock_error_response():
 
     def configure_error(status_code: int, error_code: str, message: str):
         return MockResponse(
-            status=status_code,
-            data={
-                "code": error_code,
-                "message": message
-            }
+            status=status_code, data={"code": error_code, "message": message}
         )
 
     return configure_error
@@ -131,28 +119,22 @@ def mock_error_response():
 
 # Test case helpers
 async def assert_request_called_with(
-        client: AsyncOutlineClient,
-        method: str,
-        endpoint: str,
-        json: dict = None,
-        params: dict = None
+    client: AsyncOutlineClient,
+    method: str,
+    endpoint: str,
+    json: dict = None,
+    params: dict = None,
 ):
     """Helper to verify request parameters."""
     expected_url = f"{TEST_API_URL}/{endpoint.lstrip('/')}"
     client.session.request.assert_called_once_with(
-        method,
-        expected_url,
-        json=json,
-        params=params,
-        raise_for_status=False
+        method, expected_url, json=json, params=params, raise_for_status=False
     )
 
 
 @pytest.mark.asyncio
 async def test_get_server_info(
-        client: AsyncOutlineClient,
-        server_info: Dict,
-        mock_successful_response
+    client: AsyncOutlineClient, server_info: Dict, mock_successful_response
 ):
     """Test get_server_info method."""
     # Configure mock response
@@ -172,9 +154,7 @@ async def test_get_server_info(
 
 @pytest.mark.asyncio
 async def test_create_access_key(
-        client: AsyncOutlineClient,
-        access_key_data: Dict,
-        mock_successful_response
+    client: AsyncOutlineClient, access_key_data: Dict, mock_successful_response
 ):
     """Test create_access_key method."""
     # Configure mock response
@@ -186,22 +166,14 @@ async def test_create_access_key(
     data_limit = DataLimit(bytes=1024 * 1024 * 1024)  # 1 GB
 
     # Make request
-    result = await client.create_access_key(
-        name=key_name,
-        port=port,
-        limit=data_limit
-    )
+    result = await client.create_access_key(name=key_name, port=port, limit=data_limit)
 
     # Verify request
     await assert_request_called_with(
         client,
         "POST",
         "access-keys",
-        json={
-            "name": key_name,
-            "port": port,
-            "limit": {"bytes": data_limit.bytes}
-        }
+        json={"name": key_name, "port": port, "limit": {"bytes": data_limit.bytes}},
     )
 
     # Verify response
@@ -211,9 +183,7 @@ async def test_create_access_key(
 
 @pytest.mark.asyncio
 async def test_get_metrics(
-        client: AsyncOutlineClient,
-        metrics_data: Dict,
-        mock_successful_response
+    client: AsyncOutlineClient, metrics_data: Dict, mock_successful_response
 ):
     """Test get_transfer_metrics method."""
     # Configure mock response
@@ -224,28 +194,27 @@ async def test_get_metrics(
 
     # Verify request
     await assert_request_called_with(
-        client,
-        "GET",
-        "metrics/transfer",
-        params={"period": "monthly"}
+        client, "GET", "metrics/transfer", params={"period": "monthly"}
     )
 
     # Verify response
     assert isinstance(result, dict)
     assert "bytes_transferred_by_user_id" in result
-    assert result["bytes_transferred_by_user_id"]["1"] == metrics_data["bytesTransferredByUserId"]["1"]
+    assert (
+        result["bytes_transferred_by_user_id"]["1"]
+        == metrics_data["bytesTransferredByUserId"]["1"]
+    )
 
 
 @pytest.mark.asyncio
-async def test_error_handling(
-        client: AsyncOutlineClient,
-        mock_error_response
-):
+async def test_error_handling(client: AsyncOutlineClient, mock_error_response):
     """Test API error handling."""
     # Configure error response
     error_code = "forbidden"
     error_message = "Access denied"
-    client._session.request.return_value = mock_error_response(403, error_code, error_message)
+    client._session.request.return_value = mock_error_response(
+        403, error_code, error_message
+    )
 
     # Verify error is raised
     with pytest.raises(APIError) as exc_info:

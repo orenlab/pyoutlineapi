@@ -11,6 +11,7 @@ You can find the full license text at:
 Source code repository:
     https://github.com/orenlab/pyoutlineapi
 """
+
 from enum import Enum
 from typing import Optional
 

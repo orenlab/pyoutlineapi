@@ -11,6 +11,7 @@ You can find the full license text at:
 Source code repository:
     https://github.com/orenlab/pyoutlineapi
 """
+
 import sys
 from typing import TYPE_CHECKING
 
