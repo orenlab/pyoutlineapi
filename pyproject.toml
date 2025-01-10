@@ -30,7 +30,6 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
-typing-extensions = "^4.0.0"
 pydantic = "^2.9.2"
 aiohttp = "^3.11.11"
 flake8 = "^7.1.1"
