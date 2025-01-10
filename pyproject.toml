@@ -7,7 +7,7 @@ readme = "README.md"
 license = "MIT"
 packages = [{ include = "pyoutlineapi" }]
 keywords = ["outline", "vpn", "api", "manager", "wrapper", "asyncio"]
-documentation = "https://github.com/orenlab/pyoutlineapi/blob/main/README.md"
+documentation = "https://orenlab.github.io/pyoutlineapi/"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
