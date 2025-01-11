@@ -49,7 +49,7 @@ To contribute code:
    curl -sSL https://install.python-poetry.org | python3 -
 
    # Install dependencies
-   poetry install
+   poetry install --with dev
 
    # Activate virtual environment
    poetry shell
@@ -174,7 +174,7 @@ Closes #123
 1. **Required Dependencies**:
     - Python 3.10 or higher
     - Poetry for package management
-    - Outline server (for integration testing)
+    - Outline VPN server (for integration testing)
 
 2. **Development Tools**:
    All development dependencies are managed by Poetry and include:
@@ -182,12 +182,6 @@ Closes #123
     - black for code formatting
     - mypy for type checking
     - flake8 for linting
-
-3. **Environment Variables for Testing**:
-   ```bash
-   OUTLINE_API_URL=https://your-server:port/secret
-   OUTLINE_CERT_SHA256=your-cert-fingerprint
-   ```
 
 ## Project Configuration
 
