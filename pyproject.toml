@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pyoutlineapi"
-version = "0.2.0"
+version = "0.3.0"
 description = "A modern, async-first Python client for the Outline VPN Server API with comprehensive data validation through Pydantic models."
 authors = ["Denis Rozhnovskiy <pytelemonbot@mail.ru>"]
 readme = "README.md"
@@ -32,7 +32,6 @@ classifiers = [
 python = ">=3.10,<4.0"
 pydantic = "^2.9.2"
 aiohttp = "^3.11.11"
-flake8 = "^7.1.1"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.1.1"
