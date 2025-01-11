@@ -146,7 +146,7 @@ class AsyncOutlineClient:
     @overload
     async def _parse_response(
         self, response: ClientResponse, model: type[BaseModel], json_format: bool
-    ) -> Union[JsonDict, BaseModel]: ...
+    ) -> ResponseType: ...
 
     @ensure_context
     async def _parse_response(
@@ -194,7 +194,7 @@ class AsyncOutlineClient:
         endpoint: str,
         *,
         json: Any = None,
-        params: Optional[dict[str, Any]] = None,
+        params: Optional[JsonDict] = None,
     ) -> Any:
         """Make an API request."""
         url = self._build_url(endpoint)
@@ -344,7 +344,7 @@ class AsyncOutlineClient:
             "PUT", "server/port-for-new-access-keys", json={"port": port}
         )
 
-    async def get_metrics_status(self) -> dict[str, Any] | BaseModel:
+    async def get_metrics_status(self) -> JsonDict | BaseModel:
         """
         Get whether metrics collection is enabled.
 
