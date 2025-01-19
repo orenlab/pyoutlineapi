@@ -94,7 +94,6 @@ class AsyncOutlineClient:
 
     Examples:
         >>> async def do_something():
-        ...     # Basic usage without metrics
         ...     async with AsyncOutlineClient(
         ...         "https://example.com:1234/secret",
         ...         "ab12cd34..."
