@@ -34,7 +34,7 @@ class DataLimit(BaseModel):
     @field_validator("bytes")
     def validate_bytes(cls, v: int) -> int:
         if v < 0:
-            raise ValueError("bytes must be positive")
+            raise
         return v
 
 
@@ -44,7 +44,7 @@ class AccessKey(BaseModel):
     id: int
     name: Optional[str] = None
     password: str
-    port: int = Field(gt=0, lt=65536)
+    port: int = Field(gt=1025, lt=65536)
     method: str
     access_url: str = Field(alias="accessUrl")
     data_limit: Optional[DataLimit] = Field(None, alias="dataLimit")
@@ -124,7 +124,7 @@ class AccessKeyCreateRequest(BaseModel):
     name: Optional[str] = None
     method: Optional[str] = None
     password: Optional[str] = None
-    port: Optional[int] = Field(None, gt=0, lt=65536)
+    port: Optional[int] = Field(None, gt=1025, lt=65536)
     limit: Optional[DataLimit] = None
 
 

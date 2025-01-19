@@ -14,6 +14,7 @@ Source code repository:
 
 from __future__ import annotations
 
+import asyncio
 import binascii
 from functools import wraps
 from typing import (
@@ -26,6 +27,9 @@ from typing import (
     ParamSpec,
     TypeVar,
     Callable,
+    Final,
+    Set,
+    Awaitable,
 )
 from urllib.parse import urlparse
 
@@ -33,6 +37,7 @@ import aiohttp
 from aiohttp import ClientResponse, Fingerprint
 from pydantic import BaseModel
 
+from .exceptions import APIError, OutlineError
 from .models import (
     AccessKey,
     AccessKeyCreateRequest,
@@ -44,6 +49,7 @@ from .models import (
     Server,
     ServerMetrics,
 )
+from .rate_limiter import RateLimiter, rate_limit
 
 # Type variables for decorator
 P = ParamSpec("P")
@@ -53,17 +59,12 @@ T = TypeVar("T")
 JsonDict: TypeAlias = dict[str, Any]
 ResponseType = Union[JsonDict, BaseModel]
 
-
-class OutlineError(Exception):
-    """Base exception for Outline client errors."""
-
-
-class APIError(OutlineError):
-    """Raised when API requests fail."""
-
-    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
-        super().__init__(message)
-        self.status_code = status_code
+# Constants
+MIN_PORT: Final[int] = 1025
+MAX_PORT: Final[int] = 65535
+DEFAULT_RETRY_ATTEMPTS: Final[int] = 3
+DEFAULT_RETRY_DELAY: Final[float] = 1.0
+RETRY_STATUS_CODES: Final[Set[int]] = {408, 429, 500, 502, 503, 504}
 
 
 def ensure_context(func: Callable[P, T]) -> Callable[P, T]:
@@ -87,23 +88,31 @@ class AsyncOutlineClient:
         cert_sha256: SHA-256 fingerprint of the server's TLS certificate
         json_format: Return raw JSON instead of Pydantic models
         timeout: Request timeout in seconds
+        retry_attempts: Number of retry attempts connecting to the API
+        rate: limit of requests per second
+        burst: maximum burst count
 
     Examples:
-        >>> async def doo_something():
+        >>> async def do_something():
+        ...     # Basic usage without metrics
         ...     async with AsyncOutlineClient(
         ...         "https://example.com:1234/secret",
         ...         "ab12cd34..."
         ...     ) as client:
         ...         server_info = await client.get_server_info()
+
     """
 
     def __init__(
-        self,
-        api_url: str,
-        cert_sha256: str,
-        *,
-        json_format: bool = True,
-        timeout: float = 30.0,
+            self,
+            api_url: str,
+            cert_sha256: str,
+            *,
+            json_format: bool = True,
+            timeout: int = 10,
+            retry_attempts: int = 3,
+            rate: int = 10,
+            burst: int = 20,
     ) -> None:
         self._api_url = api_url.rstrip("/")
         self._cert_sha256 = cert_sha256
@@ -111,46 +120,56 @@ class AsyncOutlineClient:
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._ssl_context: Optional[Fingerprint] = None
         self._session: Optional[aiohttp.ClientSession] = None
+        self._retry_attempts = retry_attempts
+        self._default_rate = rate
+        self._default_burst = burst
+        self._rate_limiter: Optional[RateLimiter] = None
 
     async def __aenter__(self) -> AsyncOutlineClient:
-        """Set up client session for context manager."""
+        """Set up client session and optional RateLimiter."""
         self._session = aiohttp.ClientSession(
             timeout=self._timeout,
             raise_for_status=False,
             connector=aiohttp.TCPConnector(ssl=self._get_ssl_context()),
         )
+        self._rate_limiter = RateLimiter(
+            rate_per_second=self._default_rate, burst=self._default_burst
+        )
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Clean up client session."""
+        """Clean up client session and metrics."""
         if self._session:
             await self._session.close()
             self._session = None
 
     @overload
     async def _parse_response(
-        self,
-        response: ClientResponse,
-        model: type[BaseModel],
-        json_format: Literal[True],
-    ) -> JsonDict: ...
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: Literal[True],
+    ) -> JsonDict:
+        ...
 
     @overload
     async def _parse_response(
-        self,
-        response: ClientResponse,
-        model: type[BaseModel],
-        json_format: Literal[False],
-    ) -> BaseModel: ...
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: Literal[False],
+    ) -> BaseModel:
+        ...
 
     @overload
     async def _parse_response(
-        self, response: ClientResponse, model: type[BaseModel], json_format: bool
-    ) -> ResponseType: ...
+            self, response: ClientResponse, model: type[BaseModel], json_format: bool
+    ) -> ResponseType:
+        ...
 
     @ensure_context
     async def _parse_response(
-        self, response: ClientResponse, model: type[BaseModel], json_format: bool = True
+            self, response: ClientResponse, model: type[BaseModel], json_format: bool = True
     ) -> ResponseType:
         """
         Parse and validate API response data.
@@ -170,10 +189,10 @@ class AsyncOutlineClient:
             data = await response.json()
             validated = model.model_validate(data)
             return validated.model_dump() if json_format else validated
-        except aiohttp.ContentTypeError as e:
-            raise ValueError("Invalid response format") from e
-        except Exception as e:
-            raise ValueError(f"Validation error: {e}") from e
+        except aiohttp.ContentTypeError as content_error:
+            raise ValueError("Invalid response format") from content_error
+        except Exception as exception:
+            raise ValueError("Validation error") from exception
 
     @staticmethod
     async def _handle_error_response(response: ClientResponse) -> None:
@@ -189,36 +208,96 @@ class AsyncOutlineClient:
 
     @ensure_context
     async def _request(
-        self,
-        method: str,
-        endpoint: str,
-        *,
-        json: Any = None,
-        params: Optional[JsonDict] = None,
+            self,
+            method: str,
+            endpoint: str,
+            *,
+            json: Any = None,
+            params: Optional[JsonDict] = None,
     ) -> Any:
-        """Make an API request."""
+        """Make an API request with optional metrics tracking."""
         url = self._build_url(endpoint)
 
-        async with self._session.request(
-            method,
-            url,
-            json=json,
-            params=params,
-            raise_for_status=False,
-        ) as response:
-            if response.status >= 400:
-                await self._handle_error_response(response)
+        return await self._make_request(method, url, json, params)
 
-            if response.status == 204:
-                return True
+    async def _make_request(
+            self,
+            method: str,
+            url: str,
+            json: Any = None,
+            params: Optional[JsonDict] = None,
+    ) -> Any:
+        """Internal method to execute the actual request with retry logic."""
 
+        async def _do_request() -> Any:
+            async with self._session.request(
+                    method,
+                    url,
+                    json=json,
+                    params=params,
+                    raise_for_status=False,
+            ) as response:
+                if response.status >= 400:
+                    await self._handle_error_response(response)
+
+                if response.status == 204:
+                    return True
+
+                try:
+                    await response.json()
+                    return response
+                except aiohttp.ContentTypeError:
+                    return await response.text()
+                except Exception as exception:
+                    raise APIError(
+                        f"Failed to parse response: {exception}", response.status
+                    )
+
+        return await self._retry_request(_do_request, attempts=self._retry_attempts)
+
+    @staticmethod
+    async def _retry_request(
+            request_func: Callable[[], Awaitable[T]],
+            *,
+            attempts: int = DEFAULT_RETRY_ATTEMPTS,
+            delay: float = DEFAULT_RETRY_DELAY,
+    ) -> T:
+        """
+        Execute request with retry logic.
+
+        Args:
+            request_func: Async function to execute
+            attempts: Maximum number of retry attempts
+            delay: Delay between retries in seconds
+
+        Returns:
+            Response from the successful request
+
+        Raises:
+            APIError: If all retry attempts fail
+        """
+        last_error = None
+
+        for attempt in range(attempts):
             try:
-                await response.json()
-                return response
-            except aiohttp.ContentTypeError:
-                return await response.text()
-            except Exception as e:
-                raise APIError(f"Failed to parse response: {e}", response.status)
+                return await request_func()
+            except (aiohttp.ClientError, APIError) as error:
+                last_error = error
+
+                # Don't retry if it's not a retriable error
+                if isinstance(error, APIError) and (
+                        error.status_code not in RETRY_STATUS_CODES
+                ):
+                    raise
+
+                # Don't sleep on the last attempt
+                if attempt < attempts - 1:
+                    await asyncio.sleep(delay * (attempt + 1))
+
+        raise APIError(
+            f"Request failed after {attempts} attempts: {last_error}",
+            getattr(last_error, "status_code", None),
+        )
 
     def _build_url(self, endpoint: str) -> str:
         """Build and validate the full URL for the API request."""
@@ -240,11 +319,14 @@ class AsyncOutlineClient:
 
         try:
             return Fingerprint(binascii.unhexlify(self._cert_sha256))
-        except binascii.Error as e:
-            raise ValueError(f"Invalid certificate SHA256: {self._cert_sha256}") from e
-        except Exception as e:
-            raise OutlineError("Failed to create SSL context") from e
+        except binascii.Error as validation_error:
+            raise ValueError(
+                f"Invalid certificate SHA256: {self._cert_sha256}"
+            ) from validation_error
+        except Exception as exception:
+            raise OutlineError("Failed to create SSL context") from exception
 
+    @rate_limit(key="server_info")
     async def get_server_info(self) -> Union[JsonDict, Server]:
         """
         Get server information.
@@ -266,6 +348,7 @@ class AsyncOutlineClient:
             response, Server, json_format=self._json_format
         )
 
+    @rate_limit(key="server_management")
     async def rename_server(self, name: str) -> bool:
         """
         Rename the server.
@@ -288,6 +371,7 @@ class AsyncOutlineClient:
         """
         return await self._request("PUT", "name", json={"name": name})
 
+    @rate_limit(key="server_management")
     async def set_hostname(self, hostname: str) -> bool:
         """
         Set server hostname for access keys.
@@ -315,6 +399,7 @@ class AsyncOutlineClient:
             "PUT", "server/hostname-for-access-keys", json={"hostname": hostname}
         )
 
+    @rate_limit(key="server_management")
     async def set_default_port(self, port: int) -> bool:
         """
         Set default port for new access keys.
@@ -337,13 +422,16 @@ class AsyncOutlineClient:
             ...         await client.set_default_port(8388)
 
         """
-        if port < 1025 or port > 65535:
-            raise ValueError("Privileged ports are not allowed. Use range: 1025-65535")
+        if port < MIN_PORT or port > MAX_PORT:
+            raise ValueError(
+                f"Privileged ports are not allowed. Use range: {MIN_PORT}-{MAX_PORT}"
+            )
 
         return await self._request(
             "PUT", "server/port-for-new-access-keys", json={"port": port}
         )
 
+    @rate_limit(key="server_metrics")
     async def get_metrics_status(self) -> JsonDict | BaseModel:
         """
         Get whether metrics collection is enabled.
@@ -366,6 +454,7 @@ class AsyncOutlineClient:
         )
         return data
 
+    @rate_limit(key="server_management")
     async def set_metrics_status(self, enabled: bool) -> bool:
         """
         Enable or disable metrics collection.
@@ -391,8 +480,9 @@ class AsyncOutlineClient:
             "PUT", "metrics/enabled", json={"metricsEnabled": enabled}
         )
 
+    @rate_limit(key="server_metrics")
     async def get_transfer_metrics(
-        self, period: MetricsPeriod = MetricsPeriod.MONTHLY
+            self, period: MetricsPeriod = MetricsPeriod.MONTHLY
     ) -> Union[JsonDict, ServerMetrics]:
         """
         Get transfer metrics for specified period.
@@ -423,14 +513,15 @@ class AsyncOutlineClient:
             response, ServerMetrics, json_format=self._json_format
         )
 
+    @rate_limit(key="access_keys_management")
     async def create_access_key(
-        self,
-        *,
-        name: Optional[str] = None,
-        password: Optional[str] = None,
-        port: Optional[int] = None,
-        method: Optional[str] = None,
-        limit: Optional[DataLimit] = None,
+            self,
+            *,
+            name: Optional[str] = None,
+            password: Optional[str] = None,
+            port: Optional[int] = None,
+            method: Optional[str] = None,
+            limit: Optional[DataLimit] = None,
     ) -> Union[JsonDict, AccessKey]:
         """
         Create a new access key.
@@ -473,6 +564,7 @@ class AsyncOutlineClient:
             response, AccessKey, json_format=self._json_format
         )
 
+    @rate_limit(key="access_keys_management")
     async def get_access_keys(self) -> Union[JsonDict, AccessKeyList]:
         """
         Get all access keys.
@@ -497,6 +589,7 @@ class AsyncOutlineClient:
             response, AccessKeyList, json_format=self._json_format
         )
 
+    @rate_limit()
     async def get_access_key(self, key_id: int) -> Union[JsonDict, AccessKey]:
         """
         Get specific access key.
@@ -525,6 +618,7 @@ class AsyncOutlineClient:
             response, AccessKey, json_format=self._json_format
         )
 
+    @rate_limit()
     async def rename_access_key(self, key_id: int, name: str) -> bool:
         """
         Rename access key.
@@ -556,6 +650,7 @@ class AsyncOutlineClient:
             "PUT", f"access-keys/{key_id}/name", json={"name": name}
         )
 
+    @rate_limit()
     async def delete_access_key(self, key_id: int) -> bool:
         """
         Delete access key.
@@ -581,6 +676,7 @@ class AsyncOutlineClient:
         """
         return await self._request("DELETE", f"access-keys/{key_id}")
 
+    @rate_limit()
     async def set_access_key_data_limit(self, key_id: int, bytes_limit: int) -> bool:
         """
         Set data transfer limit for access key.
@@ -615,6 +711,7 @@ class AsyncOutlineClient:
             json={"limit": {"bytes": bytes_limit}},
         )
 
+    @rate_limit()
     async def remove_access_key_data_limit(self, key_id: int) -> bool:
         """
         Remove data transfer limit from access key.
@@ -631,5 +728,6 @@ class AsyncOutlineClient:
         return await self._request("DELETE", f"access-keys/{key_id}/data-limit")
 
     @property
-    def session(self):
+    def session(self) -> Optional[aiohttp.ClientSession]:
+        """Access the current client session."""
         return self._session
