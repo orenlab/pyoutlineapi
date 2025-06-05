@@ -9,16 +9,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Advanced rate limiting system with Token Bucket algorithm
-    - Integer-based implementation for better performance
-    - Configurable rate and burst parameters per endpoint
-    - Decorator-based rate limiting for API methods
-    - Async-safe implementation with proper locking
-    - Nanosecond precision for token calculations
-- New classes for rate limiting:
-    - `TokenBucket`: Core rate limiting implementation
-    - `TokenBucketConfig`: Immutable configuration storage
-    - `RateLimiter`: High-level rate limiting manager
 - Constants for request retry configuration:
     - `DEFAULT_RETRY_ATTEMPTS`: Default number of retry attempts
     - `DEFAULT_RETRY_DELAY`: Base delay between retries
@@ -55,10 +45,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Internal
 
-- Added immutable configuration objects for rate limiting
-- Implemented nanosecond-precision timing for rate limiting
-- Added comprehensive input validation for rate limiting parameters
-- Enhanced error handling for rate limiting edge cases
 - Reorganized code structure for better maintainability
 - Added detailed type annotations for internal methods
 - Improved documentation and code examples
