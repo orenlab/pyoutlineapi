@@ -23,6 +23,9 @@ full support for the latest schema and strict data validation using Pydantic.
 - 🌐 **Flexible response formats** - return JSON dict or typed Pydantic models
 - 🛡️ **Robust error handling** with detailed exception hierarchy
 - 📚 **Production-ready** with comprehensive logging and debugging support
+- 🚀 **Batch operations** for creating multiple access keys efficiently
+- 🏥 **Health checks** with automatic server status monitoring
+- 🔧 **Advanced configuration** with rate limiting and connection management
 
 ## Installation
 
@@ -57,7 +60,8 @@ async def main():
     # Initialize client with context manager (recommended)
     async with AsyncOutlineClient(
             api_url="https://your-outline-server:port/secret-path",
-            cert_sha256="your-certificate-fingerprint"
+            cert_sha256="your-certificate-fingerprint",
+            enable_logging=True  # Enable debug logging
     ) as client:
         # Get server information
         server = await client.get_server_info()
@@ -73,6 +77,11 @@ async def main():
         # List all keys
         keys = await client.get_access_keys()
         print(f"Total keys: {len(keys.access_keys)}")
+
+        # Get comprehensive server summary
+        summary = await client.get_server_summary()
+        print(f"Server healthy: {summary['healthy']}")
+        print(f"Access keys count: {summary['access_keys_count']}")
 
 
 if __name__ == "__main__":
@@ -91,8 +100,26 @@ client = AsyncOutlineClient(
     cert_sha256="certificate-fingerprint",
     json_format=False,  # Return Pydantic models (default) or raw JSON
     timeout=30,  # Request timeout in seconds
-    retry_attempts=3  # Number of retry attempts for failed requests
+    retry_attempts=3,  # Number of retry attempts for failed requests
+    enable_logging=True,  # Enable debug logging
+    user_agent="MyApp/1.0",  # Custom user agent
+    max_connections=10,  # Maximum connections in pool
+    rate_limit_delay=0.1  # Minimum delay between requests (seconds)
 )
+```
+
+### Factory Method
+
+```python
+# Use factory method for one-off operations
+async def quick_operation():
+    async with AsyncOutlineClient.create(
+            "https://your-server:port/path",
+            "certificate-fingerprint",
+            enable_logging=True
+    ) as client:
+        server = await client.get_server_info()
+        return server
 ```
 
 ## Usage Guide
@@ -111,7 +138,32 @@ async def manage_server():
         await client.set_hostname("vpn.example.com")
         await client.set_default_port(8388)
 
+        # Get comprehensive server summary
+        summary = await client.get_server_summary()
+        print(f"Server healthy: {summary['healthy']}")
+        print(f"Keys count: {summary['access_keys_count']}")
+
+        if summary.get('metrics'):
+            total_bytes = sum(summary['metrics']['bytes_transferred_by_user_id'].values())
+            print(f"Total data: {total_bytes / 1024 ** 3:.2f} GB")
+
         print("Server configured successfully")
+```
+
+### Health Monitoring
+
+```python
+async def monitor_server_health():
+    async with AsyncOutlineClient(...) as client:
+        # Manual health check
+        is_healthy = await client.health_check()
+        print(f"Server is healthy: {is_healthy}")
+
+        # Force health check (ignore cache)
+        is_healthy = await client.health_check(force=True)
+
+        # Check last health status
+        print(f"Last known health status: {client.is_healthy}")
 ```
 
 ### Access Key Management
@@ -164,6 +216,41 @@ async def advanced_key_config():
         # Manage data limits
         await client.set_access_key_data_limit(key.id, 20 * 1024 ** 3)  # 20 GB
         await client.remove_access_key_data_limit(key.id)  # Remove limit
+```
+
+### Batch Operations
+
+```python
+async def batch_key_creation():
+    async with AsyncOutlineClient(...) as client:
+        # Prepare configurations for multiple keys
+        configs = [
+            {"name": "User1", "limit": DataLimit(bytes=1024 ** 3)},  # 1 GB
+            {"name": "User2", "port": 8388},
+            {"name": "User3", "limit": DataLimit(bytes=5 * 1024 ** 3)},  # 5 GB
+            {"name": "User4", "method": "chacha20-ietf-poly1305"},
+        ]
+
+        # Create all keys in batch (fail on first error)
+        results = await client.batch_create_access_keys(configs, fail_fast=True)
+        print(f"Created {len(results)} keys successfully")
+
+        # Create keys with error handling (continue on errors)
+        results = await client.batch_create_access_keys(configs, fail_fast=False)
+
+        successful_keys = []
+        failed_keys = []
+
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failed_keys.append((i, result))
+                print(f"Failed to create key {i}: {result}")
+            else:
+                successful_keys.append(result)
+                print(f"Created key: {result.name}")
+
+        print(f"Successfully created: {len(successful_keys)} keys")
+        print(f"Failed: {len(failed_keys)} keys")
 ```
 
 ### Global Data Limits
@@ -226,6 +313,38 @@ async def detailed_metrics():
         recent_metrics = await client.get_experimental_metrics(since="2024-01-01T00:00:00Z")
 ```
 
+### Advanced Configuration
+
+#### Logging Configuration
+
+```python
+async def configure_logging():
+    async with AsyncOutlineClient(...) as client:
+        # Configure logging level and format
+        client.configure_logging(
+            level="DEBUG",
+            format_string="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+
+        # Now all API calls will be logged with debug information
+        server = await client.get_server_info()
+```
+
+#### Rate Limiting
+
+```python
+async def rate_limited_client():
+    # Client with rate limiting
+    async with AsyncOutlineClient(
+            api_url="https://your-server:port/path",
+            cert_sha256="your-cert-fingerprint",
+            rate_limit_delay=0.5  # 500ms delay between requests
+    ) as client:
+        # Requests will be automatically rate-limited
+        for i in range(10):
+            await client.get_server_info()  # Each request waits 500ms
+```
+
 ### Error Handling
 
 ```python
@@ -237,10 +356,17 @@ async def robust_client():
         async with AsyncOutlineClient(
                 api_url="https://your-server:port/api",
                 cert_sha256="your-cert-fingerprint",
-                retry_attempts=5  # Increase retry attempts
+                retry_attempts=5,  # Increase retry attempts
+                enable_logging=True  # Enable logging for debugging
         ) as client:
+            # Check server health first
+            if not await client.health_check():
+                print("Server is not healthy!")
+                return
+
             # Your operations here
             server = await client.get_server_info()
+            print(f"Connected to {server.name}")
 
     except APIError as e:
         # Handle API-specific errors (4xx, 5xx responses)
@@ -275,6 +401,10 @@ async def json_responses():
         keys_data = await client.get_access_keys()
         for key in keys_data['accessKeys']:
             print(f"Key ID: {key['id']}")
+
+        # Summary also returns JSON format
+        summary = await client.get_server_summary()
+        print(f"Healthy: {summary['healthy']}")
 ```
 
 ## Advanced Usage
@@ -297,15 +427,19 @@ async def manual_session_management():
         server = await client.get_server_info()
         print(f"Connected to {server.name}")
 
+        # Check connection status
+        print(f"Session active: {client.session and not client.session.closed}")
+        print(f"API URL: {client.api_url}")
+
     finally:
         # Always clean up
         await client.__aexit__(None, None, None)
 ```
 
-### Batch Operations
+### Concurrent Operations
 
 ```python
-async def batch_operations():
+async def concurrent_operations():
     async with AsyncOutlineClient(...) as client:
         # Create multiple keys concurrently
         tasks = [
@@ -316,7 +450,7 @@ async def batch_operations():
 
         print(f"Created {len(keys)} keys")
 
-        # Set data limits for all keys
+        # Set data limits for all keys concurrently
         limit_tasks = [
             client.set_access_key_data_limit(key.id, 5 * 1024 ** 3)
             for key in keys
@@ -324,6 +458,31 @@ async def batch_operations():
         await asyncio.gather(*limit_tasks)
 
         print("Applied data limits to all keys")
+```
+
+### Monitoring and Debugging
+
+```python
+async def debug_session():
+    async with AsyncOutlineClient(
+            api_url="https://your-server:port/api",
+            cert_sha256="your-cert-fingerprint",
+            enable_logging=True,
+            timeout=60,  # Longer timeout for debugging
+            retry_attempts=1  # Disable retries for debugging
+    ) as client:
+        # Client provides useful debugging information
+        print(f"Client: {client}")  # Shows connection status
+        print(f"API URL: {client.api_url}")
+        print(f"Is healthy: {client.is_healthy}")
+
+        # All method calls are logged when logging is enabled
+        server = await client.get_server_info()
+
+        # Get detailed server summary for monitoring
+        summary = await client.get_server_summary()
+        if not summary['healthy']:
+            print(f"Server error: {summary.get('error')}")
 ```
 
 ## Best Practices
@@ -357,7 +516,7 @@ except APIError as e:
 
 ```python
 from typing import List
-from pyoutlineapi import AccessKey
+from pyoutlineapi import AccessKey, AsyncOutlineClient
 
 
 async def get_user_keys(client: AsyncOutlineClient) -> List[AccessKey]:
@@ -365,15 +524,43 @@ async def get_user_keys(client: AsyncOutlineClient) -> List[AccessKey]:
     return keys.access_keys
 ```
 
-### 4. Configure Timeouts Appropriately
+### 4. Configure Timeouts and Retries Appropriately
 
 ```python
 # For slow networks or large operations
 client = AsyncOutlineClient(
     ...,
     timeout=60,  # 60 second timeout
-    retry_attempts=5
+    retry_attempts=5,  # More retry attempts
+    rate_limit_delay=0.1  # Small delay between requests
 )
+```
+
+### 5. Use Batch Operations for Multiple Keys
+
+```python
+# ✅ Efficient batch creation
+configs = [{"name": f"User{i}"} for i in range(10)]
+keys = await client.batch_create_access_keys(configs)
+
+# ❌ Inefficient individual creation
+keys = []
+for i in range(10):
+    key = await client.create_access_key(name=f"User{i}")
+    keys.append(key)
+```
+
+### 6. Monitor Server Health
+
+```python
+# ✅ Check health before operations
+async with AsyncOutlineClient(...) as client:
+    if not await client.health_check():
+        print("Server is not responding")
+        return
+
+    # Proceed with operations
+    await client.get_server_info()
 ```
 
 ## API Reference
@@ -386,6 +573,7 @@ client = AsyncOutlineClient(
 - `rename_server(name: str) -> bool`
 - `set_hostname(hostname: str) -> bool`
 - `set_default_port(port: int) -> bool`
+- `get_server_summary() -> dict[str, Any]` - Comprehensive server information
 
 #### Access Key Management
 
@@ -395,6 +583,10 @@ client = AsyncOutlineClient(
 - `get_access_key(key_id: str) -> AccessKey | JsonDict`
 - `rename_access_key(key_id: str, name: str) -> bool`
 - `delete_access_key(key_id: str) -> bool`
+
+#### Batch Operations
+
+- `batch_create_access_keys(keys_config: list[dict], fail_fast: bool = True) -> list[AccessKey | Exception]`
 
 #### Data Limits
 
@@ -409,6 +601,17 @@ client = AsyncOutlineClient(
 - `set_metrics_status(enabled: bool) -> bool`
 - `get_transfer_metrics() -> ServerMetrics | JsonDict`
 - `get_experimental_metrics(since: str = None) -> ExperimentalMetrics | JsonDict`
+
+#### Health and Monitoring
+
+- `health_check(force: bool = False) -> bool` - Check server health
+- `configure_logging(level: str = "INFO", format_string: str = None) -> None`
+
+#### Properties
+
+- `is_healthy: bool` - Last known health status
+- `session: Optional[aiohttp.ClientSession]` - Current session
+- `api_url: str` - API URL (without sensitive parts)
 
 ## Requirements
 
