@@ -18,9 +18,13 @@ import sys
 from importlib import metadata
 from typing import Final, TYPE_CHECKING
 
-# Version check
-if sys.version_info < (3, 10):
-    raise RuntimeError("PyOutlineAPI requires Python 3.10 or higher")
+
+def check_python_version():
+    if sys.version_info < (3, 10):
+        raise RuntimeError("PyOutlineAPI requires Python 3.10 or higher")
+
+
+check_python_version()
 
 # Core client imports
 from .client import AsyncOutlineClient

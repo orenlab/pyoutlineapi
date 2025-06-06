@@ -1,10 +1,24 @@
-from pyoutlineapi.exceptions import APIError
+from pyoutlineapi.exceptions import OutlineError, APIError
 
 
-def test_api_error():
-    error = APIError("Resource not found", status_code=404)
-    assert str(error) == "Resource not found"
-    assert error.status_code == 404
+def test_outline_error_is_base_exception():
+    err = OutlineError("Something went wrong")
+    assert isinstance(err, Exception)
+    assert isinstance(err, OutlineError)
+    assert str(err) == "Something went wrong"
 
-    error_with_attempt = APIError("Rate limit exceeded", status_code=429, attempt=3)
-    assert str(error_with_attempt) == "[Attempt 3] Rate limit exceeded"
+
+def test_api_error_without_optional_args():
+    err = APIError("API failure")
+    assert isinstance(err, APIError)
+    assert isinstance(err, OutlineError)
+    assert err.status_code is None
+    assert err.attempt is None
+    assert str(err) == "API failure"
+
+
+def test_api_error_with_all_args():
+    err = APIError("Request failed", status_code=500, attempt=3)
+    assert err.status_code == 500
+    assert err.attempt == 3
+    assert str(err) == "[Attempt 3] Request failed"
