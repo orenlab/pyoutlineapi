@@ -16,9 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import binascii
+import logging
+import time
+from contextlib import asynccontextmanager
 from functools import wraps
 from typing import (
     Any,
+    AsyncGenerator,
     Literal,
     TypeAlias,
     Union,
@@ -71,6 +75,9 @@ DEFAULT_RETRY_ATTEMPTS: Final[int] = 3
 DEFAULT_RETRY_DELAY: Final[float] = 1.0
 RETRY_STATUS_CODES: Final[Set[int]] = {408, 429, 500, 502, 503, 504}
 
+# Setup logger
+logger = logging.getLogger(__name__)
+
 
 def ensure_context(func: Callable[P, T]) -> Callable[P, T]:
     """Decorator to ensure client session is initialized."""
@@ -80,6 +87,34 @@ def ensure_context(func: Callable[P, T]) -> Callable[P, T]:
         if not self._session or self._session.closed:
             raise RuntimeError("Client session is not initialized or already closed.")
         return await func(self, *args, **kwargs)
+
+    return wrapper
+
+
+def log_method_call(func: Callable[P, T]) -> Callable[P, T]:
+    """Decorator to log method calls with performance metrics."""
+
+    @wraps(func)
+    async def wrapper(self: AsyncOutlineClient, *args: P.args, **kwargs: P.kwargs) -> T:
+        if not self._enable_logging:
+            return await func(self, *args, **kwargs)
+
+        method_name = func.__name__
+        start_time = time.perf_counter()
+
+        # Log method call (excluding sensitive data)
+        safe_kwargs = {k: v for k, v in kwargs.items() if k not in {'password', 'cert_sha256'}}
+        logger.debug(f"Calling {method_name} with args={args[1:]} kwargs={safe_kwargs}")
+
+        try:
+            result = await func(self, *args, **kwargs)
+            duration = time.perf_counter() - start_time
+            logger.debug(f"{method_name} completed in {duration:.3f}s")
+            return result
+        except Exception as e:
+            duration = time.perf_counter() - start_time
+            logger.error(f"{method_name} failed after {duration:.3f}s: {e}")
+            raise
 
     return wrapper
 
@@ -94,27 +129,61 @@ class AsyncOutlineClient:
         json_format: Return raw JSON instead of Pydantic models
         timeout: Request timeout in seconds
         retry_attempts: Number of retry attempts connecting to the API
+        enable_logging: Enable debug logging for API calls
+        user_agent: Custom user agent string
+        max_connections: Maximum number of connections in the pool
+        rate_limit_delay: Minimum delay between requests (seconds)
 
     Examples:
         >>> async def main():
         ...     async with AsyncOutlineClient(
         ...         "https://example.com:1234/secret",
-        ...         "ab12cd34..."
+        ...         "ab12cd34...",
+        ...         enable_logging=True
         ...     ) as client:
         ...         server_info = await client.get_server_info()
         ...         print(f"Server: {server_info.name}")
+        ...
+        ...     # Or use as context manager factory
+        ...     async with AsyncOutlineClient.create(
+        ...         "https://example.com:1234/secret",
+        ...         "ab12cd34..."
+        ...     ) as client:
+        ...         await client.get_server_info()
 
     """
 
     def __init__(
-        self,
-        api_url: str,
-        cert_sha256: str,
-        *,
-        json_format: bool = False,
-        timeout: int = 30,
-        retry_attempts: int = 3,
+            self,
+            api_url: str,
+            cert_sha256: str,
+            *,
+            json_format: bool = False,
+            timeout: int = 30,
+            retry_attempts: int = 3,
+            enable_logging: bool = False,
+            user_agent: Optional[str] = None,
+            max_connections: int = 10,
+            rate_limit_delay: float = 0.0,
     ) -> None:
+
+        # Validate api_url
+        if not api_url or not api_url.strip():
+            raise ValueError("api_url cannot be empty or whitespace")
+
+        # Validate cert_sha256
+        if not cert_sha256 or not cert_sha256.strip():
+            raise ValueError("cert_sha256 cannot be empty or whitespace")
+
+        # Additional validation for cert_sha256 format (should be hex)
+        cert_sha256_clean = cert_sha256.strip()
+        if not all(c in '0123456789abcdefABCDEF' for c in cert_sha256_clean):
+            raise ValueError("cert_sha256 must contain only hexadecimal characters")
+
+        # Check cert_sha256 length (SHA-256 should be 64 hex characters)
+        if len(cert_sha256_clean) != 64:
+            raise ValueError("cert_sha256 must be exactly 64 hexadecimal characters (SHA-256)")
+
         self._api_url = api_url.rstrip("/")
         self._cert_sha256 = cert_sha256
         self._json_format = json_format
@@ -122,14 +191,70 @@ class AsyncOutlineClient:
         self._ssl_context: Optional[Fingerprint] = None
         self._session: Optional[aiohttp.ClientSession] = None
         self._retry_attempts = retry_attempts
+        self._enable_logging = enable_logging
+        self._user_agent = user_agent or f"PyOutlineAPI/0.3.0"
+        self._max_connections = max_connections
+        self._rate_limit_delay = rate_limit_delay
+        self._last_request_time: float = 0.0
+
+        # Health check state
+        self._last_health_check: float = 0.0
+        self._health_check_interval: float = 300.0  # 5 minutes
+        self._is_healthy: bool = True
+
+        if enable_logging:
+            self._setup_logging()
+
+    @staticmethod
+    def _setup_logging() -> None:
+        """Setup logging configuration if not already configured."""
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+
+    @classmethod
+    @asynccontextmanager
+    async def create(
+            cls,
+            api_url: str,
+            cert_sha256: str,
+            **kwargs
+    ) -> AsyncGenerator[AsyncOutlineClient, None]:
+        """
+        Factory method that returns an async context manager.
+
+        This is the recommended way to create clients for one-off operations.
+        """
+        client = cls(api_url, cert_sha256, **kwargs)
+        async with client:
+            yield client
 
     async def __aenter__(self) -> AsyncOutlineClient:
         """Set up client session."""
+        headers = {"User-Agent": self._user_agent}
+
+        connector = aiohttp.TCPConnector(
+            ssl=self._get_ssl_context(),
+            limit=self._max_connections,
+            limit_per_host=self._max_connections // 2,
+            enable_cleanup_closed=True,
+        )
+
         self._session = aiohttp.ClientSession(
             timeout=self._timeout,
             raise_for_status=False,
-            connector=aiohttp.TCPConnector(ssl=self._get_ssl_context()),
+            connector=connector,
+            headers=headers,
         )
+
+        if self._enable_logging:
+            logger.info(f"Initialized OutlineAPI client for {self._api_url}")
+
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -138,33 +263,82 @@ class AsyncOutlineClient:
             await self._session.close()
             self._session = None
 
-    @overload
-    async def _parse_response(
-        self,
-        response: ClientResponse,
-        model: type[BaseModel],
-        json_format: Literal[True],
-    ) -> JsonDict: ...
+            if self._enable_logging:
+                logger.info("OutlineAPI client session closed")
+
+    async def _apply_rate_limiting(self) -> None:
+        """Apply rate limiting if configured."""
+        if self._rate_limit_delay <= 0:
+            return
+
+        time_since_last = time.time() - self._last_request_time
+        if time_since_last < self._rate_limit_delay:
+            delay = self._rate_limit_delay - time_since_last
+            await asyncio.sleep(delay)
+
+        self._last_request_time = time.time()
+
+    async def health_check(self, force: bool = False) -> bool:
+        """
+        Perform a health check on the Outline server.
+
+        Args:
+            force: Force health check even if recently performed
+
+        Returns:
+            True if server is healthy
+        """
+        current_time = time.time()
+
+        if not force and (current_time - self._last_health_check) < self._health_check_interval:
+            return self._is_healthy
+
+        try:
+            await self.get_server_info()
+            self._is_healthy = True
+            if self._enable_logging:
+                logger.info("Health check passed")
+
+            return self._is_healthy
+        except Exception as e:
+            self._is_healthy = False
+            if self._enable_logging:
+                logger.warning(f"Health check failed: {e}")
+
+            return self._is_healthy
+        finally:
+            self._last_health_check = current_time
 
     @overload
     async def _parse_response(
-        self,
-        response: ClientResponse,
-        model: type[BaseModel],
-        json_format: Literal[False],
-    ) -> BaseModel: ...
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: Literal[True],
+    ) -> JsonDict:
+        ...
 
     @overload
     async def _parse_response(
-        self, response: ClientResponse, model: type[BaseModel], json_format: bool
-    ) -> ResponseType: ...
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: Literal[False],
+    ) -> BaseModel:
+        ...
+
+    @overload
+    async def _parse_response(
+            self, response: ClientResponse, model: type[BaseModel], json_format: bool
+    ) -> ResponseType:
+        ...
 
     @ensure_context
     async def _parse_response(
-        self,
-        response: ClientResponse,
-        model: type[BaseModel],
-        json_format: bool = False,
+            self,
+            response: ClientResponse,
+            model: type[BaseModel],
+            json_format: bool = False,
     ) -> ResponseType:
         """
         Parse and validate API response data.
@@ -203,34 +377,43 @@ class AsyncOutlineClient:
 
     @ensure_context
     async def _request(
-        self,
-        method: str,
-        endpoint: str,
-        *,
-        json: Any = None,
-        params: Optional[JsonDict] = None,
+            self,
+            method: str,
+            endpoint: str,
+            *,
+            json: Any = None,
+            params: Optional[JsonDict] = None,
     ) -> Any:
         """Make an API request."""
+        await self._apply_rate_limiting()
         url = self._build_url(endpoint)
         return await self._make_request(method, url, json, params)
 
     async def _make_request(
-        self,
-        method: str,
-        url: str,
-        json: Any = None,
-        params: Optional[JsonDict] = None,
+            self,
+            method: str,
+            url: str,
+            json: Any = None,
+            params: Optional[JsonDict] = None,
     ) -> Any:
         """Internal method to execute the actual request with retry logic."""
 
         async def _do_request() -> Any:
+            if self._enable_logging:
+                # Don't log sensitive data
+                safe_url = url.split('?')[0] if '?' in url else url
+                logger.debug(f"Making {method} request to {safe_url}")
+
             async with self._session.request(
-                method,
-                url,
-                json=json,
-                params=params,
-                raise_for_status=False,
+                    method,
+                    url,
+                    json=json,
+                    params=params,
+                    raise_for_status=False,
             ) as response:
+                if self._enable_logging:
+                    logger.debug(f"Response: {response.status} {response.reason}")
+
                 if response.status >= 400:
                     await self._handle_error_response(response)
 
@@ -248,10 +431,10 @@ class AsyncOutlineClient:
 
     @staticmethod
     async def _retry_request(
-        request_func: Callable[[], Awaitable[T]],
-        *,
-        attempts: int = DEFAULT_RETRY_ATTEMPTS,
-        delay: float = DEFAULT_RETRY_DELAY,
+            request_func: Callable[[], Awaitable[T]],
+            *,
+            attempts: int = DEFAULT_RETRY_ATTEMPTS,
+            delay: float = DEFAULT_RETRY_DELAY,
     ) -> T:
         """
         Execute request with retry logic.
@@ -277,7 +460,7 @@ class AsyncOutlineClient:
 
                 # Don't retry if it's not a retriable error
                 if isinstance(error, APIError) and (
-                    error.status_code not in RETRY_STATUS_CODES
+                        error.status_code not in RETRY_STATUS_CODES
                 ):
                     raise
 
@@ -319,6 +502,7 @@ class AsyncOutlineClient:
 
     # Server Management Methods
 
+    @log_method_call
     async def get_server_info(self) -> Union[JsonDict, Server]:
         """
         Get server information.
@@ -340,6 +524,7 @@ class AsyncOutlineClient:
             response, Server, json_format=self._json_format
         )
 
+    @log_method_call
     async def rename_server(self, name: str) -> bool:
         """
         Rename the server.
@@ -365,6 +550,7 @@ class AsyncOutlineClient:
             "PUT", "name", json=request.model_dump(by_alias=True)
         )
 
+    @log_method_call
     async def set_hostname(self, hostname: str) -> bool:
         """
         Set server hostname for access keys.
@@ -395,6 +581,7 @@ class AsyncOutlineClient:
             json=request.model_dump(by_alias=True),
         )
 
+    @log_method_call
     async def set_default_port(self, port: int) -> bool:
         """
         Set default port for new access keys.
@@ -430,6 +617,7 @@ class AsyncOutlineClient:
 
     # Metrics Methods
 
+    @log_method_call
     async def get_metrics_status(self) -> Union[JsonDict, MetricsStatusResponse]:
         """
         Get whether metrics collection is enabled.
@@ -452,6 +640,7 @@ class AsyncOutlineClient:
             response, MetricsStatusResponse, json_format=self._json_format
         )
 
+    @log_method_call
     async def set_metrics_status(self, enabled: bool) -> bool:
         """
         Enable or disable metrics collection.
@@ -478,6 +667,7 @@ class AsyncOutlineClient:
             "PUT", "metrics/enabled", json=request.model_dump(by_alias=True)
         )
 
+    @log_method_call
     async def get_transfer_metrics(self) -> Union[JsonDict, ServerMetrics]:
         """
         Get transfer metrics for all access keys.
@@ -500,8 +690,9 @@ class AsyncOutlineClient:
             response, ServerMetrics, json_format=self._json_format
         )
 
+    @log_method_call
     async def get_experimental_metrics(
-        self, since: Optional[str] = None
+            self, since: Optional[str] = None
     ) -> Union[JsonDict, ExperimentalMetrics]:
         """
         Get experimental server metrics.
@@ -532,14 +723,15 @@ class AsyncOutlineClient:
 
     # Access Key Management Methods
 
+    @log_method_call
     async def create_access_key(
-        self,
-        *,
-        name: Optional[str] = None,
-        password: Optional[str] = None,
-        port: Optional[int] = None,
-        method: Optional[str] = None,
-        limit: Optional[DataLimit] = None,
+            self,
+            *,
+            name: Optional[str] = None,
+            password: Optional[str] = None,
+            port: Optional[int] = None,
+            method: Optional[str] = None,
+            limit: Optional[DataLimit] = None,
     ) -> Union[JsonDict, AccessKey]:
         """
         Create a new access key.
@@ -584,15 +776,16 @@ class AsyncOutlineClient:
             response, AccessKey, json_format=self._json_format
         )
 
+    @log_method_call
     async def create_access_key_with_id(
-        self,
-        key_id: str,
-        *,
-        name: Optional[str] = None,
-        password: Optional[str] = None,
-        port: Optional[int] = None,
-        method: Optional[str] = None,
-        limit: Optional[DataLimit] = None,
+            self,
+            key_id: str,
+            *,
+            name: Optional[str] = None,
+            password: Optional[str] = None,
+            port: Optional[int] = None,
+            method: Optional[str] = None,
+            limit: Optional[DataLimit] = None,
     ) -> Union[JsonDict, AccessKey]:
         """
         Create a new access key with specific ID.
@@ -631,6 +824,7 @@ class AsyncOutlineClient:
             response, AccessKey, json_format=self._json_format
         )
 
+    @log_method_call
     async def get_access_keys(self) -> Union[JsonDict, AccessKeyList]:
         """
         Get all access keys.
@@ -655,6 +849,7 @@ class AsyncOutlineClient:
             response, AccessKeyList, json_format=self._json_format
         )
 
+    @log_method_call
     async def get_access_key(self, key_id: str) -> Union[JsonDict, AccessKey]:
         """
         Get specific access key.
@@ -683,6 +878,7 @@ class AsyncOutlineClient:
             response, AccessKey, json_format=self._json_format
         )
 
+    @log_method_call
     async def rename_access_key(self, key_id: str, name: str) -> bool:
         """
         Rename access key.
@@ -715,6 +911,7 @@ class AsyncOutlineClient:
             "PUT", f"access-keys/{key_id}/name", json=request.model_dump(by_alias=True)
         )
 
+    @log_method_call
     async def delete_access_key(self, key_id: str) -> bool:
         """
         Delete access key.
@@ -739,6 +936,7 @@ class AsyncOutlineClient:
         """
         return await self._request("DELETE", f"access-keys/{key_id}")
 
+    @log_method_call
     async def set_access_key_data_limit(self, key_id: str, bytes_limit: int) -> bool:
         """
         Set data transfer limit for access key.
@@ -774,6 +972,7 @@ class AsyncOutlineClient:
             json=request.model_dump(by_alias=True),
         )
 
+    @log_method_call
     async def remove_access_key_data_limit(self, key_id: str) -> bool:
         """
         Remove data transfer limit from access key.
@@ -799,6 +998,7 @@ class AsyncOutlineClient:
 
     # Global Data Limit Methods
 
+    @log_method_call
     async def set_global_data_limit(self, bytes_limit: int) -> bool:
         """
         Set global data transfer limit for all access keys.
@@ -825,6 +1025,7 @@ class AsyncOutlineClient:
             json=request.model_dump(by_alias=True),
         )
 
+    @log_method_call
     async def remove_global_data_limit(self) -> bool:
         """
         Remove global data transfer limit.
@@ -842,7 +1043,130 @@ class AsyncOutlineClient:
         """
         return await self._request("DELETE", "server/access-key-data-limit")
 
+    # Batch Operations
+
+    async def batch_create_access_keys(
+            self,
+            keys_config: list[dict[str, Any]],
+            fail_fast: bool = True
+    ) -> list[Union[AccessKey, Exception]]:
+        """
+        Create multiple access keys in batch.
+
+        Args:
+            keys_config: List of key configurations (same as create_access_key kwargs)
+            fail_fast: If True, stop on first error. If False, continue and return errors.
+
+        Returns:
+            List of created keys or exceptions
+
+        Examples:
+            >>> async def main():
+            ...     async with AsyncOutlineClient(
+            ...         "https://example.com:1234/secret",
+            ...         "ab12cd34..."
+            ...     ) as client:
+            ...         configs = [
+            ...             {"name": "User1", "limit": DataLimit(bytes=1024**3)},
+            ...             {"name": "User2", "port": 8388},
+            ...         ]
+            ...         res = await client.batch_create_access_keys(configs)
+        """
+        results = []
+
+        for config in keys_config:
+            try:
+                key = await self.create_access_key(**config)
+                results.append(key)
+            except Exception as e:
+                if fail_fast:
+                    raise
+                results.append(e)
+
+        return results
+
+    async def get_server_summary(self) -> dict[str, Any]:
+        """
+        Get comprehensive server summary including info, metrics, and key count.
+
+        Returns:
+            Dictionary with server info, health status, and statistics
+        """
+        summary = {}
+
+        try:
+            # Get basic server info
+            server_info = await self.get_server_info()
+            summary["server"] = server_info.model_dump() if isinstance(server_info, BaseModel) else server_info
+
+            # Get access keys count
+            keys = await self.get_access_keys()
+            key_list = keys.access_keys if isinstance(keys, BaseModel) else keys.get("accessKeys", [])
+            summary["access_keys_count"] = len(key_list)
+
+            # Get metrics if available
+            try:
+                metrics_status = await self.get_metrics_status()
+                if (isinstance(metrics_status, BaseModel) and metrics_status.metrics_enabled) or \
+                        (isinstance(metrics_status, dict) and metrics_status.get("metricsEnabled")):
+                    transfer_metrics = await self.get_transfer_metrics()
+                    summary["metrics"] = transfer_metrics.model_dump() if isinstance(transfer_metrics,
+                                                                                     BaseModel) else transfer_metrics
+            except Exception:
+                summary["metrics"] = None
+
+            summary["healthy"] = True
+
+        except Exception as e:
+            summary["healthy"] = False
+            summary["error"] = str(e)
+
+        return summary
+
+    # Utility and management methods
+
+    def configure_logging(self, level: str = "INFO", format_string: Optional[str] = None) -> None:
+        """
+        Configure logging for the client.
+
+        Args:
+            level: Logging level (DEBUG, INFO, WARNING, ERROR)
+            format_string: Custom format string for log messages
+        """
+        self._enable_logging = True
+
+        # Clear existing handlers
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler()
+        if format_string:
+            formatter = logging.Formatter(format_string)
+        else:
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.setLevel(getattr(logging, level.upper()))
+
+    @property
+    def is_healthy(self) -> bool:
+        """Check if the last health check passed."""
+        return self._is_healthy
+
     @property
     def session(self) -> Optional[aiohttp.ClientSession]:
         """Access the current client session."""
         return self._session
+
+    @property
+    def api_url(self) -> str:
+        """Get the API URL (without sensitive parts)."""
+        from urllib.parse import urlparse
+        parsed = urlparse(self._api_url)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    def __repr__(self) -> str:
+        """String representation of the client."""
+        status = "connected" if self._session and not self._session.closed else "disconnected"
+        return f"AsyncOutlineClient(url={self.api_url}, status={status})"
