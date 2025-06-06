@@ -383,15 +383,22 @@ pyoutlineapi    </h1>
 
                         <div class="docstring"><p>PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.</p>
 
-<p>Copyright (c) 2025 Denis Rozhnovskiy <a href="&#109;&#97;&#105;&#108;&#x74;&#111;&#58;&#x70;&#x79;&#x74;&#101;&#x6c;&#x65;&#x6d;&#111;&#110;b&#111;&#116;&#64;&#109;&#x61;&#x69;&#108;&#46;r&#x75;">&#x70;&#x79;&#x74;&#101;&#x6c;&#x65;&#x6d;&#111;&#110;b&#111;&#116;&#64;&#109;&#x61;&#x69;&#108;&#46;r&#x75;</a>
+<p>Copyright (c) 2025 Denis Rozhnovskiy <a href="&#x6d;&#97;&#105;lt&#x6f;&#x3a;&#112;&#121;&#116;&#x65;&#x6c;e&#109;&#x6f;&#110;&#98;&#111;&#x74;&#64;&#x6d;&#x61;i&#x6c;&#x2e;&#114;&#117;">&#112;&#121;&#116;&#x65;&#x6c;e&#109;&#x6f;&#110;&#98;&#111;&#x74;&#64;&#x6d;&#x61;i&#x6c;&#x2e;&#114;&#117;</a>
 All rights reserved.</p>
 
-<p>This software is licensed under the MIT License.
-You can find the full license text at:
-    <a href="https://opensource.org/licenses/MIT">https://opensource.org/licenses/MIT</a></p>
+<p>This software is licensed under the MIT License.</p>
 
-<p>Source code repository:
-    <a href="https://github.com/orenlab/pyoutlineapi">https://github.com/orenlab/pyoutlineapi</a></p>
+<h6 id="you-can-find-the-full-license-text-at">You can find the full license text at:</h6>
+
+<blockquote>
+  <p><a href="https://opensource.org/licenses/MIT">https://opensource.org/licenses/MIT</a></p>
+</blockquote>
+
+<h6 id="source-code-repository">Source code repository:</h6>
+
+<blockquote>
+  <p><a href="https://github.com/orenlab/pyoutlineapi">https://github.com/orenlab/pyoutlineapi</a></p>
+</blockquote>
 </div>
 
                         <input id="mod-pyoutlineapi-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
@@ -1286,27 +1293,29 @@ You can find the full license text at:
 
             <div class="docstring"><p>Asynchronous client for the Outline VPN Server API.</p>
 
-<p>Args:
-    api_url: Base URL for the Outline server API
-    cert_sha256: SHA-256 fingerprint of the server's TLS certificate
-    json_format: Return raw JSON instead of Pydantic models
-    timeout: Request timeout in seconds
-    retry_attempts: Number of retry attempts connecting to the API</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Examples:</p>
+<ul>
+<li><strong>api_url:</strong>  Base URL for the Outline server API</li>
+<li><strong>cert_sha256:</strong>  SHA-256 fingerprint of the server's TLS certificate</li>
+<li><strong>json_format:</strong>  Return raw JSON instead of Pydantic models</li>
+<li><strong>timeout:</strong>  Request timeout in seconds</li>
+<li><strong>retry_attempts:</strong>  Number of retry attempts connecting to the API</li>
+</ul>
+
+<h6 id="examples">Examples:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         server_info = await client.get_server_info()
-          ...         print(f"Server: {server_info.name}")</p>
-    </blockquote>
-  </blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="n">server_info</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_server_info</span><span class="p">()</span>
+<span class="gp">... </span>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Server: </span><span class="si">{</span><span class="n">server_info</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -1379,23 +1388,25 @@ You can find the full license text at:
 
             <div class="docstring"><p>Get server information.</p>
 
-<p>Returns:
-    Server information including name, ID, and configuration.</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         server = await client.get_server_info()
-          ...         print(f"Server {server.name} running version {server.version}")</p>
-    </blockquote>
-  </blockquote>
+  <p>Server information including name, ID, and configuration.</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="n">server</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_server_info</span><span class="p">()</span>
+<span class="gp">... </span>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Server </span><span class="si">{</span><span class="n">server</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> running version </span><span class="si">{</span><span class="n">server</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -1441,27 +1452,32 @@ You can find the full license text at:
 
             <div class="docstring"><p>Rename the server.</p>
 
-<p>Args:
-    name: New server name</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    True if successful</p>
+<ul>
+<li><strong>name:</strong>  New server name</li>
+</ul>
 
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         success = await client.rename_server("My VPN Server")
-          ...         if success:
-          ...             print("Server renamed successfully")</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="n">success</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">rename_server</span><span class="p">(</span><span class="s2">&quot;My VPN Server&quot;</span><span class="p">)</span>
+<span class="gp">... </span>        <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
+<span class="gp">... </span>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Server renamed successfully&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -1512,30 +1528,38 @@ You can find the full license text at:
 
             <div class="docstring"><p>Set server hostname for access keys.</p>
 
-<p>Args:
-    hostname: New hostname or IP address</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    True if successful</p>
+<ul>
+<li><strong>hostname:</strong>  New hostname or IP address</li>
+</ul>
 
-<p>Raises:
-    APIError: If hostname is invalid</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         await client.set_hostname("vpn.example.com")
-          ...         # Or use IP address
-          ...         await client.set_hostname("203.0.113.1")</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>APIError:</strong>  If hostname is invalid</li>
+</ul>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">set_hostname</span><span class="p">(</span><span class="s2">&quot;vpn.example.com&quot;</span><span class="p">)</span>
+<span class="gp">... </span>        <span class="c1"># Or use IP address</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">set_hostname</span><span class="p">(</span><span class="s2">&quot;203.0.113.1&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -1589,28 +1613,36 @@ You can find the full license text at:
 
             <div class="docstring"><p>Set default port for new access keys.</p>
 
-<p>Args:
-    port: Port number (1025-65535)</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    True if successful</p>
+<ul>
+<li><strong>port:</strong>  Port number (1025-65535)</li>
+</ul>
 
-<p>Raises:
-    APIError: If port is invalid or in use</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         await client.set_default_port(8388)</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>APIError:</strong>  If port is invalid or in use</li>
+</ul>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">set_default_port</span><span class="p">(</span><span class="mi">8388</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -1653,24 +1685,26 @@ You can find the full license text at:
 
             <div class="docstring"><p>Get whether metrics collection is enabled.</p>
 
-<p>Returns:
-    Current metrics collection status</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         status = await client.get_metrics_status()
-          ...         if status.metrics_enabled:
-          ...             print("Metrics collection is enabled")</p>
-    </blockquote>
-  </blockquote>
+  <p>Current metrics collection status</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="n">status</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_metrics_status</span><span class="p">()</span>
+<span class="gp">... </span>        <span class="k">if</span> <span class="n">status</span><span class="o">.</span><span class="n">metrics_enabled</span><span class="p">:</span>
+<span class="gp">... </span>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Metrics collection is enabled&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -1717,28 +1751,33 @@ You can find the full license text at:
 
             <div class="docstring"><p>Enable or disable metrics collection.</p>
 
-<p>Args:
-    enabled: Whether to enable metrics</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    True if successful</p>
+<ul>
+<li><strong>enabled:</strong>  Whether to enable metrics</li>
+</ul>
 
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         # Enable metrics
-          ...         await client.set_metrics_status(True)
-          ...         # Check new status
-          ...         status = await client.get_metrics_status()</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="c1"># Enable metrics</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">set_metrics_status</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">... </span>        <span class="c1"># Check new status</span>
+<span class="gp">... </span>        <span class="n">status</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_metrics_status</span><span class="p">()</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -1781,24 +1820,26 @@ You can find the full license text at:
 
             <div class="docstring"><p>Get transfer metrics for all access keys.</p>
 
-<p>Returns:
-    Transfer metrics data for each access key</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         metrics = await client.get_transfer_metrics()
-          ...         for user_id, bytes_transferred in metrics.bytes_transferred_by_user_id.items():
-          ...             print(f"User {user_id}: {bytes_transferred / 1024**3:.2f} GB")</p>
-    </blockquote>
-  </blockquote>
+  <p>Transfer metrics data for each access key</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="n">metrics</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_transfer_metrics</span><span class="p">()</span>
+<span class="gp">... </span>        <span class="k">for</span> <span class="n">user_id</span><span class="p">,</span> <span class="n">bytes_transferred</span> <span class="ow">in</span> <span class="n">metrics</span><span class="o">.</span><span class="n">bytes_transferred_by_user_id</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<span class="gp">... </span>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;User </span><span class="si">{</span><span class="n">user_id</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">bytes_transferred</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">3</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> GB&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -1849,27 +1890,32 @@ You can find the full license text at:
 
             <div class="docstring"><p>Get experimental server metrics.</p>
 
-<p>Args:
-    since: Optional time range filter</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    Detailed server and access key metrics</p>
+<ul>
+<li><strong>since:</strong>  Optional time range filter</li>
+</ul>
 
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         metrics = await client.get_experimental_metrics()
-          ...         print(f"Server tunnel time: {metrics.server.tunnel_time.seconds}s")
-          ...         print(f"Server data transferred: {metrics.server.data_transferred.bytes} bytes")</p>
-    </blockquote>
-  </blockquote>
+  <p>Detailed server and access key metrics</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="n">metrics</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_experimental_metrics</span><span class="p">()</span>
+<span class="gp">... </span>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Server tunnel time: </span><span class="si">{</span><span class="n">metrics</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">tunnel_time</span><span class="o">.</span><span class="n">seconds</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+<span class="gp">... </span>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Server data transferred: </span><span class="si">{</span><span class="n">metrics</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">data_transferred</span><span class="o">.</span><span class="n">bytes</span><span class="si">}</span><span class="s2"> bytes&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -1942,39 +1988,44 @@ You can find the full license text at:
 
             <div class="docstring"><p>Create a new access key.</p>
 
-<p>Args:
-    name: Optional key name
-    password: Optional password
-    port: Optional port number (1-65535)
-    method: Optional encryption method
-    limit: Optional data transfer limit</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    New access key details</p>
+<ul>
+<li><strong>name:</strong>  Optional key name</li>
+<li><strong>password:</strong>  Optional password</li>
+<li><strong>port:</strong>  Optional port number (1-65535)</li>
+<li><strong>method:</strong>  Optional encryption method</li>
+<li><strong>limit:</strong>  Optional data transfer limit</li>
+</ul>
 
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         # Create basic key
-          ...         key = await client.create_access_key(name="User 1")
-          ...
-          ...         # Create key with data limit
-          ...         lim = DataLimit(bytes=5 * 1024**3)  # 5 GB
-          ...         key = await client.create_access_key(
-          ...             name="Limited User",
-          ...             port=8388,
-          ...             limit=lim
-          ...         )
-          ...         print(f"Created key: {key.access_url}")</p>
-    </blockquote>
-  </blockquote>
+  <p>New access key details</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="c1"># Create basic key</span>
+<span class="gp">... </span>        <span class="n">key</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">create_access_key</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;User 1&quot;</span><span class="p">)</span>
+<span class="gp">...</span>
+<span class="gp">... </span>        <span class="c1"># Create key with data limit</span>
+<span class="gp">... </span>        <span class="n">lim</span> <span class="o">=</span> <span class="n">DataLimit</span><span class="p">(</span><span class="nb">bytes</span><span class="o">=</span><span class="mi">5</span> <span class="o">*</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">3</span><span class="p">)</span>  <span class="c1"># 5 GB</span>
+<span class="gp">... </span>        <span class="n">key</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">create_access_key</span><span class="p">(</span>
+<span class="gp">... </span>            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Limited User&quot;</span><span class="p">,</span>
+<span class="gp">... </span>            <span class="n">port</span><span class="o">=</span><span class="mi">8388</span><span class="p">,</span>
+<span class="gp">... </span>            <span class="n">limit</span><span class="o">=</span><span class="n">lim</span>
+<span class="gp">... </span>        <span class="p">)</span>
+<span class="gp">... </span>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created key: </span><span class="si">{</span><span class="n">key</span><span class="o">.</span><span class="n">access_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -2042,33 +2093,38 @@ You can find the full license text at:
 
             <div class="docstring"><p>Create a new access key with specific ID.</p>
 
-<p>Args:
-    key_id: Specific ID for the access key
-    name: Optional key name
-    password: Optional password
-    port: Optional port number (1-65535)
-    method: Optional encryption method
-    limit: Optional data transfer limit</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    New access key details</p>
+<ul>
+<li><strong>key_id:</strong>  Specific ID for the access key</li>
+<li><strong>name:</strong>  Optional key name</li>
+<li><strong>password:</strong>  Optional password</li>
+<li><strong>port:</strong>  Optional port number (1-65535)</li>
+<li><strong>method:</strong>  Optional encryption method</li>
+<li><strong>limit:</strong>  Optional data transfer limit</li>
+</ul>
 
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         key = await client.create_access_key_with_id(
-          ...             "my-custom-id",
-          ...             name="Custom Key"
-          ...         )</p>
-    </blockquote>
-  </blockquote>
+  <p>New access key details</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="n">key</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">create_access_key_with_id</span><span class="p">(</span>
+<span class="gp">... </span>            <span class="s2">&quot;my-custom-id&quot;</span><span class="p">,</span>
+<span class="gp">... </span>            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Custom Key&quot;</span>
+<span class="gp">... </span>        <span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -2113,26 +2169,28 @@ You can find the full license text at:
 
             <div class="docstring"><p>Get all access keys.</p>
 
-<p>Returns:
-    List of all access keys</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         keys = await client.get_access_keys()
-          ...         for key in keys.access_keys:
-          ...             print(f"Key {key.id}: {key.name or 'unnamed'}")
-          ...             if key.data_limit:
-          ...                 print(f"  Limit: {key.data_limit.bytes / 1024**3:.1f} GB")</p>
-    </blockquote>
-  </blockquote>
+  <p>List of all access keys</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="n">keys</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_access_keys</span><span class="p">()</span>
+<span class="gp">... </span>        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">keys</span><span class="o">.</span><span class="n">access_keys</span><span class="p">:</span>
+<span class="gp">... </span>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Key </span><span class="si">{</span><span class="n">key</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">key</span><span class="o">.</span><span class="n">name</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="s1">&#39;unnamed&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span>            <span class="k">if</span> <span class="n">key</span><span class="o">.</span><span class="n">data_limit</span><span class="p">:</span>
+<span class="gp">... </span>                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Limit: </span><span class="si">{</span><span class="n">key</span><span class="o">.</span><span class="n">data_limit</span><span class="o">.</span><span class="n">bytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">3</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> GB&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -2181,30 +2239,38 @@ You can find the full license text at:
 
             <div class="docstring"><p>Get specific access key.</p>
 
-<p>Args:
-    key_id: Access key ID</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    Access key details</p>
+<ul>
+<li><strong>key_id:</strong>  Access key ID</li>
+</ul>
 
-<p>Raises:
-    APIError: If key doesn't exist</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         key = await client.get_access_key("1")
-          ...         print(f"Port: {key.port}")
-          ...         print(f"URL: {key.access_url}")</p>
-    </blockquote>
-  </blockquote>
+  <p>Access key details</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>APIError:</strong>  If key doesn't exist</li>
+</ul>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="n">key</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_access_key</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">)</span>
+<span class="gp">... </span>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Port: </span><span class="si">{</span><span class="n">key</span><span class="o">.</span><span class="n">port</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;URL: </span><span class="si">{</span><span class="n">key</span><span class="o">.</span><span class="n">access_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -2257,34 +2323,42 @@ You can find the full license text at:
 
             <div class="docstring"><p>Rename access key.</p>
 
-<p>Args:
-    key_id: Access key ID
-    name: New name</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    True if successful</p>
+<ul>
+<li><strong>key_id:</strong>  Access key ID</li>
+<li><strong>name:</strong>  New name</li>
+</ul>
 
-<p>Raises:
-    APIError: If key doesn't exist</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         # Rename key
-          ...         await client.rename_access_key("1", "Alice")
-          ...
-          ...         # Verify new name
-          ...         key = await client.get_access_key("1")
-          ...         assert key.name == "Alice"</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>APIError:</strong>  If key doesn't exist</li>
+</ul>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="c1"># Rename key</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">rename_access_key</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="s2">&quot;Alice&quot;</span><span class="p">)</span>
+<span class="gp">...</span>
+<span class="gp">... </span>        <span class="c1"># Verify new name</span>
+<span class="gp">... </span>        <span class="n">key</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_access_key</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">)</span>
+<span class="gp">... </span>        <span class="k">assert</span> <span class="n">key</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;Alice&quot;</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -2329,29 +2403,37 @@ You can find the full license text at:
 
             <div class="docstring"><p>Delete access key.</p>
 
-<p>Args:
-    key_id: Access key ID</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    True if successful</p>
+<ul>
+<li><strong>key_id:</strong>  Access key ID</li>
+</ul>
 
-<p>Raises:
-    APIError: If key doesn't exist</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         if await client.delete_access_key("1"):
-          ...             print("Key deleted")</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>APIError:</strong>  If key doesn't exist</li>
+</ul>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="k">if</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">delete_access_key</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">):</span>
+<span class="gp">... </span>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Key deleted&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -2407,35 +2489,43 @@ You can find the full license text at:
 
             <div class="docstring"><p>Set data transfer limit for access key.</p>
 
-<p>Args:
-    key_id: Access key ID
-    bytes_limit: Limit in bytes (must be non-negative)</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    True if successful</p>
+<ul>
+<li><strong>key_id:</strong>  Access key ID</li>
+<li><strong>bytes_limit:</strong>  Limit in bytes (must be non-negative)</li>
+</ul>
 
-<p>Raises:
-    APIError: If key doesn't exist or limit is invalid</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         # Set 5 GB limit
-          ...         limit = 5 * 1024**3  # 5 GB in bytes
-          ...         await client.set_access_key_data_limit("1", limit)
-          ...
-          ...         # Verify limit
-          ...         key = await client.get_access_key("1")
-          ...         assert key.data_limit and key.data_limit.bytes == limit</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>APIError:</strong>  If key doesn't exist or limit is invalid</li>
+</ul>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="c1"># Set 5 GB limit</span>
+<span class="gp">... </span>        <span class="n">limit</span> <span class="o">=</span> <span class="mi">5</span> <span class="o">*</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">3</span>  <span class="c1"># 5 GB in bytes</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">set_access_key_data_limit</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="p">)</span>
+<span class="gp">...</span>
+<span class="gp">... </span>        <span class="c1"># Verify limit</span>
+<span class="gp">... </span>        <span class="n">key</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_access_key</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">)</span>
+<span class="gp">... </span>        <span class="k">assert</span> <span class="n">key</span><span class="o">.</span><span class="n">data_limit</span> <span class="ow">and</span> <span class="n">key</span><span class="o">.</span><span class="n">data_limit</span><span class="o">.</span><span class="n">bytes</span> <span class="o">==</span> <span class="n">limit</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -2479,28 +2569,36 @@ You can find the full license text at:
 
             <div class="docstring"><p>Remove data transfer limit from access key.</p>
 
-<p>Args:
-    key_id: Access key ID</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    True if successful</p>
+<ul>
+<li><strong>key_id:</strong>  Access key ID</li>
+</ul>
 
-<p>Raises:
-    APIError: If key doesn't exist</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         await client.remove_access_key_data_limit("1")</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>APIError:</strong>  If key doesn't exist</li>
+</ul>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">remove_access_key_data_limit</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -2547,26 +2645,31 @@ You can find the full license text at:
 
             <div class="docstring"><p>Set global data transfer limit for all access keys.</p>
 
-<p>Args:
-    bytes_limit: Limit in bytes (must be non-negative)</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    True if successful</p>
+<ul>
+<li><strong>bytes_limit:</strong>  Limit in bytes (must be non-negative)</li>
+</ul>
 
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         # Set 100 GB global limit
-          ...         await client.set_global_data_limit(100 * 1024**3)</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="c1"># Set 100 GB global limit</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">set_global_data_limit</span><span class="p">(</span><span class="mi">100</span> <span class="o">*</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">3</span><span class="p">)</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -2604,22 +2707,24 @@ You can find the full license text at:
 
             <div class="docstring"><p>Remove global data transfer limit.</p>
 
-<p>Returns:
-    True if successful</p>
-
-<p>Examples:</p>
+<h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <blockquote>
-    <blockquote>
-      <p>async def main():
-          ...     async with AsyncOutlineClient(
-          ...         "https://example.com:1234/secret",
-          ...         "ab12cd34..."
-          ...     ) as client:
-          ...         await client.remove_global_data_limit()</p>
-    </blockquote>
-  </blockquote>
+  <p>True if successful</p>
+</blockquote>
+
+<h6 id="examples">Examples:</h6>
+
+<blockquote>
+  <div class="pdoc-code codehilite">
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncOutlineClient</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="s2">&quot;https://example.com:1234/secret&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s2">&quot;ab12cd34...&quot;</span>
+<span class="gp">... </span>    <span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">remove_global_data_limit</span><span class="p">()</span>
+</code></pre>
+  </div>
 </blockquote>
 </div>
 
@@ -3139,10 +3244,13 @@ from the class' attributes.</p>
 <p>This class' __get__ returns the wrapped item's __get__ result,
 which makes it transparent for classmethods and staticmethods.</p>
 
-<p>Attributes:
-    wrapped: The decorator that has to be wrapped.
-    decorator_info: The decorator info.
-    shim: A wrapper function to wrap V1 style function.</p>
+<h6 id="attributes">Attributes:</h6>
+
+<ul>
+<li><strong>wrapped:</strong>  The decorator that has to be wrapped.</li>
+<li><strong>decorator_info:</strong>  The decorator info.</li>
+<li><strong>shim:</strong>  A wrapper function to wrap V1 style function.</li>
+</ul>
 </div>
 
 
