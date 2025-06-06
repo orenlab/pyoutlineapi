@@ -107,13 +107,13 @@ class AsyncOutlineClient:
     """
 
     def __init__(
-            self,
-            api_url: str,
-            cert_sha256: str,
-            *,
-            json_format: bool = False,
-            timeout: int = 30,
-            retry_attempts: int = 3,
+        self,
+        api_url: str,
+        cert_sha256: str,
+        *,
+        json_format: bool = False,
+        timeout: int = 30,
+        retry_attempts: int = 3,
     ) -> None:
         self._api_url = api_url.rstrip("/")
         self._cert_sha256 = cert_sha256
@@ -140,31 +140,31 @@ class AsyncOutlineClient:
 
     @overload
     async def _parse_response(
-            self,
-            response: ClientResponse,
-            model: type[BaseModel],
-            json_format: Literal[True],
-    ) -> JsonDict:
-        ...
+        self,
+        response: ClientResponse,
+        model: type[BaseModel],
+        json_format: Literal[True],
+    ) -> JsonDict: ...
 
     @overload
     async def _parse_response(
-            self,
-            response: ClientResponse,
-            model: type[BaseModel],
-            json_format: Literal[False],
-    ) -> BaseModel:
-        ...
+        self,
+        response: ClientResponse,
+        model: type[BaseModel],
+        json_format: Literal[False],
+    ) -> BaseModel: ...
 
     @overload
     async def _parse_response(
-            self, response: ClientResponse, model: type[BaseModel], json_format: bool
-    ) -> ResponseType:
-        ...
+        self, response: ClientResponse, model: type[BaseModel], json_format: bool
+    ) -> ResponseType: ...
 
     @ensure_context
     async def _parse_response(
-            self, response: ClientResponse, model: type[BaseModel], json_format: bool = False
+        self,
+        response: ClientResponse,
+        model: type[BaseModel],
+        json_format: bool = False,
     ) -> ResponseType:
         """
         Parse and validate API response data.
@@ -203,33 +203,33 @@ class AsyncOutlineClient:
 
     @ensure_context
     async def _request(
-            self,
-            method: str,
-            endpoint: str,
-            *,
-            json: Any = None,
-            params: Optional[JsonDict] = None,
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        json: Any = None,
+        params: Optional[JsonDict] = None,
     ) -> Any:
         """Make an API request."""
         url = self._build_url(endpoint)
         return await self._make_request(method, url, json, params)
 
     async def _make_request(
-            self,
-            method: str,
-            url: str,
-            json: Any = None,
-            params: Optional[JsonDict] = None,
+        self,
+        method: str,
+        url: str,
+        json: Any = None,
+        params: Optional[JsonDict] = None,
     ) -> Any:
         """Internal method to execute the actual request with retry logic."""
 
         async def _do_request() -> Any:
             async with self._session.request(
-                    method,
-                    url,
-                    json=json,
-                    params=params,
-                    raise_for_status=False,
+                method,
+                url,
+                json=json,
+                params=params,
+                raise_for_status=False,
             ) as response:
                 if response.status >= 400:
                     await self._handle_error_response(response)
@@ -248,10 +248,10 @@ class AsyncOutlineClient:
 
     @staticmethod
     async def _retry_request(
-            request_func: Callable[[], Awaitable[T]],
-            *,
-            attempts: int = DEFAULT_RETRY_ATTEMPTS,
-            delay: float = DEFAULT_RETRY_DELAY,
+        request_func: Callable[[], Awaitable[T]],
+        *,
+        attempts: int = DEFAULT_RETRY_ATTEMPTS,
+        delay: float = DEFAULT_RETRY_DELAY,
     ) -> T:
         """
         Execute request with retry logic.
@@ -277,7 +277,7 @@ class AsyncOutlineClient:
 
                 # Don't retry if it's not a retriable error
                 if isinstance(error, APIError) and (
-                        error.status_code not in RETRY_STATUS_CODES
+                    error.status_code not in RETRY_STATUS_CODES
                 ):
                     raise
 
@@ -336,7 +336,9 @@ class AsyncOutlineClient:
             ...         print(f"Server {server.name} running version {server.version}")
         """
         response = await self._request("GET", "server")
-        return await self._parse_response(response, Server, json_format=self._json_format)
+        return await self._parse_response(
+            response, Server, json_format=self._json_format
+        )
 
     async def rename_server(self, name: str) -> bool:
         """
@@ -359,7 +361,9 @@ class AsyncOutlineClient:
             ...             print("Server renamed successfully")
         """
         request = ServerNameRequest(name=name)
-        return await self._request("PUT", "name", json=request.model_dump(by_alias=True))
+        return await self._request(
+            "PUT", "name", json=request.model_dump(by_alias=True)
+        )
 
     async def set_hostname(self, hostname: str) -> bool:
         """
@@ -386,7 +390,9 @@ class AsyncOutlineClient:
         """
         request = HostnameRequest(hostname=hostname)
         return await self._request(
-            "PUT", "server/hostname-for-access-keys", json=request.model_dump(by_alias=True)
+            "PUT",
+            "server/hostname-for-access-keys",
+            json=request.model_dump(by_alias=True),
         )
 
     async def set_default_port(self, port: int) -> bool:
@@ -417,7 +423,9 @@ class AsyncOutlineClient:
 
         request = PortRequest(port=port)
         return await self._request(
-            "PUT", "server/port-for-new-access-keys", json=request.model_dump(by_alias=True)
+            "PUT",
+            "server/port-for-new-access-keys",
+            json=request.model_dump(by_alias=True),
         )
 
     # Metrics Methods
@@ -492,7 +500,9 @@ class AsyncOutlineClient:
             response, ServerMetrics, json_format=self._json_format
         )
 
-    async def get_experimental_metrics(self, since: Optional[str] = None) -> Union[JsonDict, ExperimentalMetrics]:
+    async def get_experimental_metrics(
+        self, since: Optional[str] = None
+    ) -> Union[JsonDict, ExperimentalMetrics]:
         """
         Get experimental server metrics.
 
@@ -513,7 +523,9 @@ class AsyncOutlineClient:
             ...         print(f"Server data transferred: {metrics.server.data_transferred.bytes} bytes")
         """
         params = {"since": since} if since else None
-        response = await self._request("GET", "experimental/server/metrics", params=params)
+        response = await self._request(
+            "GET", "experimental/server/metrics", params=params
+        )
         return await self._parse_response(
             response, ExperimentalMetrics, json_format=self._json_format
         )
@@ -521,13 +533,13 @@ class AsyncOutlineClient:
     # Access Key Management Methods
 
     async def create_access_key(
-            self,
-            *,
-            name: Optional[str] = None,
-            password: Optional[str] = None,
-            port: Optional[int] = None,
-            method: Optional[str] = None,
-            limit: Optional[DataLimit] = None,
+        self,
+        *,
+        name: Optional[str] = None,
+        password: Optional[str] = None,
+        port: Optional[int] = None,
+        method: Optional[str] = None,
+        limit: Optional[DataLimit] = None,
     ) -> Union[JsonDict, AccessKey]:
         """
         Create a new access key.
@@ -564,19 +576,23 @@ class AsyncOutlineClient:
             name=name, password=password, port=port, method=method, limit=limit
         )
         response = await self._request(
-            "POST", "access-keys", json=request.model_dump(exclude_none=True, by_alias=True)
+            "POST",
+            "access-keys",
+            json=request.model_dump(exclude_none=True, by_alias=True),
         )
-        return await self._parse_response(response, AccessKey, json_format=self._json_format)
+        return await self._parse_response(
+            response, AccessKey, json_format=self._json_format
+        )
 
     async def create_access_key_with_id(
-            self,
-            key_id: str,
-            *,
-            name: Optional[str] = None,
-            password: Optional[str] = None,
-            port: Optional[int] = None,
-            method: Optional[str] = None,
-            limit: Optional[DataLimit] = None,
+        self,
+        key_id: str,
+        *,
+        name: Optional[str] = None,
+        password: Optional[str] = None,
+        port: Optional[int] = None,
+        method: Optional[str] = None,
+        limit: Optional[DataLimit] = None,
     ) -> Union[JsonDict, AccessKey]:
         """
         Create a new access key with specific ID.
@@ -607,9 +623,13 @@ class AsyncOutlineClient:
             name=name, password=password, port=port, method=method, limit=limit
         )
         response = await self._request(
-            "PUT", f"access-keys/{key_id}", json=request.model_dump(exclude_none=True, by_alias=True)
+            "PUT",
+            f"access-keys/{key_id}",
+            json=request.model_dump(exclude_none=True, by_alias=True),
         )
-        return await self._parse_response(response, AccessKey, json_format=self._json_format)
+        return await self._parse_response(
+            response, AccessKey, json_format=self._json_format
+        )
 
     async def get_access_keys(self) -> Union[JsonDict, AccessKeyList]:
         """
@@ -631,7 +651,9 @@ class AsyncOutlineClient:
             ...                 print(f"  Limit: {key.data_limit.bytes / 1024**3:.1f} GB")
         """
         response = await self._request("GET", "access-keys")
-        return await self._parse_response(response, AccessKeyList, json_format=self._json_format)
+        return await self._parse_response(
+            response, AccessKeyList, json_format=self._json_format
+        )
 
     async def get_access_key(self, key_id: str) -> Union[JsonDict, AccessKey]:
         """
@@ -657,7 +679,9 @@ class AsyncOutlineClient:
             ...         print(f"URL: {key.access_url}")
         """
         response = await self._request("GET", f"access-keys/{key_id}")
-        return await self._parse_response(response, AccessKey, json_format=self._json_format)
+        return await self._parse_response(
+            response, AccessKey, json_format=self._json_format
+        )
 
     async def rename_access_key(self, key_id: str, name: str) -> bool:
         """
@@ -796,7 +820,9 @@ class AsyncOutlineClient:
         """
         request = DataLimitRequest(limit=DataLimit(bytes=bytes_limit))
         return await self._request(
-            "PUT", "server/access-key-data-limit", json=request.model_dump(by_alias=True)
+            "PUT",
+            "server/access-key-data-limit",
+            json=request.model_dump(by_alias=True),
         )
 
     async def remove_global_data_limit(self) -> bool:

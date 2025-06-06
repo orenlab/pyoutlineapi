@@ -53,7 +53,8 @@ if TYPE_CHECKING:
         PortRequest,
         Server,
         ServerMetrics,
-        ServerNameRequest, MetricsPeriod,
+        ServerNameRequest,
+        MetricsPeriod,
     )
 
 # Runtime imports

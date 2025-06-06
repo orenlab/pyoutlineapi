@@ -48,7 +48,9 @@ class AccessKey(BaseModel):
     port: int = Field(gt=0, lt=65536, description="Port number")
     method: str = Field(description="Encryption method")
     access_url: str = Field(alias="accessUrl", description="Complete access URL")
-    data_limit: Optional[DataLimit] = Field(None, alias="dataLimit", description="Data limit for this key")
+    data_limit: Optional[DataLimit] = Field(
+        None, alias="dataLimit", description="Data limit for this key"
+    )
 
 
 class AccessKeyList(BaseModel):
@@ -65,7 +67,7 @@ class ServerMetrics(BaseModel):
 
     bytes_transferred_by_user_id: dict[str, int] = Field(
         alias="bytesTransferredByUserId",
-        description="Data transferred by each access key ID"
+        description="Data transferred by each access key ID",
     )
 
 
@@ -115,7 +117,9 @@ class PeakDeviceCount(BaseModel):
 class ConnectionInfo(BaseModel):
     """Connection information for access keys."""
 
-    last_traffic_seen: int = Field(alias="lastTrafficSeen", description="Last traffic timestamp")
+    last_traffic_seen: int = Field(
+        alias="lastTrafficSeen", description="Last traffic timestamp"
+    )
     peak_device_count: PeakDeviceCount = Field(alias="peakDeviceCount")
 
 
@@ -144,7 +148,9 @@ class ExperimentalMetrics(BaseModel):
     """
 
     server: ServerExperimentalMetric = Field(description="Server metrics")
-    access_keys: list[AccessKeyMetric] = Field(alias="accessKeys", description="Access key metrics")
+    access_keys: list[AccessKeyMetric] = Field(
+        alias="accessKeys", description="Access key metrics"
+    )
 
 
 class Server(BaseModel):
@@ -155,15 +161,27 @@ class Server(BaseModel):
 
     name: str = Field(description="Server name")
     server_id: str = Field(alias="serverId", description="Unique server identifier")
-    metrics_enabled: bool = Field(alias="metricsEnabled", description="Metrics sharing status")
-    created_timestamp_ms: int = Field(alias="createdTimestampMs", description="Creation timestamp in milliseconds")
+    metrics_enabled: bool = Field(
+        alias="metricsEnabled", description="Metrics sharing status"
+    )
+    created_timestamp_ms: int = Field(
+        alias="createdTimestampMs", description="Creation timestamp in milliseconds"
+    )
     version: str = Field(description="Server version")
-    port_for_new_access_keys: int = Field(alias="portForNewAccessKeys", gt=0, lt=65536,
-                                          description="Default port for new keys")
-    hostname_for_access_keys: Optional[str] = Field(None, alias="hostnameForAccessKeys",
-                                                    description="Hostname for access keys")
-    access_key_data_limit: Optional[DataLimit] = Field(None, alias="accessKeyDataLimit",
-                                                       description="Global data limit for access keys")
+    port_for_new_access_keys: int = Field(
+        alias="portForNewAccessKeys",
+        gt=0,
+        lt=65536,
+        description="Default port for new keys",
+    )
+    hostname_for_access_keys: Optional[str] = Field(
+        None, alias="hostnameForAccessKeys", description="Hostname for access keys"
+    )
+    access_key_data_limit: Optional[DataLimit] = Field(
+        None,
+        alias="accessKeyDataLimit",
+        description="Global data limit for access keys",
+    )
 
 
 class AccessKeyCreateRequest(BaseModel):
@@ -212,13 +230,17 @@ class DataLimitRequest(BaseModel):
 class MetricsEnabledRequest(BaseModel):
     """Request for enabling/disabling metrics."""
 
-    metrics_enabled: bool = Field(alias="metricsEnabled", description="Enable or disable metrics")
+    metrics_enabled: bool = Field(
+        alias="metricsEnabled", description="Enable or disable metrics"
+    )
 
 
 class MetricsStatusResponse(BaseModel):
     """Response for /metrics/enabled endpoint."""
 
-    metrics_enabled: bool = Field(alias="metricsEnabled", description="Current metrics status")
+    metrics_enabled: bool = Field(
+        alias="metricsEnabled", description="Current metrics status"
+    )
 
 
 class ErrorResponse(BaseModel):
