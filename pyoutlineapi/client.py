@@ -361,6 +361,7 @@ class AsyncOutlineClient:
         except aiohttp.ContentTypeError as content_error:
             raise ValueError("Invalid response format") from content_error
         except Exception as exception:
+            print(exception)
             raise ValueError(f"Validation error: {exception}") from exception
 
     @staticmethod
@@ -421,6 +422,7 @@ class AsyncOutlineClient:
                     return True
 
                 try:
+                    await response.json()
                     return response
                 except Exception as exception:
                     raise APIError(
