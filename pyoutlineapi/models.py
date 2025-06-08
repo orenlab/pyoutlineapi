@@ -12,42 +12,36 @@ Source code repository:
     https://github.com/orenlab/pyoutlineapi
 """
 
-from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
 
-class MetricsPeriod(str, Enum):
-    """Time periods for metrics collection."""
-
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
-
-
 class DataLimit(BaseModel):
     """Data transfer limit configuration."""
 
-    bytes: int = Field(gt=0)
+    bytes: int = Field(ge=0, description="Data limit in bytes")
 
+    @classmethod
     @field_validator("bytes")
     def validate_bytes(cls, v: int) -> int:
         if v < 0:
-            raise ValueError("bytes must be positive")
+            raise ValueError("bytes must be non-negative")
         return v
 
 
 class AccessKey(BaseModel):
     """Access key details."""
 
-    id: int
-    name: Optional[str] = None
-    password: str
-    port: int = Field(gt=0, lt=65536)
-    method: str
-    access_url: str = Field(alias="accessUrl")
-    data_limit: Optional[DataLimit] = Field(None, alias="dataLimit")
+    id: str = Field(description="Access key identifier")
+    name: Optional[str] = Field(None, description="Access key name")
+    password: str = Field(description="Access key password")
+    port: int = Field(gt=0, lt=65536, description="Port number")
+    method: str = Field(description="Encryption method")
+    access_url: str = Field(alias="accessUrl", description="Complete access URL")
+    data_limit: Optional[DataLimit] = Field(
+        None, alias="dataLimit", description="Data limit for this key"
+    )
 
 
 class AccessKeyList(BaseModel):
@@ -58,45 +52,111 @@ class AccessKeyList(BaseModel):
 
 class ServerMetrics(BaseModel):
     """
-    Server metrics data for data transferred per access key
+    Server metrics data for data transferred per access key.
     Per OpenAPI: /metrics/transfer endpoint
     """
 
     bytes_transferred_by_user_id: dict[str, int] = Field(
-        alias="bytesTransferredByUserId"
+        alias="bytesTransferredByUserId",
+        description="Data transferred by each access key ID",
     )
 
 
-class TunnelData(BaseModel):
-    seconds: int
+class TunnelTime(BaseModel):
+    """Tunnel time data structure."""
+
+    seconds: int = Field(description="Time in seconds")
 
 
-class TransferData(BaseModel):
-    bytes: int
+class DataTransferred(BaseModel):
+    """Data transfer information."""
+
+    bytes: int = Field(description="Bytes transferred")
 
 
-class ServerMetric(BaseModel):
-    location: str
-    asn: Optional[int] = None
-    as_org: Optional[str] = Field(None, alias="asOrg")
-    tunnel_time: TunnelData = Field(alias="tunnelTime")
-    data_transferred: TransferData = Field(alias="dataTransferred")
+class BandwidthData(BaseModel):
+    """Bandwidth measurement data."""
+
+    data: dict[str, int] = Field(description="Bandwidth data with bytes field")
+    timestamp: Optional[int] = Field(None, description="Unix timestamp")
+
+
+class BandwidthInfo(BaseModel):
+    """Current and peak bandwidth information."""
+
+    current: BandwidthData = Field(description="Current bandwidth")
+    peak: BandwidthData = Field(description="Peak bandwidth")
+
+
+class LocationMetric(BaseModel):
+    """Location metric model."""
+    location: str = Field(..., description="Location identifier")
+    asn: Optional[int] = Field(None, description="ASN number")
+    as_org: Optional[str] = Field(None, alias="asOrg", description="AS organization")
+    tunnel_time: "TunnelTime" = Field(..., alias="tunnelTime")
+    data_transferred: "DataTransferred" = Field(..., alias="dataTransferred")
+
+    @classmethod
+    @field_validator('asn', mode='before')
+    def validate_asn(cls, v):
+        """Convert 0 to None for ASN."""
+        if v == 0:
+            return None
+        return v
+
+    @classmethod
+    @field_validator('as_org', mode='before')
+    def validate_as_org(cls, v):
+        """Convert empty string to None for AS organization."""
+        if v == "" or v == 0:
+            return None
+        return v
+
+
+class PeakDeviceCount(BaseModel):
+    """Peak device count information."""
+
+    data: int = Field(description="Peak device count")
+    timestamp: int = Field(description="Unix timestamp")
+
+
+class ConnectionInfo(BaseModel):
+    """Connection information for access keys."""
+
+    last_traffic_seen: int = Field(
+        alias="lastTrafficSeen", description="Last traffic timestamp"
+    )
+    peak_device_count: PeakDeviceCount = Field(alias="peakDeviceCount")
 
 
 class AccessKeyMetric(BaseModel):
+    """Access key metrics data."""
+
     access_key_id: int = Field(alias="accessKeyId")
-    tunnel_time: TunnelData = Field(alias="tunnelTime")
-    data_transferred: TransferData = Field(alias="dataTransferred")
+    tunnel_time: TunnelTime = Field(alias="tunnelTime")
+    data_transferred: DataTransferred = Field(alias="dataTransferred")
+    connection: ConnectionInfo = Field(description="Connection metrics")
+
+
+class ServerExperimentalMetric(BaseModel):
+    """Server-level experimental metrics."""
+
+    tunnel_time: TunnelTime = Field(alias="tunnelTime")
+    data_transferred: DataTransferred = Field(alias="dataTransferred")
+    bandwidth: BandwidthInfo = Field(description="Bandwidth information")
+    locations: list[LocationMetric] = Field(description="Location-based metrics")
 
 
 class ExperimentalMetrics(BaseModel):
     """
-    Experimental metrics data structure
+    Experimental metrics data structure.
     Per OpenAPI: /experimental/server/metrics endpoint
     """
 
-    server: list[ServerMetric]
-    access_keys: list[AccessKeyMetric] = Field(alias="accessKeys")
+    server: ServerExperimentalMetric = Field(description="Server metrics")
+    access_keys: list[AccessKeyMetric] = Field(
+        alias="accessKeys", description="Access key metrics"
+    )
 
 
 class Server(BaseModel):
@@ -105,14 +165,29 @@ class Server(BaseModel):
     Per OpenAPI: /server endpoint schema
     """
 
-    name: str
-    server_id: str = Field(alias="serverId")
-    metrics_enabled: bool = Field(alias="metricsEnabled")
-    created_timestamp_ms: int = Field(alias="createdTimestampMs")
-    version: str
-    port_for_new_access_keys: int = Field(alias="portForNewAccessKeys", gt=0, lt=65536)
-    hostname_for_access_keys: Optional[str] = Field(None, alias="hostnameForAccessKeys")
-    access_key_data_limit: Optional[DataLimit] = Field(None, alias="accessKeyDataLimit")
+    name: str = Field(description="Server name")
+    server_id: str = Field(alias="serverId", description="Unique server identifier")
+    metrics_enabled: bool = Field(
+        alias="metricsEnabled", description="Metrics sharing status"
+    )
+    created_timestamp_ms: int = Field(
+        alias="createdTimestampMs", description="Creation timestamp in milliseconds"
+    )
+    version: str = Field(description="Server version")
+    port_for_new_access_keys: int = Field(
+        alias="portForNewAccessKeys",
+        gt=0,
+        lt=65536,
+        description="Default port for new keys",
+    )
+    hostname_for_access_keys: Optional[str] = Field(
+        None, alias="hostnameForAccessKeys", description="Hostname for access keys"
+    )
+    access_key_data_limit: Optional[DataLimit] = Field(
+        None,
+        alias="accessKeyDataLimit",
+        description="Global data limit for access keys",
+    )
 
 
 class AccessKeyCreateRequest(BaseModel):
@@ -121,24 +196,64 @@ class AccessKeyCreateRequest(BaseModel):
     Per OpenAPI: /access-keys POST request body
     """
 
-    name: Optional[str] = None
-    method: Optional[str] = None
-    password: Optional[str] = None
-    port: Optional[int] = Field(None, gt=0, lt=65536)
-    limit: Optional[DataLimit] = None
+    name: Optional[str] = Field(None, description="Access key name")
+    method: Optional[str] = Field(None, description="Encryption method")
+    password: Optional[str] = Field(None, description="Access key password")
+    port: Optional[int] = Field(None, gt=0, lt=65536, description="Port number")
+    limit: Optional[DataLimit] = Field(None, description="Data limit for this key")
+
+
+class ServerNameRequest(BaseModel):
+    """Request for renaming server."""
+
+    name: str = Field(description="New server name")
+
+
+class HostnameRequest(BaseModel):
+    """Request for changing hostname."""
+
+    hostname: str = Field(description="New hostname or IP address")
+
+
+class PortRequest(BaseModel):
+    """Request for changing default port."""
+
+    port: int = Field(gt=0, lt=65536, description="New default port")
+
+
+class AccessKeyNameRequest(BaseModel):
+    """Request for renaming access key."""
+
+    name: str = Field(description="New access key name")
+
+
+class DataLimitRequest(BaseModel):
+    """Request for setting data limit."""
+
+    limit: DataLimit = Field(description="Data limit configuration")
+
+
+class MetricsEnabledRequest(BaseModel):
+    """Request for enabling/disabling metrics."""
+
+    metrics_enabled: bool = Field(
+        alias="metricsEnabled", description="Enable or disable metrics"
+    )
 
 
 class MetricsStatusResponse(BaseModel):
-    """Response for /metrics/enabled endpoint"""
+    """Response for /metrics/enabled endpoint."""
 
-    metrics_enabled: bool = Field(alias="metricsEnabled")
+    metrics_enabled: bool = Field(
+        alias="metricsEnabled", description="Current metrics status"
+    )
 
 
 class ErrorResponse(BaseModel):
     """
-    Error response structure
+    Error response structure.
     Per OpenAPI: 404 and 400 responses
     """
 
-    code: str
-    message: str
+    code: str = Field(description="Error code")
+    message: str = Field(description="Error message")
