@@ -89,13 +89,28 @@ class BandwidthInfo(BaseModel):
 
 
 class LocationMetric(BaseModel):
-    """Location-based server metrics."""
+    """Location metric model."""
+    location: str = Field(..., description="Location identifier")
+    asn: Optional[int] = Field(None, description="ASN number")
+    as_org: Optional[str] = Field(None, alias="asOrg", description="AS organization")
+    tunnel_time: "TunnelTime" = Field(..., alias="tunnelTime")
+    data_transferred: "DataTransferred" = Field(..., alias="dataTransferred")
 
-    location: str = Field(description="Location identifier")
-    asn: Optional[int] = Field(None, description="Autonomous System Number")
-    as_org: Optional[str] = Field(None, alias="asOrg", description="AS Organization")
-    tunnel_time: TunnelTime = Field(alias="tunnelTime")
-    data_transferred: DataTransferred = Field(alias="dataTransferred")
+    @classmethod
+    @field_validator('asn', mode='before')
+    def validate_asn(cls, v):
+        """Convert 0 to None for ASN."""
+        if v == 0:
+            return None
+        return v
+
+    @classmethod
+    @field_validator('as_org', mode='before')
+    def validate_as_org(cls, v):
+        """Convert empty string to None for AS organization."""
+        if v == "" or v == 0:
+            return None
+        return v
 
 
 class PeakDeviceCount(BaseModel):
