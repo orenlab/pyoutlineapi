@@ -694,13 +694,13 @@ class AsyncOutlineClient:
 
     @log_method_call
     async def get_experimental_metrics(
-            self, since: Optional[str] = None
+            self, since: str
     ) -> Union[JsonDict, ExperimentalMetrics]:
         """
         Get experimental server metrics.
 
         Args:
-            since: Optional time range filter
+            since: Required time range filter (e.g., "24h", "7d", "30d", or ISO timestamp)
 
         Returns:
             Detailed server and access key metrics
@@ -711,11 +711,21 @@ class AsyncOutlineClient:
             ...         "https://example.com:1234/secret",
             ...         "ab12cd34..."
             ...     ) as client:
-            ...         metrics = await client.get_experimental_metrics()
+            ...         # Get metrics for the last 24 hours
+            ...         metrics = await client.get_experimental_metrics("24h")
             ...         print(f"Server tunnel time: {metrics.server.tunnel_time.seconds}s")
             ...         print(f"Server data transferred: {metrics.server.data_transferred.bytes} bytes")
+            ...
+            ...         # Get metrics for the last 7 days
+            ...         metrics = await client.get_experimental_metrics("7d")
+            ...
+            ...         # Get metrics since specific timestamp
+            ...         metrics = await client.get_experimental_metrics("2024-01-01T00:00:00Z")
         """
-        params = {"since": since} if since else None
+        if not since or not since.strip():
+            raise ValueError("Parameter 'since' is required and cannot be empty")
+
+        params = {"since": since}
         response = await self._request(
             "GET", "experimental/server/metrics", params=params
         )
@@ -1087,9 +1097,12 @@ class AsyncOutlineClient:
 
         return results
 
-    async def get_server_summary(self) -> dict[str, Any]:
+    async def get_server_summary(self, metrics_since: str = "24h") -> dict[str, Any]:
         """
         Get comprehensive server summary including info, metrics, and key count.
+
+        Args:
+            metrics_since: Time range for experimental metrics (default: "24h")
 
         Returns:
             Dictionary with server info, health status, and statistics
@@ -1112,10 +1125,20 @@ class AsyncOutlineClient:
                 if (isinstance(metrics_status, BaseModel) and metrics_status.metrics_enabled) or \
                         (isinstance(metrics_status, dict) and metrics_status.get("metricsEnabled")):
                     transfer_metrics = await self.get_transfer_metrics()
-                    summary["metrics"] = transfer_metrics.model_dump() if isinstance(transfer_metrics,
-                                                                                     BaseModel) else transfer_metrics
+                    summary["transfer_metrics"] = transfer_metrics.model_dump() if isinstance(transfer_metrics,
+                                                                                              BaseModel) else transfer_metrics
+
+                    # Try to get experimental metrics
+                    try:
+                        experimental_metrics = await self.get_experimental_metrics(metrics_since)
+                        summary["experimental_metrics"] = experimental_metrics.model_dump() if isinstance(
+                            experimental_metrics,
+                            BaseModel) else experimental_metrics
+                    except Exception:
+                        summary["experimental_metrics"] = None
             except Exception:
-                summary["metrics"] = None
+                summary["transfer_metrics"] = None
+                summary["experimental_metrics"] = None
 
             summary["healthy"] = True
 
