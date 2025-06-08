@@ -12,18 +12,9 @@ Source code repository:
     https://github.com/orenlab/pyoutlineapi
 """
 
-from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
-
-
-class MetricsPeriod(str, Enum):
-    """Time periods for metrics collection."""
-
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
 
 
 class DataLimit(BaseModel):
@@ -87,7 +78,7 @@ class BandwidthData(BaseModel):
     """Bandwidth measurement data."""
 
     data: dict[str, int] = Field(description="Bandwidth data with bytes field")
-    timestamp: int = Field(description="Unix timestamp")
+    timestamp: Optional[int] = Field(None, description="Unix timestamp")
 
 
 class BandwidthInfo(BaseModel):

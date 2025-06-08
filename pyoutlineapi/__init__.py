@@ -57,8 +57,7 @@ if TYPE_CHECKING:
         PortRequest,
         Server,
         ServerMetrics,
-        ServerNameRequest,
-        MetricsPeriod,
+        ServerNameRequest
     )
 
 # Runtime imports
@@ -78,7 +77,6 @@ from .models import (
     Server,
     ServerMetrics,
     ServerNameRequest,
-    MetricsPeriod,
 )
 
 __all__: Final[list[str]] = [
@@ -98,7 +96,6 @@ __all__: Final[list[str]] = [
     "HostnameRequest",
     "MetricsEnabledRequest",
     "MetricsStatusResponse",
-    "MetricsPeriod",
     "PortRequest",
     "Server",
     "ServerMetrics",
