@@ -1,16 +1,17 @@
 """
-Comprehensive tests for PyOutlineAPI AsyncOutlineClient.
+Tests for PyOutlineAPI client module.
 
-This test suite aims for ~100% code coverage and includes:
-- Unit tests for all public methods
-- Error handling scenarios
-- Edge cases and validation
-- Mocking of HTTP responses
-- Async context manager behavior
-- Retry logic testing
-- Rate limiting tests
-- Logging verification
-- Health check functionality
+PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+
+Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
+All rights reserved.
+
+This software is licensed under the MIT License.
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
+
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
 """
 
 import logging
