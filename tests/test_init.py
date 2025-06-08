@@ -1,3 +1,18 @@
+"""
+Tests for PyOutlineAPI __init__ module.
+
+PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+
+Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
+All rights reserved.
+
+This software is licensed under the MIT License.
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
+
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
+"""
 from unittest import mock
 
 import pytest

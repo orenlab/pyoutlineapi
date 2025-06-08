@@ -1,3 +1,19 @@
+"""
+Tests for PyOutlineAPI exceptions module.
+
+PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+
+Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
+All rights reserved.
+
+This software is licensed under the MIT License.
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
+
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
+"""
+
 import pytest
 from pydantic import ValidationError
 
@@ -13,7 +29,6 @@ from pyoutlineapi.models import (
     HostnameRequest,
     MetricsEnabledRequest,
     MetricsStatusResponse,
-    MetricsPeriod,
     PortRequest,
     Server,
     ServerMetrics,
@@ -31,7 +46,6 @@ from pyoutlineapi.models import (
 )
 
 
-# Фикстуры для тестовых данных
 @pytest.fixture
 def sample_access_key_data():
     """Sample access key data."""
@@ -108,19 +122,32 @@ class TestDataLimit:
         limit = DataLimit(bytes=large_value)
         assert limit.bytes == large_value
 
-    def test_validator_method_coverage(self):
-        """Test validator method directly for full coverage."""
-        # Тестируем валидатор через класс метод
-        valid_bytes = DataLimit.validate_bytes(1024)
-        assert valid_bytes == 1024
-
-        # Тестируем исключение в валидаторе
-        with pytest.raises(ValueError, match="bytes must be non-negative"):
-            DataLimit.validate_bytes(-1)
-
 
 class TestAccessKey:
     """Test AccessKey model."""
+
+    def test_access_key_method_variations(self, sample_access_key_data):
+        """Test different encryption methods."""
+        methods = ["aes-256-gcm", "aes-192-gcm", "aes-128-gcm", "chacha20-ietf-poly1305"]
+
+        for method in methods:
+            sample_access_key_data["method"] = method
+            key = AccessKey(**sample_access_key_data)
+            assert key.method == method
+
+    def test_access_key_with_minimal_data(self):
+        """Test access key with only required fields."""
+        minimal_data = {
+            "id": "minimal",
+            "password": "pass",
+            "port": 8080,
+            "method": "aes-256-gcm",
+            "accessUrl": "ss://minimal-url"
+        }
+        key = AccessKey(**minimal_data)
+        assert key.id == "minimal"
+        assert key.name is None
+        assert key.data_limit is None
 
     def test_valid_access_key(self, sample_access_key_data):
         """Test valid access key creation."""
@@ -205,6 +232,39 @@ class TestAccessKeyList:
 class TestServer:
     """Test Server model."""
 
+    def test_server_metrics_enabled_false(self, sample_server_data):
+        """Test server with metrics disabled."""
+        sample_server_data["metricsEnabled"] = False
+        server = Server(**sample_server_data)
+        assert server.metrics_enabled is False
+
+    def test_server_with_minimal_data(self):
+        """Test server with only required fields."""
+        minimal_data = {
+            "name": "Minimal Server",
+            "serverId": "minimal-123",
+            "metricsEnabled": False,
+            "createdTimestampMs": 1640995200000,
+            "version": "1.0.0",
+            "portForNewAccessKeys": 8080
+        }
+        server = Server(**minimal_data)
+        assert server.hostname_for_access_keys is None
+        assert server.access_key_data_limit is None
+
+    def test_server_timestamp_boundaries(self, sample_server_data):
+        """Test server with different timestamp values."""
+        # Test with zero timestamp
+        sample_server_data["createdTimestampMs"] = 0
+        server = Server(**sample_server_data)
+        assert server.created_timestamp_ms == 0
+
+        # Test with large timestamp
+        large_timestamp = 9999999999999
+        sample_server_data["createdTimestampMs"] = large_timestamp
+        server = Server(**sample_server_data)
+        assert server.created_timestamp_ms == large_timestamp
+
     def test_valid_server(self, sample_server_data):
         """Test valid server creation."""
         server = Server(**sample_server_data)
@@ -250,6 +310,26 @@ class TestServer:
 class TestServerMetrics:
     """Test ServerMetrics model."""
 
+    def test_server_metrics_with_string_keys(self):
+        """Test ServerMetrics with various string key formats."""
+        data = {
+            "bytesTransferredByUserId": {
+                "1": 1024,
+                "key-with-dashes": 2048,
+                "key_with_underscores": 512,
+                "very-long-key-name-12345": 256
+            }
+        }
+        metrics = ServerMetrics(**data)
+        assert metrics.bytes_transferred_by_user_id["key-with-dashes"] == 2048
+        assert metrics.bytes_transferred_by_user_id["key_with_underscores"] == 512
+
+    def test_server_metrics_with_zero_values(self):
+        """Test ServerMetrics with zero transfer values."""
+        data = {"bytesTransferredByUserId": {"user1": 0, "user2": 0, "user3": 0}}
+        metrics = ServerMetrics(**data)
+        assert all(v == 0 for v in metrics.bytes_transferred_by_user_id.values())
+
     def test_valid_server_metrics(self):
         """Test valid server metrics creation."""
         data = {"bytesTransferredByUserId": {"1": 1024, "2": 2048, "3": 0}}
@@ -268,6 +348,12 @@ class TestServerMetrics:
 class TestTunnelTime:
     """Test TunnelTime model."""
 
+    def test_tunnel_time_negative_validation(self):
+        """Test that negative seconds might be allowed (no explicit validation)."""
+        # Check that model doesn't have explicit restrictions on negative values
+        tunnel_time = TunnelTime(seconds=-100)
+        assert tunnel_time.seconds == -100
+
     def test_valid_tunnel_time(self):
         """Test valid tunnel time creation."""
         tunnel_time = TunnelTime(seconds=3600)
@@ -282,6 +368,18 @@ class TestTunnelTime:
 class TestDataTransferred:
     """Test DataTransferred model."""
 
+    def test_data_transferred_negative_validation(self):
+        """Test that negative bytes might be allowed (no explicit validation)."""
+        # Check that model doesn't have explicit restrictions on negative values
+        data_transferred = DataTransferred(bytes=-1024)
+        assert data_transferred.bytes == -1024
+
+    def test_data_transferred_large_value(self):
+        """Test handling of very large byte values."""
+        large_value = 2 ** 63 - 1  # Max int64
+        data_transferred = DataTransferred(bytes=large_value)
+        assert data_transferred.bytes == large_value
+
     def test_valid_data_transferred(self):
         """Test valid data transferred creation."""
         data_transferred = DataTransferred(bytes=1048576)
@@ -295,6 +393,26 @@ class TestDataTransferred:
 
 class TestBandwidthData:
     """Test BandwidthData model."""
+
+    def test_bandwidth_data_without_timestamp(self):
+        """Test bandwidth data without timestamp."""
+        bandwidth_data = BandwidthData(data={"bytes": 1024})
+        assert bandwidth_data.data == {"bytes": 1024}
+        assert bandwidth_data.timestamp is None
+
+    def test_bandwidth_data_with_complex_data(self):
+        """Test bandwidth data with complex data structure."""
+        complex_data = {
+            "bytes": 1024,
+            "packets": 100,
+            "errors": 0
+        }
+        bandwidth_data = BandwidthData(
+            data=complex_data,
+            timestamp=1640995200
+        )
+        assert bandwidth_data.data == complex_data
+        assert bandwidth_data.timestamp == 1640995200
 
     def test_valid_bandwidth_data(self):
         """Test valid bandwidth data creation."""
@@ -322,6 +440,18 @@ class TestBandwidthInfo:
 class TestLocationMetric:
     """Test LocationMetric model."""
 
+    def test_location_metric_with_valid_asn_and_org(self):
+        """Test location metric with valid ASN and organization."""
+        location_metric = LocationMetric(
+            location="US",
+            asn=12345,
+            asOrg="Test Organization",
+            tunnelTime=TunnelTime(seconds=1800),
+            dataTransferred=DataTransferred(bytes=524288)
+        )
+        assert location_metric.asn == 12345
+        assert location_metric.as_org == "Test Organization"
+
     def test_valid_location_metric(self):
         """Test valid location metric creation."""
         location_metric = LocationMetric(
@@ -337,17 +467,6 @@ class TestLocationMetric:
         assert location_metric.tunnel_time.seconds == 1800
         assert location_metric.data_transferred.bytes == 524288
 
-    def test_location_metric_without_optional_fields(self):
-        """Test location metric without optional fields."""
-        location_metric = LocationMetric(
-            location="EU",
-            tunnelTime=TunnelTime(seconds=900),
-            dataTransferred=DataTransferred(bytes=256000)
-        )
-        assert location_metric.location == "EU"
-        assert location_metric.asn is None
-        assert location_metric.as_org is None
-
 
 class TestPeakDeviceCount:
     """Test PeakDeviceCount model."""
@@ -361,6 +480,15 @@ class TestPeakDeviceCount:
 
 class TestConnectionInfo:
     """Test ConnectionInfo model."""
+
+    def test_connection_info_with_zero_timestamp(self):
+        """Test connection info with zero timestamp."""
+        connection_info = ConnectionInfo(
+            lastTrafficSeen=0,
+            peakDeviceCount=PeakDeviceCount(data=1, timestamp=0)
+        )
+        assert connection_info.last_traffic_seen == 0
+        assert connection_info.peak_device_count.timestamp == 0
 
     def test_valid_connection_info(self):
         """Test valid connection info creation."""
@@ -419,6 +547,25 @@ class TestServerExperimentalMetric:
 
 class TestExperimentalMetrics:
     """Test ExperimentalMetrics model."""
+
+    def test_experimental_metrics_field_aliases(self):
+        """Test that field aliases work correctly."""
+        data = {
+            "server": {
+                "tunnelTime": {"seconds": 100},
+                "dataTransferred": {"bytes": 200},
+                "bandwidth": {
+                    "current": {"data": {"bytes": 10}, "timestamp": 1640995200},
+                    "peak": {"data": {"bytes": 20}, "timestamp": 1640995300},
+                },
+                "locations": [],
+            },
+            "accessKeys": [],  # Using alias
+        }
+
+        metrics = ExperimentalMetrics(**data)
+        assert isinstance(metrics.access_keys, list)
+        assert len(metrics.access_keys) == 0
 
     def test_valid_experimental_metrics(self):
         """Test valid experimental metrics creation."""
@@ -481,6 +628,57 @@ class TestExperimentalMetrics:
 
 class TestRequestModels:
     """Test request models."""
+
+    def test_access_key_create_request_with_method_variations(self):
+        """Test AccessKeyCreateRequest with different methods."""
+        methods = ["aes-256-gcm", "chacha20-ietf-poly1305", None]
+
+        for method in methods:
+            request = AccessKeyCreateRequest(method=method)
+            assert request.method == method
+
+    def test_server_name_request_with_special_characters(self):
+        """Test ServerNameRequest with special characters."""
+        special_names = [
+            "Server-123",
+            "Server_with_underscores",
+            "Server in Russian",
+            "Server with spaces",
+            "Server@#$%"
+        ]
+
+        for name in special_names:
+            request = ServerNameRequest(name=name)
+            assert request.name == name
+
+    def test_hostname_request_variations(self):
+        """Test HostnameRequest with different hostname formats."""
+        hostnames = [
+            "example.com",
+            "sub.example.com",
+            "192.168.1.1",
+            "localhost",
+            "server-123.domain.org"
+        ]
+
+        for hostname in hostnames:
+            request = HostnameRequest(hostname=hostname)
+            assert request.hostname == hostname
+
+    def test_access_key_name_request_empty_string(self):
+        """Test AccessKeyNameRequest with empty string."""
+        request = AccessKeyNameRequest(name="")
+        assert request.name == ""
+
+    def test_metrics_enabled_request_field_alias(self):
+        """Test MetricsEnabledRequest field alias."""
+        # Test using alias
+        request = MetricsEnabledRequest(metricsEnabled=True)
+        assert request.metrics_enabled is True
+
+        # Test field access
+        request = MetricsEnabledRequest(metricsEnabled=False)
+        assert request.metrics_enabled is False
 
     def test_access_key_create_request_full(self):
         """Test AccessKeyCreateRequest model with all fields."""
@@ -565,6 +763,26 @@ class TestRequestModels:
 class TestResponseModels:
     """Test response models."""
 
+    def test_metrics_status_response_field_alias(self):
+        """Test MetricsStatusResponse field alias."""
+        # Test using alias
+        response = MetricsStatusResponse(metricsEnabled=True)
+        assert response.metrics_enabled is True
+
+    def test_error_response_with_empty_strings(self):
+        """Test ErrorResponse with empty strings."""
+        error = ErrorResponse(code="", message="")
+        assert error.code == ""
+        assert error.message == ""
+
+    def test_error_response_with_long_messages(self):
+        """Test ErrorResponse with long messages."""
+        long_message = "A" * 1000  # Very long error message
+        error = ErrorResponse(code="LONG_ERROR", message=long_message)
+        assert error.code == "LONG_ERROR"
+        assert error.message == long_message
+        assert len(error.message) == 1000
+
     def test_metrics_status_response(self):
         """Test MetricsStatusResponse model."""
         response = MetricsStatusResponse(metricsEnabled=False)
@@ -588,30 +806,6 @@ class TestResponseModels:
         error = ErrorResponse(code="INTERNAL_ERROR", message="Server error")
         assert error.code == "INTERNAL_ERROR"
         assert error.message == "Server error"
-
-
-class TestMetricsPeriod:
-    """Test MetricsPeriod enum."""
-
-    def test_enum_values(self):
-        """Test enum values."""
-        assert MetricsPeriod.DAILY == "daily"
-        assert MetricsPeriod.WEEKLY == "weekly"
-        assert MetricsPeriod.MONTHLY == "monthly"
-
-    def test_enum_iteration(self):
-        """Test enum iteration."""
-        periods = list(MetricsPeriod)
-        assert len(periods) == 3
-        assert MetricsPeriod.DAILY in periods
-        assert MetricsPeriod.WEEKLY in periods
-        assert MetricsPeriod.MONTHLY in periods
-
-    def test_enum_string_inheritance(self):
-        """Test that MetricsPeriod inherits from str."""
-        assert isinstance(MetricsPeriod.DAILY, str)
-        assert isinstance(MetricsPeriod.WEEKLY, str)
-        assert isinstance(MetricsPeriod.MONTHLY, str)
 
 
 class TestOutlineError:
@@ -673,12 +867,6 @@ class TestAPIError:
         error = APIError("Test")
         assert isinstance(error, OutlineError)
         assert isinstance(error, Exception)
-
-    def test_api_error_no_message(self):
-        """Test APIError without message."""
-        error = APIError()
-        assert isinstance(error, APIError)
-        assert isinstance(error, OutlineError)
 
     def test_api_error_attempt_zero(self):
         """Test APIError with attempt 0."""

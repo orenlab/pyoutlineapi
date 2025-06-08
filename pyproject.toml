@@ -31,9 +31,10 @@ classifiers = [
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
 pydantic = "^2.11.5"
-aiohttp = "^3.12.9"
+aiohttp = "^3.12.11"
 
 [tool.poetry.group.dev.dependencies]
+aioresponses = "^0.7.8"
 pytest = "^8.3.4"
 pytest-asyncio = "^0.25.2"
 pytest-cov = "^5.0.0"
