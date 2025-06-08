@@ -295,8 +295,8 @@ async def monitor_usage():
 ```python
 async def detailed_metrics():
     async with AsyncOutlineClient(...) as client:
-        # Get detailed server metrics
-        metrics = await client.get_experimental_metrics()
+        # Get detailed server metrics for the last 24 hours
+        metrics = await client.get_experimental_metrics("24h")
 
         # Server-level metrics
         server_metrics = metrics.server
@@ -309,8 +309,14 @@ async def detailed_metrics():
             print(f"  Tunnel time: {key_metrics.tunnel_time.seconds}s")
             print(f"  Data transferred: {key_metrics.data_transferred.bytes} bytes")
 
-        # Get metrics for specific time range
-        recent_metrics = await client.get_experimental_metrics(since="2024-01-01T00:00:00Z")
+        # Get metrics for the last 7 days
+        weekly_metrics = await client.get_experimental_metrics("7d")
+        
+        # Get metrics for the last 30 days
+        monthly_metrics = await client.get_experimental_metrics("30d")
+        
+        # Get metrics since a specific timestamp
+        custom_metrics = await client.get_experimental_metrics("2024-01-01T00:00:00Z")
 ```
 
 ### Advanced Configuration
@@ -600,7 +606,7 @@ async with AsyncOutlineClient(...) as client:
 - `get_metrics_status() -> MetricsStatusResponse | JsonDict`
 - `set_metrics_status(enabled: bool) -> bool`
 - `get_transfer_metrics() -> ServerMetrics | JsonDict`
-- `get_experimental_metrics(since: str = None) -> ExperimentalMetrics | JsonDict`
+- `get_experimental_metrics(since: str) -> ExperimentalMetrics | JsonDict`
 
 #### Health and Monitoring
 

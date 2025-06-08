@@ -11,7 +11,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **New API methods**:
     - `create_access_key_with_id()` - Create access key with specific custom ID
-    - `get_experimental_metrics()` - Get detailed experimental server metrics
+    - `get_experimental_metrics(since)` - Get detailed experimental server metrics (requires mandatory `since` parameter)
     - `set_global_data_limit()` - Set global data transfer limit for all access keys
     - `remove_global_data_limit()` - Remove global data transfer limit
 - **Enhanced models and validation**:
@@ -56,6 +56,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Metrics handling**:
     - Removed deprecated `MetricsPeriod` parameter from `get_transfer_metrics()` (API doesn't support period filtering)
     - Fixed metrics status response parsing
+    - **Documentation**: Corrected examples for `get_experimental_metrics()` to show that `since` parameter is mandatory
 - **Data validation**:
     - Better handling of API response formats
     - Improved error messages for validation failures
