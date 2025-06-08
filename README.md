@@ -311,10 +311,10 @@ async def detailed_metrics():
 
         # Get metrics for the last 7 days
         weekly_metrics = await client.get_experimental_metrics("7d")
-        
+
         # Get metrics for the last 30 days
         monthly_metrics = await client.get_experimental_metrics("30d")
-        
+
         # Get metrics since a specific timestamp
         custom_metrics = await client.get_experimental_metrics("2024-01-01T00:00:00Z")
 ```
@@ -632,11 +632,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.
+See [CHANGELOG.md](https://github.com/orenlab/pyoutlineapi/blob/main/CHANGELOG.md) for a detailed history of changes.
 
 ## Support
 
-- 📖 [Documentation](https://github.com/orenlab/pyoutlineapi)
+- 📖 [Documentation](https://orenlab.github.io/pyoutlineapi/)
 - 🐛 [Issue Tracker](https://github.com/orenlab/pyoutlineapi/issues)
 - 💬 [Discussions](https://github.com/orenlab/pyoutlineapi/discussions)
 
