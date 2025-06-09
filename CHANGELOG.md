@@ -5,13 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2025-06-XX
+## [0.4.0] - 2025-0X-0X
+
+### Added
+
+- **Documentation**:
+    - Safety guide `SECURITY.md`
+
+## [0.3.0] - 2025-06-09
 
 ### Added
 
 - **New API methods**:
     - `create_access_key_with_id()` - Create access key with specific custom ID
-    - `get_experimental_metrics(since)` - Get detailed experimental server metrics (requires mandatory `since` parameter)
+    - `get_experimental_metrics(since)` - Get detailed experimental server metrics (requires mandatory `since`
+      parameter)
     - `set_global_data_limit()` - Set global data transfer limit for all access keys
     - `remove_global_data_limit()` - Remove global data transfer limit
 - **Enhanced models and validation**:
