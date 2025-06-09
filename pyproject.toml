@@ -1,13 +1,12 @@
 [tool.poetry]
 name = "pyoutlineapi"
-version = "0.3.0"
+version = "0.4.0-dev"
 description = "A modern, async-first Python client for the Outline VPN Server API with comprehensive data validation through Pydantic models."
 authors = ["Denis Rozhnovskiy <pytelemonbot@mail.ru>"]
 readme = "README.md"
 license = "MIT"
 packages = [{ include = "pyoutlineapi" }]
 keywords = ["outline", "vpn", "api", "manager", "wrapper", "asyncio"]
-documentation = "https://orenlab.github.io/pyoutlineapi/"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -32,6 +31,7 @@ classifiers = [
 python = ">=3.10,<4.0"
 pydantic = "^2.11.5"
 aiohttp = "^3.12.11"
+pydantic-settings = "^2.9.1"
 
 [tool.poetry.group.dev.dependencies]
 aioresponses = "^0.7.8"

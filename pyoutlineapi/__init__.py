@@ -34,7 +34,7 @@ from .exceptions import APIError, OutlineError
 try:
     __version__: str = metadata.version("pyoutlineapi")
 except metadata.PackageNotFoundError:  # Fallback for development
-    __version__ = "0.3.0-dev"
+    __version__ = "0.4.0-dev"
 
 __author__: Final[str] = "Denis Rozhnovskiy"
 __email__: Final[str] = "pytelemonbot@mail.ru"
