@@ -5,12 +5,201 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2025-0X-0X
+## [0.4.0] - 2025-08-XX
 
 ### Added
 
+- **Circuit Breaker Pattern**:
+    - Full circuit breaker implementation with `AsyncCircuitBreaker` class
+    - Three states: CLOSED, OPEN, HALF_OPEN with automatic transitions
+    - Configurable failure thresholds, recovery timeouts, and success thresholds
+    - Sliding window failure rate calculation with exponential backoff
+    - Event callbacks for state changes and call results monitoring
+    - Health checker integration for automatic recovery detection
+    - Background monitoring tasks for health checks and metrics cleanup
+
+- **Advanced Health Monitoring**:
+    - `HealthMonitoringMixin` for comprehensive health tracking
+    - `OutlineHealthChecker` with cached health verification
+    - `PerformanceMetrics` for detailed performance tracking
+    - Real-time metrics collection: success rates, response times, circuit trips
+    - Comprehensive health checks with individual component status
+    - `health_check()` method with detailed metrics and circuit breaker status
+
+- **Enhanced Configuration Management**:
+    - `OutlineClientConfig` dataclass for immutable configuration
+    - Environment variable loading with `from_env()` factory method
+    - `.env` file support with automatic template generation
+    - Comprehensive validation for all configuration parameters
+    - `create_env_template()` utility for setup assistance
+    - Configuration validation with detailed error messages
+
+- **Batch Operations**:
+    - `BatchOperationsMixin` with generic batch processor
+    - `batch_create_access_keys()` for multiple key creation
+    - `batch_delete_access_keys()` for bulk key deletion
+    - `batch_rename_access_keys()` for mass key renaming
+    - `batch_operations_with_resilience()` for custom batch operations
+    - Configurable concurrency control and fail-fast options
+
+- **Advanced Error Handling**:
+    - Enhanced `ResponseParser` with detailed validation error formatting
+    - Helpful error suggestions and context for common issues
+    - Safe parsing with fallback to raw JSON on validation errors
+    - Improved error messages with field paths and input values
+    - Graceful handling of empty names and missing fields from API
+
+- **Modular Architecture**:
+    - Mixin-based design for clean separation of concerns
+    - `ServerManagementMixin`, `MetricsMixin`, `AccessKeyMixin`, `DataLimitMixin`
+    - Protocol-based type safety with `HTTPClientProtocol`
+    - Enhanced type annotations with proper generic support
+
+- **Enhanced Client Features**:
+    - `create_resilient_client()` factory with conservative settings
+    - `get_server_summary()` for comprehensive server overview
+    - `wait_for_healthy_state()` for health state monitoring
+    - Dynamic circuit breaker reconfiguration
+    - Connection info and detailed status properties
+
+- **Utility Functions**:
+    - `quick_setup()` for interactive development setup
+    - `get_version_info()` for package information
+    - `create_config_template()` convenience wrapper
+    - Interactive help display when imported in Python REPL
+    - Comprehensive masking of sensitive data in logs
+
+### Changed
+
+- **Breaking Changes**:
+    - Version bumped to 0.4.0 to reflect major feature additions
+    - Client constructor now accepts many new parameters for circuit breaker and health monitoring
+    - Default user agent updated to "PyOutlineAPI/0.4.0"
+    - Enhanced error handling may change exception types in some edge cases
+
+- **Enhanced Base Client**:
+    - `BaseHTTPClient` now includes circuit breaker integration
+    - Comprehensive logging setup without duplication
+    - Enhanced session management with proper SSL context handling
+    - Improved retry logic with circuit breaker awareness
+    - Rate limiting support with configurable delays
+
+- **Improved Type Safety**:
+    - Better protocol definitions for HTTP client capabilities
+    - Enhanced type hints with proper generic constraints
+    - Improved overloads for response parsing methods
+    - Stronger validation with `CommonValidators` utilities
+
+- **Better Resource Management**:
+    - Proper async context manager support throughout
+    - Background task management in circuit breaker
+    - Cleanup tasks for old metrics and call history
+    - Enhanced session lifecycle management
+
+- **Configuration Enhancements**:
+    - All configuration now validated at initialization
+    - Support for multiple environment variable prefixes
+    - Comprehensive default values for all optional settings
+    - Better error messages for configuration issues
+
+### Fixed
+
+- **Response Parsing**:
+    - Better handling of empty name fields from Outline API
+    - Improved validation error messages with actionable suggestions
+    - Graceful fallback for unexpected response formats
+    - Fixed handling of edge cases in metric responses
+
+- **Connection Stability**:
+    - Enhanced SSL certificate validation with proper error handling
+    - Better handling of connection timeouts and retries
+    - Improved cleanup of resources during failures
+    - More robust session management
+
+- **Logging**:
+    - Eliminated duplicate log messages
+    - Proper logger hierarchy setup
+    - Configurable logging levels and formats
+    - Performance-aware logging with conditional execution
+
+- **Memory Management**:
+    - Proper cleanup of circuit breaker background tasks
+    - Sliding window size limits for call history
+    - Weak references for callback management
+    - Better resource cleanup in error scenarios
+
+### Enhanced
+
 - **Documentation**:
-    - Safety guide `SECURITY.md`
+    - Comprehensive docstrings with usage examples
+    - Better type annotations for IDE support
+    - Enhanced error messages with troubleshooting hints
+    - Interactive help and setup assistance
+
+- **Developer Experience**:
+    - Interactive setup with `quick_setup()` function
+    - Automatic environment template creation
+    - Better error messages for common configuration issues
+    - Enhanced debugging capabilities with detailed metrics
+
+- **Monitoring and Observability**:
+    - Comprehensive performance metrics collection
+    - Circuit breaker state monitoring with callbacks
+    - Health check results with individual component status
+    - Request/response time tracking and analysis
+
+### Migration Guide
+
+For users upgrading from v0.3.0:
+
+1. **Enhanced Constructor**: The client constructor now accepts many new optional parameters. Existing code will
+   continue to work with defaults:
+   ```python
+   # Old - still works
+   client = AsyncOutlineClient(api_url, cert_sha256)
+   
+   # New - with enhanced features
+   client = AsyncOutlineClient(
+       api_url, cert_sha256,
+       circuit_breaker_enabled=True,
+       enable_health_monitoring=True,
+       enable_metrics_collection=True
+   )
+   ```
+
+2. **Environment Configuration**: Consider using the new configuration system:
+   ```python
+   # New approach
+   client = AsyncOutlineClient.from_env()
+   # or
+   config = OutlineClientConfig.from_env()
+   client = AsyncOutlineClient.from_config(config)
+   ```
+
+3. **Health Monitoring**: New health check methods are available:
+   ```python
+   # Get comprehensive health status
+   health = await client.health_check(include_detailed_metrics=True)
+   
+   # Get performance metrics
+   metrics = client.get_performance_metrics()
+   
+   # Get circuit breaker status
+   cb_status = await client.get_circuit_breaker_status()
+   ```
+
+4. **Batch Operations**: Use new batch methods for better performance:
+   ```python
+   # Create multiple keys efficiently
+   configs = [{"name": "User1"}, {"name": "User2"}]
+   results = await client.batch_create_access_keys(configs)
+   ```
+
+5. **Setup Assistance**: Use new setup utilities:
+   ```python
+   import pyoutlineapi
+   pyoutlineapi.quick_setup()  # Creates .env.example and shows usage
+   ```
 
 ## [0.3.0] - 2025-06-09
 
@@ -154,6 +343,8 @@ For users upgrading from v0.2.0:
 - Pydantic models for data validation
 - Support for custom certificate verification
 - Optional JSON response format
+
+[0.4.0]: https://github.com/orenlab/pyoutlineapi/compare/v0.3.0...v0.4.0
 
 [0.3.0]: https://github.com/orenlab/pyoutlineapi/compare/v0.2.0...v0.3.0
 
