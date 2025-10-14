@@ -105,8 +105,8 @@ OUTLINE_API_URL=https://your-server.com:12345/secret-path
 OUTLINE_CERT_SHA256=your-certificate-fingerprint
 
 # Optional settings
-OUTLINE_TIMEOUT=30
-OUTLINE_RETRY_ATTEMPTS=3
+OUTLINE_TIMEOUT=10
+OUTLINE_RETRY_ATTEMPTS=2
 OUTLINE_RATE_LIMIT=100
 OUTLINE_ENABLE_CIRCUIT_BREAKER=true
 OUTLINE_ENABLE_LOGGING=false
@@ -272,7 +272,7 @@ from pyoutlineapi.exceptions import CircuitOpenError
 
 config = OutlineClientConfig(
     api_url="https://server.com:12345/secret",
-    cert_sha256="abc123...",
+    cert_sha256=SecretStr("abc123..."),
     enable_circuit_breaker=True,
     circuit_failure_threshold=5,  # Open after 5 consecutive failures
     circuit_recovery_timeout=60.0,  # Test recovery after 60 seconds
@@ -559,8 +559,8 @@ OUTLINE_API_URL=https://server.com:12345/secret
 OUTLINE_CERT_SHA256=your-certificate-fingerprint
 
 # Client Settings
-OUTLINE_TIMEOUT=30                    # Request timeout (seconds)
-OUTLINE_RETRY_ATTEMPTS=3              # Number of retries
+OUTLINE_TIMEOUT=10                    # Request timeout (seconds)
+OUTLINE_RETRY_ATTEMPTS=2              # Number of retries
 OUTLINE_MAX_CONNECTIONS=10            # Connection pool size
 OUTLINE_RATE_LIMIT=100                # Max concurrent requests
 
