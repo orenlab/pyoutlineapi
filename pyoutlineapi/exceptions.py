@@ -93,12 +93,12 @@ class APIError(OutlineError):
     )
 
     def __init__(
-            self,
-            message: str,
-            *,
-            status_code: int | None = None,
-            endpoint: str | None = None,
-            response_data: dict[str, Any] | None = None,
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        endpoint: str | None = None,
+        response_data: dict[str, Any] | None = None,
     ) -> None:
         """
         Initialize API error.
@@ -218,11 +218,11 @@ class ConfigurationError(OutlineError):
     """
 
     def __init__(
-            self,
-            message: str,
-            *,
-            field: str | None = None,
-            security_issue: bool = False,
+        self,
+        message: str,
+        *,
+        field: str | None = None,
+        security_issue: bool = False,
     ) -> None:
         """
         Initialize configuration error.
@@ -264,11 +264,11 @@ class ValidationError(OutlineError):
     """
 
     def __init__(
-            self,
-            message: str,
-            *,
-            field: str | None = None,
-            model: str | None = None,
+        self,
+        message: str,
+        *,
+        field: str | None = None,
+        model: str | None = None,
     ) -> None:
         """
         Initialize validation error.
@@ -315,11 +315,11 @@ class ConnectionError(OutlineError):
     default_retry_delay: ClassVar[float] = 2.0
 
     def __init__(
-            self,
-            message: str,
-            *,
-            host: str | None = None,
-            port: int | None = None,
+        self,
+        message: str,
+        *,
+        host: str | None = None,
+        port: int | None = None,
     ) -> None:
         """
         Initialize connection error.
@@ -368,11 +368,11 @@ class TimeoutError(OutlineError):
     default_retry_delay: ClassVar[float] = 2.0
 
     def __init__(
-            self,
-            message: str,
-            *,
-            timeout: float | None = None,
-            operation: str | None = None,
+        self,
+        message: str,
+        *,
+        timeout: float | None = None,
+        operation: str | None = None,
     ) -> None:
         """
         Initialize timeout error.

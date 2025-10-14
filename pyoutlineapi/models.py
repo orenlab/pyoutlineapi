@@ -23,7 +23,6 @@ from pydantic import Field, field_validator
 
 from .common_types import BaseValidatedModel, Bytes, Port, Timestamp, Validators
 
-
 # ===== Core Models =====
 
 

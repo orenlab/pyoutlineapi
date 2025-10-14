@@ -347,9 +347,9 @@ class BaseValidatedModel(BaseModel):
 
 
 def mask_sensitive_data(
-        data: dict[str, Any],
-        *,
-        sensitive_keys: set[str] | None = None,
+    data: dict[str, Any],
+    *,
+    sensitive_keys: set[str] | None = None,
 ) -> dict[str, Any]:
     """
     Mask sensitive data for logging.

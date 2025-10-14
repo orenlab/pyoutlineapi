@@ -188,11 +188,11 @@ class MetricsCollector:
     """
 
     def __init__(
-            self,
-            client: AsyncOutlineClient,
-            *,
-            interval: float = 60.0,
-            max_history: int = 1440,  # 24 hours at 1min interval
+        self,
+        client: AsyncOutlineClient,
+        *,
+        interval: float = 60.0,
+        max_history: int = 1440,  # 24 hours at 1min interval
     ) -> None:
         """
         Initialize metrics collector.
@@ -351,8 +351,8 @@ class MetricsCollector:
         return self._history[-1]
 
     def get_usage_stats(
-            self,
-            period_minutes: int | None = None,
+        self,
+        period_minutes: int | None = None,
     ) -> UsageStats:
         """
         Calculate usage statistics for a time period.
@@ -427,9 +427,9 @@ class MetricsCollector:
         )
 
     def get_key_usage(
-            self,
-            key_id: str,
-            period_minutes: int | None = None,
+        self,
+        key_id: str,
+        period_minutes: int | None = None,
     ) -> dict[str, Any]:
         """
         Get usage statistics for specific key.

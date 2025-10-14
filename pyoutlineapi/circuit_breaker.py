@@ -154,9 +154,9 @@ class CircuitBreaker:
     )
 
     def __init__(
-            self,
-            name: str,
-            config: CircuitConfig | None = None,
+        self,
+        name: str,
+        config: CircuitConfig | None = None,
     ) -> None:
         """
         Initialize circuit breaker.
@@ -211,10 +211,10 @@ class CircuitBreaker:
         return self._metrics
 
     async def call(
-            self,
-            func: Callable[P, Awaitable[T]],
-            *args: P.args,
-            **kwargs: P.kwargs,
+        self,
+        func: Callable[P, Awaitable[T]],
+        *args: P.args,
+        **kwargs: P.kwargs,
     ) -> T:
         """
         Execute function with circuit breaker protection.
@@ -298,8 +298,8 @@ class CircuitBreaker:
                 case CircuitState.OPEN:
                     # Check if recovery timeout passed
                     if (
-                            current_time - self._last_failure_time
-                            >= self.config.recovery_timeout
+                        current_time - self._last_failure_time
+                        >= self.config.recovery_timeout
                     ):
                         logger.info(
                             f"Circuit '{self.name}': Attempting recovery (OPEN -> HALF_OPEN)"
@@ -318,7 +318,7 @@ class CircuitBreaker:
                     # No action needed in half-open during check
                     pass
 
-    async def _record_success(self) -> None:
+    async def _record_success(self, duration: float) -> None:
         """Record successful call."""
         async with self._lock:
             self._metrics.total_calls += 1
@@ -343,7 +343,7 @@ class CircuitBreaker:
                     )
                     await self._transition_to(CircuitState.CLOSED)
 
-    async def _record_failure(self, error: Exception) -> None:
+    async def _record_failure(self, duration: float, error: Exception) -> None:
         """Record failed call."""
         async with self._lock:
             self._metrics.total_calls += 1

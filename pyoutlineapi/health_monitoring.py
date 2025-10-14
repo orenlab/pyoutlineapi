@@ -218,9 +218,9 @@ class HealthMonitor:
             return False
 
     async def comprehensive_check(
-            self,
-            *,
-            use_cache: bool = True,
+        self,
+        *,
+        use_cache: bool = True,
     ) -> HealthStatus:
         """
         Comprehensive health check with all subsystems.
@@ -251,9 +251,9 @@ class HealthMonitor:
         # Check cache
         current_time = time.time()
         if (
-                use_cache
-                and self._cached_result
-                and current_time - self._last_check_time < self._cache_ttl
+            use_cache
+            and self._cached_result
+            and current_time - self._last_check_time < self._cache_ttl
         ):
             return self._cached_result
 
@@ -375,9 +375,9 @@ class HealthMonitor:
                 }
 
     def add_custom_check(
-            self,
-            name: str,
-            check_func: Any,
+        self,
+        name: str,
+        check_func: Any,
     ) -> None:
         """
         Register custom health check function.
@@ -445,7 +445,7 @@ class HealthMonitor:
             self._metrics.avg_response_time = duration
         else:
             self._metrics.avg_response_time = (
-                    alpha * duration + (1 - alpha) * self._metrics.avg_response_time
+                alpha * duration + (1 - alpha) * self._metrics.avg_response_time
             )
 
     def get_metrics(self) -> dict[str, Any]:
@@ -472,9 +472,9 @@ class HealthMonitor:
         }
 
     async def wait_for_healthy(
-            self,
-            timeout: float = 60.0,
-            check_interval: float = 5.0,
+        self,
+        timeout: float = 60.0,
+        check_interval: float = 5.0,
     ) -> bool:
         """
         Wait for service to become healthy.

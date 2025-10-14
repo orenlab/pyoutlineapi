@@ -43,12 +43,12 @@ class HTTPClientProtocol(Protocol):
     """Protocol for HTTP client with PRIVATE request method."""
 
     async def _request(
-            self,
-            method: str,
-            endpoint: str,
-            *,
-            json: Any = None,
-            params: dict[str, Any] | None = None,
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        json: Any = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Internal request method.
@@ -85,9 +85,9 @@ class ServerMixin:
     """
 
     async def get_server_info(
-            self: HTTPClientProtocol,
-            *,
-            as_json: bool | None = None,
+        self: HTTPClientProtocol,
+        *,
+        as_json: bool | None = None,
     ) -> Server | JsonDict:
         """
         Get server information and configuration.
@@ -218,14 +218,14 @@ class AccessKeyMixin:
     """
 
     async def create_access_key(
-            self: HTTPClientProtocol,
-            *,
-            name: str | None = None,
-            password: str | None = None,
-            port: int | None = None,
-            method: str | None = None,
-            limit: DataLimit | None = None,
-            as_json: bool | None = None,
+        self: HTTPClientProtocol,
+        *,
+        name: str | None = None,
+        password: str | None = None,
+        port: int | None = None,
+        method: str | None = None,
+        limit: DataLimit | None = None,
+        as_json: bool | None = None,
     ) -> AccessKey | JsonDict:
         """
         Create new access key with auto-generated ID.
@@ -280,15 +280,15 @@ class AccessKeyMixin:
         )
 
     async def create_access_key_with_id(
-            self: HTTPClientProtocol,
-            key_id: str,
-            *,
-            name: str | None = None,
-            password: str | None = None,
-            port: int | None = None,
-            method: str | None = None,
-            limit: DataLimit | None = None,
-            as_json: bool | None = None,
+        self: HTTPClientProtocol,
+        key_id: str,
+        *,
+        name: str | None = None,
+        password: str | None = None,
+        port: int | None = None,
+        method: str | None = None,
+        limit: DataLimit | None = None,
+        as_json: bool | None = None,
     ) -> AccessKey | JsonDict:
         """
         Create access key with specific ID.
@@ -345,9 +345,9 @@ class AccessKeyMixin:
         )
 
     async def get_access_keys(
-            self: HTTPClientProtocol,
-            *,
-            as_json: bool | None = None,
+        self: HTTPClientProtocol,
+        *,
+        as_json: bool | None = None,
     ) -> AccessKeyList | JsonDict:
         """
         Get all access keys.
@@ -374,10 +374,10 @@ class AccessKeyMixin:
         )
 
     async def get_access_key(
-            self: HTTPClientProtocol,
-            key_id: str,
-            *,
-            as_json: bool | None = None,
+        self: HTTPClientProtocol,
+        key_id: str,
+        *,
+        as_json: bool | None = None,
     ) -> AccessKey | JsonDict:
         """
         Get specific access key by ID.
@@ -429,9 +429,9 @@ class AccessKeyMixin:
         return ResponseParser.parse_simple(data)
 
     async def rename_access_key(
-            self: HTTPClientProtocol,
-            key_id: str,
-            name: str,
+        self: HTTPClientProtocol,
+        key_id: str,
+        name: str,
     ) -> bool:
         """
         Rename access key.
@@ -467,9 +467,9 @@ class AccessKeyMixin:
         return ResponseParser.parse_simple(data)
 
     async def set_access_key_data_limit(
-            self: HTTPClientProtocol,
-            key_id: str,
-            bytes_limit: int,
+        self: HTTPClientProtocol,
+        key_id: str,
+        bytes_limit: int,
     ) -> bool:
         """
         Set data limit for specific access key.
@@ -507,8 +507,8 @@ class AccessKeyMixin:
         return ResponseParser.parse_simple(data)
 
     async def remove_access_key_data_limit(
-            self: HTTPClientProtocol,
-            key_id: str,
+        self: HTTPClientProtocol,
+        key_id: str,
     ) -> bool:
         """
         Remove data limit from access key.
@@ -546,8 +546,8 @@ class DataLimitMixin:
     """
 
     async def set_global_data_limit(
-            self: HTTPClientProtocol,
-            bytes_limit: int,
+        self: HTTPClientProtocol,
+        bytes_limit: int,
     ) -> bool:
         """
         Set global data limit for all access keys.
@@ -613,9 +613,9 @@ class MetricsMixin:
     """
 
     async def get_metrics_status(
-            self: HTTPClientProtocol,
-            *,
-            as_json: bool | None = None,
+        self: HTTPClientProtocol,
+        *,
+        as_json: bool | None = None,
     ) -> MetricsStatusResponse | JsonDict:
         """
         Get metrics collection status.
@@ -668,9 +668,9 @@ class MetricsMixin:
         return ResponseParser.parse_simple(data)
 
     async def get_transfer_metrics(
-            self: HTTPClientProtocol,
-            *,
-            as_json: bool | None = None,
+        self: HTTPClientProtocol,
+        *,
+        as_json: bool | None = None,
     ) -> ServerMetrics | JsonDict:
         """
         Get transfer metrics for all access keys.
@@ -697,10 +697,10 @@ class MetricsMixin:
         )
 
     async def get_experimental_metrics(
-            self: HTTPClientProtocol,
-            since: str,
-            *,
-            as_json: bool | None = None,
+        self: HTTPClientProtocol,
+        since: str,
+        *,
+        as_json: bool | None = None,
     ) -> ExperimentalMetrics | JsonDict:
         """
         Get experimental server metrics.

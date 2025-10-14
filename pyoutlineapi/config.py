@@ -294,9 +294,9 @@ class OutlineClientConfig(BaseSettings):
 
     @classmethod
     def from_env(
-            cls,
-            env_file: Path | str | None = None,
-            **overrides: Any,
+        cls,
+        env_file: Path | str | None = None,
+        **overrides: Any,
     ) -> OutlineClientConfig:
         """
         Load configuration from environment variables.
@@ -341,10 +341,10 @@ class OutlineClientConfig(BaseSettings):
 
     @classmethod
     def create_minimal(
-            cls,
-            api_url: str,
-            cert_sha256: str | SecretStr,
-            **kwargs: Any,
+        cls,
+        api_url: str,
+        cert_sha256: str | SecretStr,
+        **kwargs: Any,
     ) -> OutlineClientConfig:
         """
         Create minimal configuration with required parameters only.
@@ -502,8 +502,8 @@ OUTLINE_CERT_SHA256=your-64-character-sha256-fingerprint
 
 
 def load_config(
-        environment: Literal["development", "production", "custom"] = "custom",
-        **overrides: Any,
+    environment: Literal["development", "production", "custom"] = "custom",
+    **overrides: Any,
 ) -> OutlineClientConfig:
     """
     Load configuration for specific environment.

@@ -197,17 +197,17 @@ class BaseHTTPClient:
     )
 
     def __init__(
-            self,
-            api_url: str,
-            cert_sha256: SecretStr,
-            *,
-            timeout: int = Constants.DEFAULT_TIMEOUT,
-            retry_attempts: int = Constants.DEFAULT_RETRY_ATTEMPTS,
-            max_connections: int = Constants.DEFAULT_MAX_CONNECTIONS,
-            user_agent: str | None = None,
-            enable_logging: bool = False,
-            circuit_config: CircuitConfig | None = None,
-            rate_limit: int = 100,
+        self,
+        api_url: str,
+        cert_sha256: SecretStr,
+        *,
+        timeout: int = Constants.DEFAULT_TIMEOUT,
+        retry_attempts: int = Constants.DEFAULT_RETRY_ATTEMPTS,
+        max_connections: int = Constants.DEFAULT_MAX_CONNECTIONS,
+        user_agent: str | None = None,
+        enable_logging: bool = False,
+        circuit_config: CircuitConfig | None = None,
+        rate_limit: int = 100,
     ) -> None:
         """
         Initialize base HTTP client.
@@ -343,12 +343,12 @@ class BaseHTTPClient:
 
     @_ensure_session
     async def _request(
-            self,
-            method: str,
-            endpoint: str,
-            *,
-            json: Any = None,
-            params: dict[str, Any] | None = None,
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        json: Any = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Make HTTP request with optional circuit breaker protection and rate limiting.
@@ -392,12 +392,12 @@ class BaseHTTPClient:
             return await self._do_request(method, endpoint, json=json, params=params)
 
     async def _do_request(
-            self,
-            method: str,
-            endpoint: str,
-            *,
-            json: Any = None,
-            params: dict[str, Any] | None = None,
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        json: Any = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute HTTP request with retries and proper error handling."""
         url = self._build_url(endpoint)
@@ -405,10 +405,10 @@ class BaseHTTPClient:
         async def _make_request() -> dict[str, Any]:
             try:
                 async with self._session.request(
-                        method,
-                        url,
-                        json=json,
-                        params=params,
+                    method,
+                    url,
+                    json=json,
+                    params=params,
                 ) as response:
                     if self._enable_logging:
                         logger.debug(f"{method} {endpoint} -> {response.status}")
@@ -458,9 +458,9 @@ class BaseHTTPClient:
         return await self._retry_request(_make_request, endpoint)
 
     async def _retry_request(
-            self,
-            request_func: Callable[[], Awaitable[dict[str, Any]]],
-            endpoint: str,
+        self,
+        request_func: Callable[[], Awaitable[dict[str, Any]]],
+        endpoint: str,
     ) -> dict[str, Any]:
         """
         Execute request with retry logic.
@@ -475,9 +475,9 @@ class BaseHTTPClient:
                 return await request_func()
 
             except (
-                    OutlineTimeoutError,
-                    OutlineConnectionError,
-                    APIError,
+                OutlineTimeoutError,
+                OutlineConnectionError,
+                APIError,
             ) as error:
                 last_error = error
 
