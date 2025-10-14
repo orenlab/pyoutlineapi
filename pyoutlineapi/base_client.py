@@ -26,7 +26,12 @@ from aiohttp import ClientResponse, Fingerprint
 from pydantic import SecretStr
 
 from .common_types import Constants, Validators
-from .exceptions import APIError, CircuitOpenError
+from .exceptions import (
+    APIError,
+    CircuitOpenError,
+    ConnectionError as OutlineConnectionError,
+    TimeoutError as OutlineTimeoutError,
+)
 
 if TYPE_CHECKING:
     from .circuit_breaker import CircuitBreaker, CircuitConfig
@@ -235,7 +240,29 @@ class BaseHTTPClient:
 
     def _init_circuit_breaker(self, config: CircuitConfig) -> None:
         """Lazy initialization of circuit breaker."""
-        from .circuit_breaker import CircuitBreaker
+        from .circuit_breaker import CircuitBreaker, CircuitConfig
+
+        # Calculate proper timeout for circuit breaker
+        # It should be enough for all retries: timeout * (attempts + 1) + delays
+        # Formula: timeout * (retry_attempts + 1) + sum(delays) + buffer
+        max_retry_time = self._timeout.total * (self._retry_attempts + 1)
+        max_delays = sum(Constants.DEFAULT_RETRY_DELAY * i for i in range(1, self._retry_attempts + 1))
+        cb_timeout = max_retry_time + max_delays + 5.0  # +5s buffer (reduced from 10s)
+
+        # Override call_timeout if needed
+        if config.call_timeout < cb_timeout:
+            if self._enable_logging:
+                logger.info(
+                    f"Adjusting circuit breaker timeout from {config.call_timeout}s "
+                    f"to {cb_timeout}s to accommodate retries"
+                )
+            # Create new config with adjusted timeout
+            config = CircuitConfig(
+                failure_threshold=config.failure_threshold,
+                recovery_timeout=config.recovery_timeout,
+                success_threshold=config.success_threshold,
+                call_timeout=cb_timeout,
+            )
 
         self._circuit_breaker = CircuitBreaker(
             name=f"outline-{urlparse(self._api_url).netloc}",
@@ -243,7 +270,11 @@ class BaseHTTPClient:
         )
 
         if self._enable_logging:
-            logger.info("Circuit breaker initialized")
+            logger.info(
+                f"Circuit breaker initialized: "
+                f"failure_threshold={config.failure_threshold}, "
+                f"call_timeout={config.call_timeout:.1f}s"
+            )
 
     async def __aenter__(self) -> BaseHTTPClient:
         """
@@ -295,7 +326,6 @@ class BaseHTTPClient:
         try:
             return Fingerprint(binascii.unhexlify(self._cert_sha256.get_secret_value()))
         except binascii.Error as e:
-            # 🔒 SECURITY FIX: Never expose certificate in exception
             raise ValueError(
                 "Invalid certificate fingerprint format. "
                 "Expected 64 hexadecimal characters (SHA-256)."
@@ -328,6 +358,8 @@ class BaseHTTPClient:
         Raises:
             APIError: If request fails
             CircuitOpenError: If circuit breaker is open
+            TimeoutError: If request times out
+            ConnectionError: If connection fails
         """
         # Rate limiting protection
         async with self._rate_limiter:
@@ -357,31 +389,60 @@ class BaseHTTPClient:
         json: Any = None,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Execute HTTP request with retries."""
+        """Execute HTTP request with retries and proper error handling."""
         url = self._build_url(endpoint)
 
         async def _make_request() -> dict[str, Any]:
-            async with self._session.request(  # type: ignore[union-attr]
-                method,
-                url,
-                json=json,
-                params=params,
-            ) as response:
-                if self._enable_logging:
-                    logger.debug(f"{method} {endpoint} -> {response.status}")
+            try:
+                async with self._session.request(
+                    method,
+                    url,
+                    json=json,
+                    params=params,
+                ) as response:
+                    if self._enable_logging:
+                        logger.debug(f"{method} {endpoint} -> {response.status}")
 
-                if response.status >= 400:
-                    await self._handle_error(response, endpoint)
+                    if response.status >= 400:
+                        await self._handle_error(response, endpoint)
 
-                # Handle 204 No Content
-                if response.status == 204:
-                    return {"success": True}
+                    # Handle 204 No Content
+                    if response.status == 204:
+                        return {"success": True}
 
-                # Parse JSON
-                try:
-                    return await response.json()
-                except aiohttp.ContentTypeError:
-                    return {"success": True}
+                    # Parse JSON
+                    try:
+                        return await response.json()
+                    except aiohttp.ContentTypeError:
+                        return {"success": True}
+
+            except asyncio.TimeoutError as e:
+                # Convert asyncio.TimeoutError to our TimeoutError
+                raise OutlineTimeoutError(
+                    f"Request to {endpoint} timed out",
+                    timeout=self._timeout.total,
+                ) from e
+
+            except aiohttp.ClientConnectionError as e:
+                # Connection errors (refused, reset, etc.)
+                raise OutlineConnectionError(
+                    f"Failed to connect to server: {e}",
+                    host=urlparse(url).netloc,
+                ) from e
+
+            except aiohttp.ServerDisconnectedError as e:
+                # Server disconnected
+                raise OutlineConnectionError(
+                    f"Server disconnected: {e}",
+                    host=urlparse(url).netloc,
+                ) from e
+
+            except aiohttp.ClientError as e:
+                # Other aiohttp errors
+                raise APIError(
+                    f"Request failed: {e}",
+                    endpoint=endpoint,
+                ) from e
 
         # Retry logic
         return await self._retry_request(_make_request, endpoint)
@@ -403,8 +464,18 @@ class BaseHTTPClient:
             try:
                 return await request_func()
 
-            except (aiohttp.ClientError, APIError) as error:
+            except (
+                OutlineTimeoutError,
+                OutlineConnectionError,
+                APIError,
+            ) as error:
                 last_error = error
+
+                # Log the error
+                if self._enable_logging:
+                    logger.warning(
+                        f"Request to {endpoint} failed (attempt {attempt + 1}/{self._retry_attempts + 1}): {error}"
+                    )
 
                 # Don't retry non-retryable errors
                 if isinstance(error, APIError):
@@ -414,12 +485,14 @@ class BaseHTTPClient:
                 # Don't sleep on last attempt
                 if attempt < self._retry_attempts:
                     delay = Constants.DEFAULT_RETRY_DELAY * (attempt + 1)
+                    if self._enable_logging:
+                        logger.debug(f"Retrying in {delay}s...")
                     await asyncio.sleep(delay)
 
-                    if self._enable_logging:
-                        logger.debug(f"Retry {attempt + 1} for {endpoint}")
-
         # All retries failed
+        if self._enable_logging:
+            logger.error(f"All {self._retry_attempts + 1} attempts failed for {endpoint}")
+
         raise APIError(
             f"Request failed after {self._retry_attempts + 1} attempts",
             endpoint=endpoint,

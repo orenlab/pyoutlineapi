@@ -94,23 +94,46 @@ class AsyncOutlineClient(
             ...     timeout=60,
             ... )
         """
-        # Handle different initialization methods
-        if config is None:
-            if api_url is None or cert_sha256 is None:
-                raise ConfigurationError(
-                    "Either 'config' or both 'api_url' and 'cert_sha256' required"
+        # Handle different initialization methods with structural pattern matching
+        match config, api_url, cert_sha256:
+            # Case 1: No config, but both direct parameters provided
+            case None, str() as url, str() as cert if url and cert:
+                config = OutlineClientConfig.create_minimal(
+                    api_url=url,
+                    cert_sha256=cert,
+                    **kwargs,
                 )
 
-            # Create minimal config
-            config = OutlineClientConfig.create_minimal(
-                api_url=api_url,
-                cert_sha256=cert_sha256,
-                **kwargs,
-            )
-        elif api_url is not None or cert_sha256 is None:
-            raise ConfigurationError(
-                "Cannot specify both 'config' and direct parameters"
-            )
+            # Case 2: Config provided, no direct parameters
+            case OutlineClientConfig(), None, None:
+                # Valid configuration, proceed
+                pass
+
+            # Case 3: Missing required parameters
+            case None, None, _:
+                raise ConfigurationError("Missing required 'api_url' parameter")
+            case None, _, None:
+                raise ConfigurationError("Missing required 'cert_sha256' parameter")
+            case None, None, None:
+                raise ConfigurationError(
+                    "Either provide 'config' or both 'api_url' and 'cert_sha256'"
+                )
+
+            # Case 4: Conflicting parameters
+            case OutlineClientConfig(), str() | None, str() | None:
+                raise ConfigurationError(
+                    "Cannot specify both 'config' and direct parameters. "
+                    "Use either config object or api_url/cert_sha256, but not both."
+                )
+
+            # Case 5: Unexpected input types
+            case _:
+                raise ConfigurationError(
+                    f"Invalid parameter types: "
+                    f"config={type(config).__name__}, "
+                    f"api_url={type(Validators.sanitize_url_for_logging(api_url)).__name__}, "
+                    f"cert_sha256=***MASKED*** [See config instead]"
+                )
 
         # Store config
         self._config = config
@@ -188,6 +211,23 @@ class AsyncOutlineClient(
         Returns:
             bool: True if returning raw JSON dicts instead of models
         """
+        return self._config.json_format
+
+    def _resolve_json_format(self, as_json: bool | None) -> bool:
+        """
+        Resolve JSON format preference.
+
+        If as_json is explicitly provided, uses that value.
+        Otherwise, uses config.json_format from .env (OUTLINE_JSON_FORMAT).
+
+        Args:
+            as_json: Explicit preference (None = use config default)
+
+        Returns:
+            bool: Final JSON format preference
+        """
+        if as_json is not None:
+            return as_json
         return self._config.json_format
 
     # ===== Factory Methods =====
@@ -325,11 +365,11 @@ class AsyncOutlineClient(
         }
 
         try:
-            # Server info
+            # Server info (force JSON for summary)
             server = await self.get_server_info(as_json=True)
             summary["server"] = server
 
-            # Access keys
+            # Access keys (force JSON)
             keys = await self.get_access_keys(as_json=True)
             summary["access_keys_count"] = len(keys.get("accessKeys", []))
 
@@ -364,7 +404,6 @@ class AsyncOutlineClient(
         status = "connected" if self.is_connected else "disconnected"
         cb = f", circuit={self.circuit_state}" if self.circuit_state else ""
 
-        # 🔒 SECURITY FIX: Use Validators method to sanitize URL
         safe_url = Validators.sanitize_url_for_logging(self.api_url)
 
         return f"AsyncOutlineClient(host={safe_url}, status={status}{cb})"

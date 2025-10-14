@@ -17,12 +17,15 @@ requests when the service is experiencing issues.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Awaitable, Callable, ParamSpec, TypeVar
 
 from .exceptions import CircuitOpenError
+
+logger = logging.getLogger(__name__)
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -119,6 +122,7 @@ class CircuitBreaker:
     - Minimal overhead when working properly
     - Easy to disable completely
     - Automatic recovery testing
+    - Proper timeout handling
 
     Example:
         >>> from pyoutlineapi.circuit_breaker import CircuitBreaker, CircuitConfig
@@ -223,7 +227,7 @@ class CircuitBreaker:
 
         Raises:
             CircuitOpenError: If circuit is open
-            asyncio.TimeoutError: If call exceeds timeout
+            asyncio.TimeoutError: If call exceeds timeout (caught and recorded as failure)
 
         Example:
             >>> async def get_data():
@@ -247,6 +251,7 @@ class CircuitBreaker:
         start_time = time.time()
 
         try:
+            # Use asyncio.wait_for with timeout
             result = await asyncio.wait_for(
                 func(*args, **kwargs),
                 timeout=self.config.call_timeout,
@@ -257,6 +262,23 @@ class CircuitBreaker:
             await self._record_success(duration)
 
             return result
+
+        except asyncio.TimeoutError as e:
+            # Record timeout as failure
+            duration = time.time() - start_time
+            logger.warning(
+                f"Circuit '{self.name}': Call timed out after {duration:.2f}s"
+            )
+            await self._record_failure(duration, e)
+
+            # Convert asyncio.TimeoutError to our custom TimeoutError
+            # so it can be caught and retried properly
+            from .exceptions import TimeoutError as OutlineTimeoutError
+            raise OutlineTimeoutError(
+                f"Circuit '{self.name}': Operation timed out after {self.config.call_timeout}s",
+                timeout=self.config.call_timeout,
+                operation=self.name,
+            ) from e
 
         except Exception as e:
             # Record failure
@@ -269,7 +291,6 @@ class CircuitBreaker:
         async with self._lock:
             current_time = time.time()
 
-            # ✨ STYLE: Using Python 3.10+ match statement
             match self._state:
                 case CircuitState.OPEN:
                     # Check if recovery timeout passed
@@ -277,11 +298,17 @@ class CircuitBreaker:
                         current_time - self._last_failure_time
                         >= self.config.recovery_timeout
                     ):
+                        logger.info(
+                            f"Circuit '{self.name}': Attempting recovery (OPEN -> HALF_OPEN)"
+                        )
                         await self._transition_to(CircuitState.HALF_OPEN)
 
                 case CircuitState.CLOSED:
                     # Check if should open
                     if self._failure_count >= self.config.failure_threshold:
+                        logger.warning(
+                            f"Circuit '{self.name}': Opening circuit due to {self._failure_count} failures"
+                        )
                         await self._transition_to(CircuitState.OPEN)
 
                 case CircuitState.HALF_OPEN:
@@ -294,11 +321,23 @@ class CircuitBreaker:
             self._metrics.total_calls += 1
             self._metrics.successful_calls += 1
 
-            if self._state == CircuitState.HALF_OPEN:
+            if self._state == CircuitState.CLOSED:
+                # Reset failure count on success in CLOSED state
+                # This prevents old failures from accumulating
+                if self._failure_count > 0:
+                    logger.debug(
+                        f"Circuit '{self.name}': Resetting {self._failure_count} failures after success"
+                    )
+                    self._failure_count = 0
+
+            elif self._state == CircuitState.HALF_OPEN:
                 self._success_count += 1
 
                 # Close circuit if threshold met
                 if self._success_count >= self.config.success_threshold:
+                    logger.info(
+                        f"Circuit '{self.name}': Closing circuit after {self._success_count} successful calls"
+                    )
                     await self._transition_to(CircuitState.CLOSED)
 
     async def _record_failure(self, duration: float, error: Exception) -> None:
@@ -310,8 +349,17 @@ class CircuitBreaker:
             self._failure_count += 1
             self._last_failure_time = time.time()
 
+            error_type = type(error).__name__
+            logger.debug(
+                f"Circuit '{self.name}': Failure recorded ({error_type}) - "
+                f"total failures: {self._failure_count}"
+            )
+
             # In half-open, any failure opens circuit
             if self._state == CircuitState.HALF_OPEN:
+                logger.warning(
+                    f"Circuit '{self.name}': Recovery failed, reopening circuit"
+                )
                 await self._transition_to(CircuitState.OPEN)
 
     async def _transition_to(self, new_state: CircuitState) -> None:
@@ -323,13 +371,14 @@ class CircuitBreaker:
         if self._state == new_state:
             return
 
+        old_state = self._state.name
         self._state = new_state
         self._metrics.state_changes += 1
 
-        # ✨ STYLE: Reset counters using match statement
+        logger.info(f"Circuit '{self.name}': State transition {old_state} -> {new_state.name}")
+
         match new_state:
             case CircuitState.CLOSED:
-                # ✅ LOGIC: Reset all counters when healthy
                 self._failure_count = 0
                 self._success_count = 0
 
@@ -355,6 +404,7 @@ class CircuitBreaker:
             >>> print(f"State: {breaker.state.name}")  # CLOSED
         """
         async with self._lock:
+            logger.info(f"Circuit '{self.name}': Manual reset")
             await self._transition_to(CircuitState.CLOSED)
             self._metrics = CircuitMetrics()
 

@@ -51,7 +51,6 @@ async/await, comprehensive error handling, and battle-tested reliability.
 - ✅ **Concurrent Requests** - Configurable rate limiting
 - ✅ **Minimal Memory** - Small footprint, efficient design
 
-
 ## 📦 Installation
 
 ```bash
@@ -252,34 +251,146 @@ print(f"Locations: {len(exp_metrics.server.locations)}")
 
 ### Circuit Breaker Pattern
 
-Prevent cascading failures with automatic circuit breaker protection:
+Automatic protection against cascading failures with three-state circuit breaker:
+
+**States:**
+
+- **CLOSED** - Normal operation, all requests allowed
+- **OPEN** - Service failing, requests blocked immediately
+- **HALF_OPEN** - Testing if service recovered, limited requests allowed
+
+**Key Features:**
+
+- Configurable failure threshold
+- Automatic recovery testing
+- Per-request timeout enforcement
+- Success rate monitoring
 
 ```python
 from pyoutlineapi import OutlineClientConfig
-from pyoutlineapi.circuit_breaker import CircuitConfig
+from pyoutlineapi.exceptions import CircuitOpenError
 
 config = OutlineClientConfig(
     api_url="https://server.com:12345/secret",
     cert_sha256="abc123...",
     enable_circuit_breaker=True,
-    circuit_failure_threshold=5,  # Open after 5 failures
-    circuit_recovery_timeout=60.0,  # Test recovery after 60s
+    circuit_failure_threshold=5,  # Open after 5 consecutive failures
+    circuit_recovery_timeout=60.0,  # Test recovery after 60 seconds
 )
 
 async with AsyncOutlineClient(config) as client:
     try:
-        await client.get_server_info()
+        server = await client.get_server_info()
+
     except CircuitOpenError as e:
-        print(f"Circuit open, retry after {e.retry_after}s")
+        # Circuit is open - service is failing
+        print(f"⚠️  Service unavailable")
+        print(f"Retry after: {e.retry_after}s")
+        print(f"Failed calls: {e.failed_calls}")
 
-    # Check circuit state
-    if client.circuit_state == "OPEN":
-        print("Service experiencing issues")
+        # Wait and retry
+        await asyncio.sleep(e.retry_after)
 
-    # Get circuit metrics
-    metrics = client.get_circuit_metrics()
-    if metrics:
-        print(f"Success rate: {metrics['success_rate']:.2%}")
+    except APIError as e:
+        # Individual request failed (circuit still closed)
+        if e.is_retryable:
+            # Will be retried automatically
+            pass
+
+# Check circuit state
+state = client.circuit_state  # "CLOSED" | "OPEN" | "HALF_OPEN"
+
+# Monitor circuit health
+metrics = client.get_circuit_metrics()
+if metrics:
+    print(f"State: {metrics['state']}")
+    print(f"Failures: {metrics['failure_count']}")
+    print(f"Success rate: {metrics['success_rate']:.2%}")
+    print(f"Last failure: {metrics['last_failure_time']}")
+
+# Manual circuit control
+await client.reset_circuit_breaker()  # Force reset to CLOSED
+```
+
+**Circuit Breaker vs Retry Logic:**
+
+```python
+# Circuit breaker prevents requests BEFORE they're sent
+# Retry logic handles failures AFTER request completes
+
+async with AsyncOutlineClient(config) as client:
+    try:
+        # 1. Circuit breaker checks if requests are allowed
+        #    - If OPEN: raises CircuitOpenError immediately
+        #    - If CLOSED/HALF_OPEN: proceeds to step 2
+
+        # 2. Request is sent with retry logic
+        #    - On failure: retries up to N times
+        #    - On repeated failure: circuit may open
+
+        result = await client.get_server_info()
+
+    except CircuitOpenError:
+        # Circuit blocked the request (no network call made)
+        print("Service is down, circuit is open")
+
+    except APIError:
+        # Request was sent but failed (after all retries)
+        print("Request failed after retries")
+```
+
+**Production Best Practices:**
+
+```python
+from pyoutlineapi.exceptions import CircuitOpenError, APIError
+
+
+async def resilient_api_call():
+    """Production-ready API call with circuit breaker."""
+    config = OutlineClientConfig.from_env()
+
+    async with AsyncOutlineClient(config) as client:
+        max_circuit_retries = 3
+
+        for attempt in range(max_circuit_retries):
+            try:
+                return await client.get_server_info()
+
+            except CircuitOpenError as e:
+                # Circuit is open - wait before retry
+                if attempt < max_circuit_retries - 1:
+                    wait_time = min(e.retry_after * (2 ** attempt), 300)  # Max 5 min
+                    logger.warning(f"Circuit open, waiting {wait_time}s")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error("Circuit still open after retries")
+                    raise
+
+            except APIError as e:
+                # Individual request failed
+                if not e.is_retryable:
+                    raise
+                logger.warning(f"Request failed: {e}")
+
+        # Check if service is degraded
+        metrics = client.get_circuit_metrics()
+        if metrics and metrics['success_rate'] < 0.5:
+            logger.warning("Service degraded: success rate < 50%")
+```
+
+**Disabling Circuit Breaker:**
+
+```python
+# For testing or debugging
+config = OutlineClientConfig(
+    api_url="...",
+    cert_sha256="...",
+    enable_circuit_breaker=False,  # Disable circuit breaker
+)
+
+async with AsyncOutlineClient(config) as client:
+    # Requests will only use retry logic, no circuit breaker
+    await client.get_server_info()
 ```
 
 ### Rate Limiting
@@ -549,7 +660,18 @@ try:
     async with AsyncOutlineClient.from_env() as client:
         await client.get_server_info()
 
+except CircuitOpenError as e:
+    # Circuit breaker has opened due to repeated failures
+    print(f"⚠️  Circuit open - service failing")
+    print(f"Failed calls: {e.failed_calls}")
+    print(f"Retry after: {e.retry_after}s")
+
+    # This means the service has been consistently failing
+    # No network request was made - circuit blocked it
+    # Wait for recovery timeout before retrying
+
 except APIError as e:
+    # Individual request failed (circuit is closed)
     print(f"API error: {e}")
     print(f"Status: {e.status_code}")
     print(f"Endpoint: {e.endpoint}")
@@ -557,13 +679,10 @@ except APIError as e:
     if e.is_client_error:
         print("Client error (4xx) - fix your request")
     elif e.is_server_error:
-        print("Server error (5xx) - can retry")
+        print("Server error (5xx) - may be retryable")
 
     if e.is_retryable:
-        print("This error is retryable")
-
-except CircuitOpenError as e:
-    print(f"Circuit open, retry after {e.retry_after}s")
+        print("Request will be retried automatically")
 
 except ConfigurationError as e:
     print(f"Configuration error in '{e.field}': {e}")
@@ -579,6 +698,51 @@ except TimeoutError as e:
 except OutlineError as e:
     print(f"Generic error: {e}")
     print(f"Details: {e.details}")
+```
+
+### Error Handling Strategies
+
+```python
+from pyoutlineapi.exceptions import CircuitOpenError, APIError
+import asyncio
+
+
+async def robust_operation():
+    """Handle circuit breaker and retries correctly."""
+    config = OutlineClientConfig.from_env()
+
+    async with AsyncOutlineClient(config) as client:
+        # Strategy 1: Simple retry with exponential backoff
+        for attempt in range(3):
+            try:
+                return await client.get_server_info()
+
+            except CircuitOpenError as e:
+                if attempt == 2:  # Last attempt
+                    raise
+                # Wait before retry (circuit is open)
+                await asyncio.sleep(e.retry_after * (2 ** attempt))
+
+            except APIError as e:
+                if not e.is_retryable or attempt == 2:
+                    raise
+                await asyncio.sleep(2 ** attempt)
+
+        # Strategy 2: Check circuit health before critical operation
+        metrics = client.get_circuit_metrics()
+        if metrics and metrics['state'] == 'OPEN':
+            # Don't attempt operation, use fallback
+            return await get_cached_data()
+
+        return await client.get_server_info()
+
+        # Strategy 3: Degrade gracefully
+        try:
+            return await client.get_server_info()
+        except CircuitOpenError:
+            # Circuit is open - use cached or default data
+            logger.warning("Circuit open, using cached data")
+            return get_cached_server_info()
 ```
 
 ### Retry Logic
@@ -638,6 +802,9 @@ async with AsyncOutlineClient.create(
 # ✅ Good - specific error handling
 try:
     key = await client.get_access_key(key_id)
+except CircuitOpenError as e:
+    # Handle circuit breaker
+    await asyncio.sleep(e.retry_after)
 except APIError as e:
     if e.status_code == 404:
         print("Key not found")
@@ -776,7 +943,7 @@ from pyoutlineapi import AsyncOutlineClient
 from pyoutlineapi.health_monitoring import HealthMonitor
 from pyoutlineapi.batch_operations import BatchOperations
 from pyoutlineapi.metrics_collector import MetricsCollector
-from pyoutlineapi.exceptions import OutlineError
+from pyoutlineapi.exceptions import OutlineError, CircuitOpenError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -835,6 +1002,10 @@ async def main():
 
             return 0
 
+    except CircuitOpenError as e:
+        logger.error(f"❌ Circuit breaker open: {e}")
+        logger.error(f"   Service has been failing, retry after {e.retry_after}s")
+        return 1
     except OutlineError as e:
         logger.error(f"❌ Outline error: {e}")
         return 1

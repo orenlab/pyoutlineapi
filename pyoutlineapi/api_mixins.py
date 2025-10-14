@@ -43,18 +43,26 @@ class HTTPClientProtocol(Protocol):
     """Protocol for HTTP client with PRIVATE request method."""
 
     async def _request(
-        self,
-        method: str,
-        endpoint: str,
-        *,
-        json: Any = None,
-        params: dict[str, Any] | None = None,
+            self,
+            method: str,
+            endpoint: str,
+            *,
+            json: Any = None,
+            params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Internal request method.
 
         Note: This is a private method and should not be called directly.
         Use high-level API methods instead.
+        """
+        ...
+
+    def _resolve_json_format(self, as_json: bool | None) -> bool:
+        """
+        Resolve JSON format preference.
+
+        If as_json is None, uses config.json_format as default.
         """
         ...
 
@@ -77,9 +85,9 @@ class ServerMixin:
     """
 
     async def get_server_info(
-        self: HTTPClientProtocol,
-        *,
-        as_json: bool = False,
+            self: HTTPClientProtocol,
+            *,
+            as_json: bool | None = None,
     ) -> Server | JsonDict:
         """
         Get server information and configuration.
@@ -87,11 +95,11 @@ class ServerMixin:
         API: GET /server
 
         Args:
-            as_json: Return as JSON dict instead of model
+            as_json: Return as JSON dict instead of model (None = use config default)
 
         Returns:
             Server: Server information model
-            JsonDict: Raw JSON response (if as_json=True)
+            JsonDict: Raw JSON response (if as_json=True or OUTLINE_JSON_FORMAT=true)
 
         Example:
             >>> async with AsyncOutlineClient.from_env() as client:
@@ -100,7 +108,7 @@ class ServerMixin:
             ...     print(f"Port: {server.port_for_new_access_keys}")
         """
         data = await self._request("GET", "server")
-        return ResponseParser.parse(data, Server, as_json=as_json)
+        return ResponseParser.parse(data, Server, as_json=self._resolve_json_format(as_json))
 
     async def rename_server(self: HTTPClientProtocol, name: str) -> bool:
         """
@@ -208,14 +216,14 @@ class AccessKeyMixin:
     """
 
     async def create_access_key(
-        self: HTTPClientProtocol,
-        *,
-        name: str | None = None,
-        password: str | None = None,
-        port: int | None = None,
-        method: str | None = None,
-        limit: DataLimit | None = None,
-        as_json: bool = False,
+            self: HTTPClientProtocol,
+            *,
+            name: str | None = None,
+            password: str | None = None,
+            port: int | None = None,
+            method: str | None = None,
+            limit: DataLimit | None = None,
+            as_json: bool | None = None,
     ) -> AccessKey | JsonDict:
         """
         Create new access key with auto-generated ID.
@@ -228,11 +236,11 @@ class AccessKeyMixin:
             port: Optional port (uses default if not provided)
             method: Optional encryption method
             limit: Optional data limit
-            as_json: Return as JSON dict instead of model
+            as_json: Return as JSON dict instead of model (None = use config default)
 
         Returns:
             AccessKey: Created access key model
-            JsonDict: Raw JSON response (if as_json=True)
+            JsonDict: Raw JSON response (if as_json=True or OUTLINE_JSON_FORMAT=true)
 
         Example:
             >>> async with AsyncOutlineClient.from_env() as client:
@@ -265,18 +273,18 @@ class AccessKeyMixin:
             "access-keys",
             json=request.model_dump(exclude_none=True, by_alias=True),
         )
-        return ResponseParser.parse(data, AccessKey, as_json=as_json)
+        return ResponseParser.parse(data, AccessKey, as_json=self._resolve_json_format(as_json))
 
     async def create_access_key_with_id(
-        self: HTTPClientProtocol,
-        key_id: str,
-        *,
-        name: str | None = None,
-        password: str | None = None,
-        port: int | None = None,
-        method: str | None = None,
-        limit: DataLimit | None = None,
-        as_json: bool = False,
+            self: HTTPClientProtocol,
+            key_id: str,
+            *,
+            name: str | None = None,
+            password: str | None = None,
+            port: int | None = None,
+            method: str | None = None,
+            limit: DataLimit | None = None,
+            as_json: bool | None = None,
     ) -> AccessKey | JsonDict:
         """
         Create access key with specific ID.
@@ -290,11 +298,11 @@ class AccessKeyMixin:
             port: Optional port
             method: Optional encryption method
             limit: Optional data limit
-            as_json: Return as JSON dict instead of model
+            as_json: Return as JSON dict instead of model (None = use config default)
 
         Returns:
             AccessKey: Created access key model
-            JsonDict: Raw JSON response (if as_json=True)
+            JsonDict: Raw JSON response (if as_json=True or OUTLINE_JSON_FORMAT=true)
 
         Raises:
             ValueError: If key_id is invalid
@@ -328,12 +336,12 @@ class AccessKeyMixin:
             f"access-keys/{validated_key_id}",
             json=request.model_dump(exclude_none=True, by_alias=True),
         )
-        return ResponseParser.parse(data, AccessKey, as_json=as_json)
+        return ResponseParser.parse(data, AccessKey, as_json=self._resolve_json_format(as_json))
 
     async def get_access_keys(
-        self: HTTPClientProtocol,
-        *,
-        as_json: bool = False,
+            self: HTTPClientProtocol,
+            *,
+            as_json: bool | None = None,
     ) -> AccessKeyList | JsonDict:
         """
         Get all access keys.
@@ -341,11 +349,11 @@ class AccessKeyMixin:
         API: GET /access-keys
 
         Args:
-            as_json: Return as JSON dict instead of model
+            as_json: Return as JSON dict instead of model (None = use config default)
 
         Returns:
             AccessKeyList: List of all access keys
-            JsonDict: Raw JSON response (if as_json=True)
+            JsonDict: Raw JSON response (if as_json=True or OUTLINE_JSON_FORMAT=true)
 
         Example:
             >>> async with AsyncOutlineClient.from_env() as client:
@@ -355,13 +363,13 @@ class AccessKeyMixin:
             ...         print(f"- {key.name}: {key.id}")
         """
         data = await self._request("GET", "access-keys")
-        return ResponseParser.parse(data, AccessKeyList, as_json=as_json)
+        return ResponseParser.parse(data, AccessKeyList, as_json=self._resolve_json_format(as_json))
 
     async def get_access_key(
-        self: HTTPClientProtocol,
-        key_id: str,
-        *,
-        as_json: bool = False,
+            self: HTTPClientProtocol,
+            key_id: str,
+            *,
+            as_json: bool | None = None,
     ) -> AccessKey | JsonDict:
         """
         Get specific access key by ID.
@@ -370,11 +378,11 @@ class AccessKeyMixin:
 
         Args:
             key_id: Access key identifier
-            as_json: Return as JSON dict instead of model
+            as_json: Return as JSON dict instead of model (None = use config default)
 
         Returns:
             AccessKey: Access key details
-            JsonDict: Raw JSON response (if as_json=True)
+            JsonDict: Raw JSON response (if as_json=True or OUTLINE_JSON_FORMAT=true)
 
         Example:
             >>> async with AsyncOutlineClient.from_env() as client:
@@ -385,7 +393,7 @@ class AccessKeyMixin:
         validated_key_id = Validators.validate_key_id(key_id)
 
         data = await self._request("GET", f"access-keys/{validated_key_id}")
-        return ResponseParser.parse(data, AccessKey, as_json=as_json)
+        return ResponseParser.parse(data, AccessKey, as_json=self._resolve_json_format(as_json))
 
     async def delete_access_key(self: HTTPClientProtocol, key_id: str) -> bool:
         """
@@ -411,9 +419,9 @@ class AccessKeyMixin:
         return ResponseParser.parse_simple(data)
 
     async def rename_access_key(
-        self: HTTPClientProtocol,
-        key_id: str,
-        name: str,
+            self: HTTPClientProtocol,
+            key_id: str,
+            name: str,
     ) -> bool:
         """
         Rename access key.
@@ -449,9 +457,9 @@ class AccessKeyMixin:
         return ResponseParser.parse_simple(data)
 
     async def set_access_key_data_limit(
-        self: HTTPClientProtocol,
-        key_id: str,
-        bytes_limit: int,
+            self: HTTPClientProtocol,
+            key_id: str,
+            bytes_limit: int,
     ) -> bool:
         """
         Set data limit for specific access key.
@@ -489,8 +497,8 @@ class AccessKeyMixin:
         return ResponseParser.parse_simple(data)
 
     async def remove_access_key_data_limit(
-        self: HTTPClientProtocol,
-        key_id: str,
+            self: HTTPClientProtocol,
+            key_id: str,
     ) -> bool:
         """
         Remove data limit from access key.
@@ -528,8 +536,8 @@ class DataLimitMixin:
     """
 
     async def set_global_data_limit(
-        self: HTTPClientProtocol,
-        bytes_limit: int,
+            self: HTTPClientProtocol,
+            bytes_limit: int,
     ) -> bool:
         """
         Set global data limit for all access keys.
@@ -595,9 +603,9 @@ class MetricsMixin:
     """
 
     async def get_metrics_status(
-        self: HTTPClientProtocol,
-        *,
-        as_json: bool = False,
+            self: HTTPClientProtocol,
+            *,
+            as_json: bool | None = None,
     ) -> MetricsStatusResponse | JsonDict:
         """
         Get metrics collection status.
@@ -605,11 +613,11 @@ class MetricsMixin:
         API: GET /metrics/enabled
 
         Args:
-            as_json: Return as JSON dict instead of model
+            as_json: Return as JSON dict instead of model (None = use config default)
 
         Returns:
             MetricsStatusResponse: Metrics status
-            JsonDict: Raw JSON response (if as_json=True)
+            JsonDict: Raw JSON response (if as_json=True or OUTLINE_JSON_FORMAT=true)
 
         Example:
             >>> async with AsyncOutlineClient.from_env() as client:
@@ -617,7 +625,7 @@ class MetricsMixin:
             ...     print(f"Metrics enabled: {status.metrics_enabled}")
         """
         data = await self._request("GET", "metrics/enabled")
-        return ResponseParser.parse(data, MetricsStatusResponse, as_json=as_json)
+        return ResponseParser.parse(data, MetricsStatusResponse, as_json=self._resolve_json_format(as_json))
 
     async def set_metrics_status(self: HTTPClientProtocol, enabled: bool) -> bool:
         """
@@ -648,9 +656,9 @@ class MetricsMixin:
         return ResponseParser.parse_simple(data)
 
     async def get_transfer_metrics(
-        self: HTTPClientProtocol,
-        *,
-        as_json: bool = False,
+            self: HTTPClientProtocol,
+            *,
+            as_json: bool | None = None,
     ) -> ServerMetrics | JsonDict:
         """
         Get transfer metrics for all access keys.
@@ -658,11 +666,11 @@ class MetricsMixin:
         API: GET /metrics/transfer
 
         Args:
-            as_json: Return as JSON dict instead of model
+            as_json: Return as JSON dict instead of model (None = use config default)
 
         Returns:
             ServerMetrics: Transfer metrics by key ID
-            JsonDict: Raw JSON response (if as_json=True)
+            JsonDict: Raw JSON response (if as_json=True or OUTLINE_JSON_FORMAT=true)
 
         Example:
             >>> async with AsyncOutlineClient.from_env() as client:
@@ -672,13 +680,13 @@ class MetricsMixin:
             ...         print(f"Key {key_id}: {bytes_used / 1024**2:.2f} MB")
         """
         data = await self._request("GET", "metrics/transfer")
-        return ResponseParser.parse(data, ServerMetrics, as_json=as_json)
+        return ResponseParser.parse(data, ServerMetrics, as_json=self._resolve_json_format(as_json))
 
     async def get_experimental_metrics(
-        self: HTTPClientProtocol,
-        since: str,
-        *,
-        as_json: bool = False,
+            self: HTTPClientProtocol,
+            since: str,
+            *,
+            as_json: bool | None = None,
     ) -> ExperimentalMetrics | JsonDict:
         """
         Get experimental server metrics.
@@ -687,11 +695,11 @@ class MetricsMixin:
 
         Args:
             since: Time range (e.g., "24h", "7d", "30d")
-            as_json: Return as JSON dict instead of model
+            as_json: Return as JSON dict instead of model (None = use config default)
 
         Returns:
             ExperimentalMetrics: Experimental metrics
-            JsonDict: Raw JSON response (if as_json=True)
+            JsonDict: Raw JSON response (if as_json=True or OUTLINE_JSON_FORMAT=true)
 
         Raises:
             ValueError: If since parameter is empty
@@ -713,7 +721,7 @@ class MetricsMixin:
             "experimental/server/metrics",
             params={"since": since.strip()},
         )
-        return ResponseParser.parse(data, ExperimentalMetrics, as_json=as_json)
+        return ResponseParser.parse(data, ExperimentalMetrics, as_json=self._resolve_json_format(as_json))
 
 
 __all__ = [

@@ -87,17 +87,17 @@ class OutlineClientConfig(BaseSettings):
     # ===== Client Settings =====
 
     timeout: int = Field(
-        default=30,
+        default=10,  # Reduced from 30s - more reasonable for VPN API
         ge=1,
         le=300,
-        description="Request timeout in seconds",
+        description="Request timeout in seconds (default: 10s)",
     )
 
     retry_attempts: int = Field(
-        default=3,
+        default=2,  # Reduced from 3 - total 3 attempts (1 initial + 2 retries)
         ge=0,
         le=10,
-        description="Number of retry attempts (total = retry_attempts + 1)",
+        description="Number of retry attempts (default: 2, total attempts: 3)",
     )
 
     max_connections: int = Field(
@@ -225,7 +225,7 @@ class OutlineClientConfig(BaseSettings):
             {
                 'api_url': 'https://server.com:12345/***',
                 'cert_sha256': '***MASKED***',
-                'timeout': 30,
+                'timeout': 10,
                 ...
             }
         """
@@ -287,7 +287,7 @@ class OutlineClientConfig(BaseSettings):
         return CircuitConfig(
             failure_threshold=self.circuit_failure_threshold,
             recovery_timeout=self.circuit_recovery_timeout,
-            call_timeout=self.timeout,
+            call_timeout=self.timeout,  # Will be adjusted by base_client if needed
         )
 
     # ===== Factory Methods =====
@@ -476,20 +476,25 @@ def create_env_template(path: str | Path = ".env.example") -> None:
 OUTLINE_API_URL=https://your-server.com:12345/your-secret-path
 OUTLINE_CERT_SHA256=your-64-character-sha256-fingerprint
 
-# Optional client settings
-# OUTLINE_TIMEOUT=30
-# OUTLINE_RETRY_ATTEMPTS=3
-# OUTLINE_MAX_CONNECTIONS=10
-# OUTLINE_RATE_LIMIT=100
+# Optional client settings (optimized defaults)
+# OUTLINE_TIMEOUT=10          # Request timeout in seconds (default: 10s)
+# OUTLINE_RETRY_ATTEMPTS=2    # Retry attempts, total 3 attempts (default: 2)
+# OUTLINE_MAX_CONNECTIONS=10  # Connection pool size (default: 10)
+# OUTLINE_RATE_LIMIT=100      # Max concurrent requests (default: 100)
 
 # Optional features
-# OUTLINE_ENABLE_CIRCUIT_BREAKER=true
-# OUTLINE_ENABLE_LOGGING=false
-# OUTLINE_JSON_FORMAT=false
+# OUTLINE_ENABLE_CIRCUIT_BREAKER=true  # Circuit breaker protection (default: true)
+# OUTLINE_ENABLE_LOGGING=false         # Debug logging (default: false)
+# OUTLINE_JSON_FORMAT=false            # Return JSON dicts instead of models (default: false)
 
 # Circuit breaker settings (if enabled)
-# OUTLINE_CIRCUIT_FAILURE_THRESHOLD=5
-# OUTLINE_CIRCUIT_RECOVERY_TIMEOUT=60.0
+# OUTLINE_CIRCUIT_FAILURE_THRESHOLD=5     # Failures before opening (default: 5)
+# OUTLINE_CIRCUIT_RECOVERY_TIMEOUT=60.0   # Recovery wait time in seconds (default: 60.0)
+
+# Notes:
+# - Total request time: ~(TIMEOUT * (RETRY_ATTEMPTS + 1) + delays)
+# - With defaults: ~38s max (10s * 3 attempts + 3s delays + buffer)
+# - For slower connections, increase TIMEOUT and/or RETRY_ATTEMPTS
 """
 
     Path(path).write_text(template, encoding="utf-8")

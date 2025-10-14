@@ -48,6 +48,7 @@ class Constants:
     Application-wide constants.
 
     Centralized configuration values used throughout the library.
+    Optimized for typical VPN API usage patterns.
     """
 
     # Port ranges
@@ -58,9 +59,9 @@ class Constants:
     MAX_NAME_LENGTH: Final = 255
     CERT_FINGERPRINT_LENGTH: Final = 64
 
-    # Default values
-    DEFAULT_TIMEOUT: Final = 30
-    DEFAULT_RETRY_ATTEMPTS: Final = 3
+    # Default values - optimized for VPN API operations
+    DEFAULT_TIMEOUT: Final = 10  # 10s is sufficient for most VPN API calls
+    DEFAULT_RETRY_ATTEMPTS: Final = 2  # Total 3 attempts (1 initial + 2 retries)
     DEFAULT_MAX_CONNECTIONS: Final = 10
     DEFAULT_RETRY_DELAY: Final = 1.0
     DEFAULT_USER_AGENT: Final = "PyOutlineAPI/0.4.0"
@@ -169,14 +170,12 @@ class Validators:
         parsed_cert = parsed_cert.strip().lower()
 
         if len(parsed_cert) != Constants.CERT_FINGERPRINT_LENGTH:
-            # 🔒 SECURITY: Don't expose actual length or value
             raise ValueError(
                 f"Certificate fingerprint must be exactly "
                 f"{Constants.CERT_FINGERPRINT_LENGTH} hexadecimal characters"
             )
 
         if not re.match(r"^[a-f0-9]{64}$", parsed_cert):
-            # 🔒 SECURITY: Don't expose actual value
             raise ValueError(
                 "Certificate fingerprint must contain only "
                 "hexadecimal characters (0-9, a-f)"
@@ -280,13 +279,11 @@ class Validators:
         if len(clean_id) > 255:
             raise ValueError("key_id too long (maximum 255 characters)")
 
-        # 🔒 SECURITY: Prevent path traversal
         if ".." in clean_id or "/" in clean_id or "\\" in clean_id:
             raise ValueError(
                 "key_id contains invalid characters (path traversal detected)"
             )
 
-        # 🔒 SECURITY: Allow only safe alphanumeric characters
         if not re.match(r"^[a-zA-Z0-9_-]+$", clean_id):
             raise ValueError(
                 "key_id must contain only alphanumeric characters, "

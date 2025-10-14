@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [ "main", "development" ]
+    branches: [ "main", "0.4.0" ]
   pull_request:
     branches: [ "main" ]
   schedule:

@@ -294,6 +294,7 @@ class ConnectionError(OutlineError):
     Connection failure error.
 
     Raised when unable to establish connection to the server.
+    This includes connection refused, connection reset, DNS failures, etc.
 
     Attributes:
         host: Target hostname
@@ -304,12 +305,14 @@ class ConnectionError(OutlineError):
         ...     async with AsyncOutlineClient.from_env() as client:
         ...         await client.get_server_info()
         ... except ConnectionError as e:
-        ...     print(f"Cannot connect to {e.host}:{e.port}")
+        ...     print(f"Cannot connect to {e.host}:{e.port if e.port else 'unknown'}")
+        ...     print(f"Error: {e}")
         ...     if e.is_retryable:
         ...         print("Will retry automatically")
     """
 
     is_retryable: ClassVar[bool] = True
+    default_retry_delay: ClassVar[float] = 2.0
 
     def __init__(
         self,
@@ -342,9 +345,11 @@ class TimeoutError(OutlineError):
     Operation timeout error.
 
     Raised when an operation exceeds the configured timeout.
+    This can be either a connection timeout or a request timeout.
 
     Attributes:
         timeout: Timeout value that was exceeded (seconds)
+        operation: Operation that timed out
 
     Example:
         >>> try:
@@ -354,18 +359,20 @@ class TimeoutError(OutlineError):
         ...     async with AsyncOutlineClient(config) as client:
         ...         await client.get_server_info()
         ... except TimeoutError as e:
-        ...     print(f"Operation timed out after {e.timeout}s")
+        ...     print(f"Operation '{e.operation}' timed out after {e.timeout}s")
         ...     if e.is_retryable:
         ...         print("Can retry with longer timeout")
     """
 
     is_retryable: ClassVar[bool] = True
+    default_retry_delay: ClassVar[float] = 2.0
 
     def __init__(
         self,
         message: str,
         *,
         timeout: float | None = None,
+        operation: str | None = None,
     ) -> None:
         """
         Initialize timeout error.
@@ -373,9 +380,17 @@ class TimeoutError(OutlineError):
         Args:
             message: Error message
             timeout: Timeout value in seconds
+            operation: Operation that timed out
         """
-        super().__init__(message, details={"timeout": timeout} if timeout else None)
+        details = {}
+        if timeout is not None:
+            details["timeout"] = timeout
+        if operation:
+            details["operation"] = operation
+
+        super().__init__(message, details=details)
         self.timeout = timeout
+        self.operation = operation
 
 
 # Utility functions
@@ -412,6 +427,30 @@ def get_retry_delay(error: Exception) -> float | None:
     return getattr(error, "default_retry_delay", 1.0)
 
 
+def is_retryable(error: Exception) -> bool:
+    """
+    Check if error is retryable.
+
+    Args:
+        error: Exception to check
+
+    Returns:
+        bool: True if error can be retried
+
+    Example:
+        >>> try:
+        ...     await client.get_server_info()
+        ... except Exception as e:
+        ...     if is_retryable(e):
+        ...         print("Can retry")
+        ...     else:
+        ...         print("Cannot retry")
+    """
+    if isinstance(error, OutlineError):
+        return error.is_retryable
+    return False
+
+
 __all__ = [
     "OutlineError",
     "APIError",
@@ -421,4 +460,5 @@ __all__ = [
     "ConnectionError",
     "TimeoutError",
     "get_retry_delay",
+    "is_retryable",
 ]

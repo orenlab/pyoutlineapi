@@ -258,7 +258,6 @@ class BatchOperations:
             >>> result = await batch.delete_multiple_keys(key_ids)
             >>> print(f"Deleted: {result.successful}/{result.total}")
         """
-        # 🛡️ FIX: Pre-validate all IDs and track validation errors
         validated_ids: list[str] = []
         validation_errors: list[Exception] = []
 
