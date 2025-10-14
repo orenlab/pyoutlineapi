@@ -35,44 +35,43 @@ if sys.version_info < (3, 10):
     raise RuntimeError("PyOutlineAPI requires Python 3.10+")
 
 # Core imports
+# Circuit breaker (optional)
+from .circuit_breaker import CircuitConfig, CircuitState
 from .client import AsyncOutlineClient, create_client
 from .config import (
-    OutlineClientConfig,
     DevelopmentConfig,
+    OutlineClientConfig,
     ProductionConfig,
     create_env_template,
     load_config,
 )
 from .exceptions import (
-    OutlineError,
     APIError,
     CircuitOpenError,
     ConfigurationError,
-    ValidationError,
     ConnectionError,
+    OutlineError,
     TimeoutError,
+    ValidationError,
 )
 
 # Model imports
 from .models import (
     # Core
     AccessKey,
-    AccessKeyList,
-    Server,
-    DataLimit,
-    ServerMetrics,
-    ExperimentalMetrics,
-    MetricsStatusResponse,
     # Request models
     AccessKeyCreateRequest,
+    AccessKeyList,
+    DataLimit,
     DataLimitRequest,
+    ExperimentalMetrics,
     # Utility
     HealthCheckResult,
+    MetricsStatusResponse,
+    Server,
+    ServerMetrics,
     ServerSummary,
 )
-
-# Circuit breaker (optional)
-from .circuit_breaker import CircuitConfig, CircuitState
 
 # Package metadata
 try:

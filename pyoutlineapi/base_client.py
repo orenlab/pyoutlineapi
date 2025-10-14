@@ -18,22 +18,29 @@ import binascii
 import logging
 from asyncio import Semaphore
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 from urllib.parse import urlparse
 
 import aiohttp
 from aiohttp import ClientResponse, Fingerprint
-from pydantic import SecretStr
 
 from .common_types import Constants, Validators
 from .exceptions import (
     APIError,
     CircuitOpenError,
+)
+from .exceptions import (
     ConnectionError as OutlineConnectionError,
+)
+from .exceptions import (
     TimeoutError as OutlineTimeoutError,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from pydantic import SecretStr
+
     from .circuit_breaker import CircuitBreaker, CircuitConfig
 
 logger = logging.getLogger(__name__)
@@ -190,17 +197,17 @@ class BaseHTTPClient:
     )
 
     def __init__(
-        self,
-        api_url: str,
-        cert_sha256: SecretStr,
-        *,
-        timeout: int = Constants.DEFAULT_TIMEOUT,
-        retry_attempts: int = Constants.DEFAULT_RETRY_ATTEMPTS,
-        max_connections: int = Constants.DEFAULT_MAX_CONNECTIONS,
-        user_agent: str | None = None,
-        enable_logging: bool = False,
-        circuit_config: CircuitConfig | None = None,
-        rate_limit: int = 100,
+            self,
+            api_url: str,
+            cert_sha256: SecretStr,
+            *,
+            timeout: int = Constants.DEFAULT_TIMEOUT,
+            retry_attempts: int = Constants.DEFAULT_RETRY_ATTEMPTS,
+            max_connections: int = Constants.DEFAULT_MAX_CONNECTIONS,
+            user_agent: str | None = None,
+            enable_logging: bool = False,
+            circuit_config: CircuitConfig | None = None,
+            rate_limit: int = 100,
     ) -> None:
         """
         Initialize base HTTP client.
@@ -246,7 +253,10 @@ class BaseHTTPClient:
         # It should be enough for all retries: timeout * (attempts + 1) + delays
         # Formula: timeout * (retry_attempts + 1) + sum(delays) + buffer
         max_retry_time = self._timeout.total * (self._retry_attempts + 1)
-        max_delays = sum(Constants.DEFAULT_RETRY_DELAY * i for i in range(1, self._retry_attempts + 1))
+        max_delays = sum(
+            Constants.DEFAULT_RETRY_DELAY * i
+            for i in range(1, self._retry_attempts + 1)
+        )
         cb_timeout = max_retry_time + max_delays + 5.0  # +5s buffer (reduced from 10s)
 
         # Override call_timeout if needed
@@ -333,12 +343,12 @@ class BaseHTTPClient:
 
     @_ensure_session
     async def _request(
-        self,
-        method: str,
-        endpoint: str,
-        *,
-        json: Any = None,
-        params: dict[str, Any] | None = None,
+            self,
+            method: str,
+            endpoint: str,
+            *,
+            json: Any = None,
+            params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Make HTTP request with optional circuit breaker protection and rate limiting.
@@ -382,12 +392,12 @@ class BaseHTTPClient:
             return await self._do_request(method, endpoint, json=json, params=params)
 
     async def _do_request(
-        self,
-        method: str,
-        endpoint: str,
-        *,
-        json: Any = None,
-        params: dict[str, Any] | None = None,
+            self,
+            method: str,
+            endpoint: str,
+            *,
+            json: Any = None,
+            params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute HTTP request with retries and proper error handling."""
         url = self._build_url(endpoint)
@@ -395,10 +405,10 @@ class BaseHTTPClient:
         async def _make_request() -> dict[str, Any]:
             try:
                 async with self._session.request(
-                    method,
-                    url,
-                    json=json,
-                    params=params,
+                        method,
+                        url,
+                        json=json,
+                        params=params,
                 ) as response:
                     if self._enable_logging:
                         logger.debug(f"{method} {endpoint} -> {response.status}")
@@ -448,9 +458,9 @@ class BaseHTTPClient:
         return await self._retry_request(_make_request, endpoint)
 
     async def _retry_request(
-        self,
-        request_func: Callable[[], Awaitable[dict[str, Any]]],
-        endpoint: str,
+            self,
+            request_func: Callable[[], Awaitable[dict[str, Any]]],
+            endpoint: str,
     ) -> dict[str, Any]:
         """
         Execute request with retry logic.
@@ -465,9 +475,9 @@ class BaseHTTPClient:
                 return await request_func()
 
             except (
-                OutlineTimeoutError,
-                OutlineConnectionError,
-                APIError,
+                    OutlineTimeoutError,
+                    OutlineConnectionError,
+                    APIError,
             ) as error:
                 last_error = error
 
@@ -478,9 +488,8 @@ class BaseHTTPClient:
                     )
 
                 # Don't retry non-retryable errors
-                if isinstance(error, APIError):
-                    if error.status_code not in RETRY_CODES:
-                        raise
+                if isinstance(error, APIError) and error.status_code not in RETRY_CODES:
+                    raise
 
                 # Don't sleep on last attempt
                 if attempt < self._retry_attempts:
@@ -491,7 +500,9 @@ class BaseHTTPClient:
 
         # All retries failed
         if self._enable_logging:
-            logger.error(f"All {self._retry_attempts + 1} attempts failed for {endpoint}")
+            logger.error(
+                f"All {self._retry_attempts + 1} attempts failed for {endpoint}"
+            )
 
         raise APIError(
             f"Request failed after {self._retry_attempts + 1} attempts",

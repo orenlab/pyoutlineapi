@@ -108,7 +108,9 @@ class ServerMixin:
             ...     print(f"Port: {server.port_for_new_access_keys}")
         """
         data = await self._request("GET", "server")
-        return ResponseParser.parse(data, Server, as_json=self._resolve_json_format(as_json))
+        return ResponseParser.parse(
+            data, Server, as_json=self._resolve_json_format(as_json)
+        )
 
     async def rename_server(self: HTTPClientProtocol, name: str) -> bool:
         """
@@ -273,7 +275,9 @@ class AccessKeyMixin:
             "access-keys",
             json=request.model_dump(exclude_none=True, by_alias=True),
         )
-        return ResponseParser.parse(data, AccessKey, as_json=self._resolve_json_format(as_json))
+        return ResponseParser.parse(
+            data, AccessKey, as_json=self._resolve_json_format(as_json)
+        )
 
     async def create_access_key_with_id(
             self: HTTPClientProtocol,
@@ -336,7 +340,9 @@ class AccessKeyMixin:
             f"access-keys/{validated_key_id}",
             json=request.model_dump(exclude_none=True, by_alias=True),
         )
-        return ResponseParser.parse(data, AccessKey, as_json=self._resolve_json_format(as_json))
+        return ResponseParser.parse(
+            data, AccessKey, as_json=self._resolve_json_format(as_json)
+        )
 
     async def get_access_keys(
             self: HTTPClientProtocol,
@@ -363,7 +369,9 @@ class AccessKeyMixin:
             ...         print(f"- {key.name}: {key.id}")
         """
         data = await self._request("GET", "access-keys")
-        return ResponseParser.parse(data, AccessKeyList, as_json=self._resolve_json_format(as_json))
+        return ResponseParser.parse(
+            data, AccessKeyList, as_json=self._resolve_json_format(as_json)
+        )
 
     async def get_access_key(
             self: HTTPClientProtocol,
@@ -393,7 +401,9 @@ class AccessKeyMixin:
         validated_key_id = Validators.validate_key_id(key_id)
 
         data = await self._request("GET", f"access-keys/{validated_key_id}")
-        return ResponseParser.parse(data, AccessKey, as_json=self._resolve_json_format(as_json))
+        return ResponseParser.parse(
+            data, AccessKey, as_json=self._resolve_json_format(as_json)
+        )
 
     async def delete_access_key(self: HTTPClientProtocol, key_id: str) -> bool:
         """
@@ -625,7 +635,9 @@ class MetricsMixin:
             ...     print(f"Metrics enabled: {status.metrics_enabled}")
         """
         data = await self._request("GET", "metrics/enabled")
-        return ResponseParser.parse(data, MetricsStatusResponse, as_json=self._resolve_json_format(as_json))
+        return ResponseParser.parse(
+            data, MetricsStatusResponse, as_json=self._resolve_json_format(as_json)
+        )
 
     async def set_metrics_status(self: HTTPClientProtocol, enabled: bool) -> bool:
         """
@@ -680,7 +692,9 @@ class MetricsMixin:
             ...         print(f"Key {key_id}: {bytes_used / 1024**2:.2f} MB")
         """
         data = await self._request("GET", "metrics/transfer")
-        return ResponseParser.parse(data, ServerMetrics, as_json=self._resolve_json_format(as_json))
+        return ResponseParser.parse(
+            data, ServerMetrics, as_json=self._resolve_json_format(as_json)
+        )
 
     async def get_experimental_metrics(
             self: HTTPClientProtocol,
@@ -721,7 +735,9 @@ class MetricsMixin:
             "experimental/server/metrics",
             params={"since": since.strip()},
         )
-        return ResponseParser.parse(data, ExperimentalMetrics, as_json=self._resolve_json_format(as_json))
+        return ResponseParser.parse(
+            data, ExperimentalMetrics, as_json=self._resolve_json_format(as_json)
+        )
 
 
 __all__ = [

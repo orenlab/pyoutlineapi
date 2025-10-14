@@ -15,14 +15,17 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any
 
 from .api_mixins import AccessKeyMixin, DataLimitMixin, MetricsMixin, ServerMixin
 from .base_client import BaseHTTPClient
 from .common_types import Validators
 from .config import OutlineClientConfig
 from .exceptions import ConfigurationError
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +66,12 @@ class AsyncOutlineClient(
     """
 
     def __init__(
-        self,
-        config: OutlineClientConfig | None = None,
-        *,
-        api_url: str | None = None,
-        cert_sha256: str | None = None,
-        **kwargs: Any,
+            self,
+            config: OutlineClientConfig | None = None,
+            *,
+            api_url: str | None = None,
+            cert_sha256: str | None = None,
+            **kwargs: Any,
     ) -> None:
         """
         Initialize Outline client.
@@ -235,12 +238,12 @@ class AsyncOutlineClient(
     @classmethod
     @asynccontextmanager
     async def create(
-        cls,
-        api_url: str | None = None,
-        cert_sha256: str | None = None,
-        *,
-        config: OutlineClientConfig | None = None,
-        **kwargs: Any,
+            cls,
+            api_url: str | None = None,
+            cert_sha256: str | None = None,
+            *,
+            config: OutlineClientConfig | None = None,
+            **kwargs: Any,
     ) -> AsyncGenerator[AsyncOutlineClient, None]:
         """
         Create and initialize client (context manager).
@@ -276,9 +279,9 @@ class AsyncOutlineClient(
 
     @classmethod
     def from_env(
-        cls,
-        env_file: Path | str | None = None,
-        **overrides: Any,
+            cls,
+            env_file: Path | str | None = None,
+            **overrides: Any,
     ) -> AsyncOutlineClient:
         """
         Create client from environment variables.
@@ -413,9 +416,9 @@ class AsyncOutlineClient(
 
 
 def create_client(
-    api_url: str,
-    cert_sha256: str,
-    **kwargs: Any,
+        api_url: str,
+        cert_sha256: str,
+        **kwargs: Any,
 ) -> AsyncOutlineClient:
     """
     Create client with minimal parameters.

@@ -32,7 +32,7 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .client import AsyncOutlineClient
@@ -188,11 +188,11 @@ class MetricsCollector:
     """
 
     def __init__(
-        self,
-        client: AsyncOutlineClient,
-        *,
-        interval: float = 60.0,
-        max_history: int = 1440,  # 24 hours at 1min interval
+            self,
+            client: AsyncOutlineClient,
+            *,
+            interval: float = 60.0,
+            max_history: int = 1440,  # 24 hours at 1min interval
     ) -> None:
         """
         Initialize metrics collector.
@@ -213,7 +213,7 @@ class MetricsCollector:
         self._interval = interval
         self._max_history = max_history
 
-        self._history: Deque[MetricsSnapshot] = deque(maxlen=max_history)
+        self._history: deque[MetricsSnapshot] = deque(maxlen=max_history)
         self._running = False
         self._task: asyncio.Task | None = None
         self._start_time = 0.0
@@ -351,8 +351,8 @@ class MetricsCollector:
         return self._history[-1]
 
     def get_usage_stats(
-        self,
-        period_minutes: int | None = None,
+            self,
+            period_minutes: int | None = None,
     ) -> UsageStats:
         """
         Calculate usage statistics for a time period.
@@ -427,9 +427,9 @@ class MetricsCollector:
         )
 
     def get_key_usage(
-        self,
-        key_id: str,
-        period_minutes: int | None = None,
+            self,
+            key_id: str,
+            period_minutes: int | None = None,
     ) -> dict[str, Any]:
         """
         Get usage statistics for specific key.

@@ -19,11 +19,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from .common_types import Validators
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from .client import AsyncOutlineClient
     from .models import AccessKey
 
@@ -121,11 +123,11 @@ class BatchProcessor(Generic[T, R]):
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
     async def process(
-        self,
-        items: list[T],
-        processor: Callable[[T], Awaitable[R]],
-        *,
-        fail_fast: bool = False,
+            self,
+            items: list[T],
+            processor: Callable[[T], Awaitable[R]],
+            *,
+            fail_fast: bool = False,
     ) -> list[R | Exception]:
         """
         Process items in batch with concurrency control.
@@ -180,10 +182,10 @@ class BatchOperations:
     """
 
     def __init__(
-        self,
-        client: AsyncOutlineClient,
-        *,
-        max_concurrent: int = 5,
+            self,
+            client: AsyncOutlineClient,
+            *,
+            max_concurrent: int = 5,
     ) -> None:
         """
         Initialize batch operations.
@@ -200,10 +202,10 @@ class BatchOperations:
         self._processor = BatchProcessor(max_concurrent)
 
     async def create_multiple_keys(
-        self,
-        configs: list[dict[str, Any]],
-        *,
-        fail_fast: bool = False,
+            self,
+            configs: list[dict[str, Any]],
+            *,
+            fail_fast: bool = False,
     ) -> BatchResult:
         """
         Create multiple access keys in batch.
@@ -238,10 +240,10 @@ class BatchOperations:
         return self._build_result(results)
 
     async def delete_multiple_keys(
-        self,
-        key_ids: list[str],
-        *,
-        fail_fast: bool = False,
+            self,
+            key_ids: list[str],
+            *,
+            fail_fast: bool = False,
     ) -> BatchResult:
         """
         Delete multiple access keys in batch.
@@ -285,10 +287,10 @@ class BatchOperations:
         return self._build_result(all_results)
 
     async def rename_multiple_keys(
-        self,
-        key_name_pairs: list[tuple[str, str]],
-        *,
-        fail_fast: bool = False,
+            self,
+            key_name_pairs: list[tuple[str, str]],
+            *,
+            fail_fast: bool = False,
     ) -> BatchResult:
         """
         Rename multiple access keys in batch.
@@ -323,10 +325,10 @@ class BatchOperations:
         return self._build_result(results)
 
     async def set_multiple_data_limits(
-        self,
-        key_limit_pairs: list[tuple[str, int]],
-        *,
-        fail_fast: bool = False,
+            self,
+            key_limit_pairs: list[tuple[str, int]],
+            *,
+            fail_fast: bool = False,
     ) -> BatchResult:
         """
         Set data limits for multiple keys in batch.
@@ -361,10 +363,10 @@ class BatchOperations:
         return self._build_result(results)
 
     async def fetch_multiple_keys(
-        self,
-        key_ids: list[str],
-        *,
-        fail_fast: bool = False,
+            self,
+            key_ids: list[str],
+            *,
+            fail_fast: bool = False,
     ) -> BatchResult:
         """
         Fetch multiple access keys in batch.
@@ -391,10 +393,10 @@ class BatchOperations:
         return self._build_result(results)
 
     async def execute_custom_operations(
-        self,
-        operations: list[Callable[[], Awaitable[Any]]],
-        *,
-        fail_fast: bool = False,
+            self,
+            operations: list[Callable[[], Awaitable[Any]]],
+            *,
+            fail_fast: bool = False,
     ) -> BatchResult:
         """
         Execute custom batch operations.

@@ -21,10 +21,12 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Awaitable, Callable, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from .exceptions import CircuitOpenError
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 logger = logging.getLogger(__name__)
 
 P = ParamSpec("P")
@@ -152,9 +154,9 @@ class CircuitBreaker:
     )
 
     def __init__(
-        self,
-        name: str,
-        config: CircuitConfig | None = None,
+            self,
+            name: str,
+            config: CircuitConfig | None = None,
     ) -> None:
         """
         Initialize circuit breaker.
@@ -209,10 +211,10 @@ class CircuitBreaker:
         return self._metrics
 
     async def call(
-        self,
-        func: Callable[P, Awaitable[T]],
-        *args: P.args,
-        **kwargs: P.kwargs,
+            self,
+            func: Callable[P, Awaitable[T]],
+            *args: P.args,
+            **kwargs: P.kwargs,
     ) -> T:
         """
         Execute function with circuit breaker protection.
@@ -274,6 +276,7 @@ class CircuitBreaker:
             # Convert asyncio.TimeoutError to our custom TimeoutError
             # so it can be caught and retried properly
             from .exceptions import TimeoutError as OutlineTimeoutError
+
             raise OutlineTimeoutError(
                 f"Circuit '{self.name}': Operation timed out after {self.config.call_timeout}s",
                 timeout=self.config.call_timeout,
@@ -295,8 +298,8 @@ class CircuitBreaker:
                 case CircuitState.OPEN:
                     # Check if recovery timeout passed
                     if (
-                        current_time - self._last_failure_time
-                        >= self.config.recovery_timeout
+                            current_time - self._last_failure_time
+                            >= self.config.recovery_timeout
                     ):
                         logger.info(
                             f"Circuit '{self.name}': Attempting recovery (OPEN -> HALF_OPEN)"
@@ -315,7 +318,7 @@ class CircuitBreaker:
                     # No action needed in half-open during check
                     pass
 
-    async def _record_success(self, duration: float) -> None:
+    async def _record_success(self) -> None:
         """Record successful call."""
         async with self._lock:
             self._metrics.total_calls += 1
@@ -340,7 +343,7 @@ class CircuitBreaker:
                     )
                     await self._transition_to(CircuitState.CLOSED)
 
-    async def _record_failure(self, duration: float, error: Exception) -> None:
+    async def _record_failure(self, error: Exception) -> None:
         """Record failed call."""
         async with self._lock:
             self._metrics.total_calls += 1
@@ -375,7 +378,9 @@ class CircuitBreaker:
         self._state = new_state
         self._metrics.state_changes += 1
 
-        logger.info(f"Circuit '{self.name}': State transition {old_state} -> {new_state.name}")
+        logger.info(
+            f"Circuit '{self.name}': State transition {old_state} -> {new_state.name}"
+        )
 
         match new_state:
             case CircuitState.CLOSED:

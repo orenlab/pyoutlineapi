@@ -17,7 +17,7 @@ converting between raw JSON and Pydantic models.
 from __future__ import annotations
 
 import logging
-from typing import Any, TypeVar, overload, Literal
+from typing import Any, TypeVar, overload
 
 from pydantic import BaseModel, ValidationError
 
@@ -54,27 +54,29 @@ class ResponseParser:
     @staticmethod
     @overload
     def parse(
-        data: dict[str, Any],
-        model: type[T],
-        *,
-        as_json: bool = True,
-    ) -> JsonDict: ...
+            data: dict[str, Any],
+            model: type[T],
+            *,
+            as_json: bool = True,
+    ) -> JsonDict:
+        ...
 
     @staticmethod
     @overload
     def parse(
-        data: dict[str, Any],
-        model: type[T],
-        *,
-        as_json: bool = False,
-    ) -> T: ...
+            data: dict[str, Any],
+            model: type[T],
+            *,
+            as_json: bool = False,
+    ) -> T:
+        ...
 
     @staticmethod
     def parse(
-        data: dict[str, Any],
-        model: type[T],
-        *,
-        as_json: bool = False,
+            data: dict[str, Any],
+            model: type[T],
+            *,
+            as_json: bool = False,
     ) -> T | JsonDict:
         """
         Parse and validate response data.
