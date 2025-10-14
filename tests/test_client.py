@@ -64,7 +64,7 @@ def server_response():
         "version": "1.0.0",
         "accessKeyDataLimit": {"bytes": 1073741824},
         "portForNewAccessKeys": 8388,
-        "hostnameForAccessKeys": "example.com"
+        "hostnameForAccessKeys": "example.com",
     }
 
 
@@ -78,7 +78,7 @@ def access_key_response():
         "port": 8388,
         "method": "chacha20-ietf-poly1305",
         "accessUrl": "ss://test_url",
-        "dataLimit": {"bytes": 1073741824}
+        "dataLimit": {"bytes": 1073741824},
     }
 
 
@@ -93,7 +93,7 @@ def access_keys_list_response():
                 "password": "pass1",
                 "port": 8388,
                 "method": "chacha20-ietf-poly1305",
-                "accessUrl": "ss://url1"
+                "accessUrl": "ss://url1",
             },
             {
                 "id": "2",
@@ -102,8 +102,8 @@ def access_keys_list_response():
                 "port": 8389,
                 "method": "chacha20-ietf-poly1305",
                 "accessUrl": "ss://url2",
-                "dataLimit": {"bytes": 2147483648}
-            }
+                "dataLimit": {"bytes": 2147483648},
+            },
         ]
     }
 
@@ -117,12 +117,7 @@ def metrics_status_response():
 @pytest.fixture
 def server_metrics_response():
     """Mock server metrics response."""
-    return {
-        "bytesTransferredByUserId": {
-            "1": 1024000,
-            "2": 2048000
-        }
-    }
+    return {"bytesTransferredByUserId": {"1": 1024000, "2": 2048000}}
 
 
 @pytest.fixture
@@ -131,15 +126,15 @@ def experimental_metrics_response():
     return {
         "server": {
             "tunnelTime": {"seconds": 3600},
-            "dataTransferred": {"bytes": 1073741824}
+            "dataTransferred": {"bytes": 1073741824},
         },
         "accessKeys": [
             {
                 "id": "1",
                 "tunnelTime": {"seconds": 1800},
-                "dataTransferred": {"bytes": 536870912}
+                "dataTransferred": {"bytes": 536870912},
             }
-        ]
+        ],
     }
 
 
@@ -170,7 +165,7 @@ class TestAsyncOutlineClientInitialization:
             enable_logging=True,
             user_agent="Custom Agent",
             max_connections=20,
-            rate_limit_delay=1.0
+            rate_limit_delay=1.0,
         )
 
         assert client._json_format is True
@@ -198,12 +193,16 @@ class TestAsyncOutlineClientInitialization:
 
     def test_invalid_cert_sha256_format_raises_error(self, valid_api_url):
         """Test that invalid certificate format raises ValueError."""
-        with pytest.raises(ValueError, match="cert_sha256 must contain only hexadecimal"):
+        with pytest.raises(
+            ValueError, match="cert_sha256 must contain only hexadecimal"
+        ):
             AsyncOutlineClient(valid_api_url, "invalid_hex_string")
 
     def test_wrong_cert_sha256_length_raises_error(self, valid_api_url):
         """Test that wrong certificate length raises ValueError."""
-        with pytest.raises(ValueError, match="cert_sha256 must be exactly 64 hexadecimal"):
+        with pytest.raises(
+            ValueError, match="cert_sha256 must be exactly 64 hexadecimal"
+        ):
             AsyncOutlineClient(valid_api_url, "abcdef123456")
 
     def test_api_url_trailing_slash_removal(self, valid_cert_sha256):
@@ -230,14 +229,20 @@ class TestAsyncOutlineClientContextManager:
     @pytest.mark.asyncio
     async def test_create_factory_method(self, valid_api_url, valid_cert_sha256):
         """Test the create factory method."""
-        async with AsyncOutlineClient.create(valid_api_url, valid_cert_sha256) as client:
+        async with AsyncOutlineClient.create(
+            valid_api_url, valid_cert_sha256
+        ) as client:
             assert isinstance(client, AsyncOutlineClient)
             assert client._session is not None
 
     @pytest.mark.asyncio
-    async def test_logging_setup_on_enter(self, valid_api_url, valid_cert_sha256, caplog):
+    async def test_logging_setup_on_enter(
+        self, valid_api_url, valid_cert_sha256, caplog
+    ):
         """Test logging setup when entering context manager."""
-        client = AsyncOutlineClient(valid_api_url, valid_cert_sha256, enable_logging=True)
+        client = AsyncOutlineClient(
+            valid_api_url, valid_cert_sha256, enable_logging=True
+        )
 
         with caplog.at_level(logging.INFO):
             async with client:
@@ -251,7 +256,9 @@ class TestAsyncOutlineClientRequests:
     """Test HTTP request functionality."""
 
     @pytest.mark.asyncio
-    async def test_ensure_context_decorator_without_session(self, valid_api_url, valid_cert_sha256):
+    async def test_ensure_context_decorator_without_session(
+        self, valid_api_url, valid_cert_sha256
+    ):
         """Test that methods fail without active session."""
         client = AsyncOutlineClient(valid_api_url, valid_cert_sha256)
 
@@ -259,7 +266,9 @@ class TestAsyncOutlineClientRequests:
             await client.get_server_info()
 
     @pytest.mark.asyncio
-    async def test_build_url_with_valid_endpoint(self, valid_api_url, valid_cert_sha256):
+    async def test_build_url_with_valid_endpoint(
+        self, valid_api_url, valid_cert_sha256
+    ):
         """Test URL building with valid endpoint."""
         client = AsyncOutlineClient(valid_api_url, valid_cert_sha256)
 
@@ -286,7 +295,9 @@ class TestAsyncOutlineClientRequests:
     @pytest.mark.asyncio
     async def test_rate_limiting_applied(self, valid_api_url, valid_cert_sha256):
         """Test that rate limiting is applied correctly."""
-        client = AsyncOutlineClient(valid_api_url, valid_cert_sha256, rate_limit_delay=0.1)
+        client = AsyncOutlineClient(
+            valid_api_url, valid_cert_sha256, rate_limit_delay=0.1
+        )
 
         start_time = time.time()
         await client._apply_rate_limiting()
@@ -300,7 +311,9 @@ class TestAsyncOutlineClientRequests:
     @pytest.mark.asyncio
     async def test_rate_limiting_no_delay(self, valid_api_url, valid_cert_sha256):
         """Test that no rate limiting is applied when delay is 0."""
-        client = AsyncOutlineClient(valid_api_url, valid_cert_sha256, rate_limit_delay=0.0)
+        client = AsyncOutlineClient(
+            valid_api_url, valid_cert_sha256, rate_limit_delay=0.0
+        )
 
         start_time = time.time()
         await client._apply_rate_limiting()
@@ -365,7 +378,9 @@ class TestAsyncOutlineClientServerMethods:
     """Test server management methods."""
 
     @pytest.mark.asyncio
-    async def test_get_server_info_success(self, valid_api_url, valid_cert_sha256, server_response):
+    async def test_get_server_info_success(
+        self, valid_api_url, valid_cert_sha256, server_response
+    ):
         """Test successful server info retrieval."""
         with aioresponses() as m:
             m.get(f"{valid_api_url}/server", payload=server_response)
@@ -378,12 +393,16 @@ class TestAsyncOutlineClientServerMethods:
                 assert result.server_id == "12345"
 
     @pytest.mark.asyncio
-    async def test_get_server_info_json_format(self, valid_api_url, valid_cert_sha256, server_response):
+    async def test_get_server_info_json_format(
+        self, valid_api_url, valid_cert_sha256, server_response
+    ):
         """Test server info retrieval in JSON format."""
         with aioresponses() as m:
             m.get(f"{valid_api_url}/server", payload=server_response)
 
-            async with AsyncOutlineClient(valid_api_url, valid_cert_sha256, json_format=True) as client:
+            async with AsyncOutlineClient(
+                valid_api_url, valid_cert_sha256, json_format=True
+            ) as client:
                 result = await client.get_server_info()
 
                 assert isinstance(result, dict)
@@ -420,7 +439,9 @@ class TestAsyncOutlineClientServerMethods:
                 assert result is True
 
     @pytest.mark.asyncio
-    async def test_set_default_port_invalid_range(self, valid_api_url, valid_cert_sha256):
+    async def test_set_default_port_invalid_range(
+        self, valid_api_url, valid_cert_sha256
+    ):
         """Test port validation for invalid ranges."""
         async with AsyncOutlineClient(valid_api_url, valid_cert_sha256) as client:
             with pytest.raises(ValueError, match="Privileged ports are not allowed"):
@@ -434,7 +455,9 @@ class TestAsyncOutlineClientMetricsMethods:
     """Test metrics-related methods."""
 
     @pytest.mark.asyncio
-    async def test_get_metrics_status_success(self, valid_api_url, valid_cert_sha256, metrics_status_response):
+    async def test_get_metrics_status_success(
+        self, valid_api_url, valid_cert_sha256, metrics_status_response
+    ):
         """Test successful metrics status retrieval."""
         with aioresponses() as m:
             m.get(f"{valid_api_url}/metrics/enabled", payload=metrics_status_response)
@@ -456,7 +479,9 @@ class TestAsyncOutlineClientMetricsMethods:
                 assert result is True
 
     @pytest.mark.asyncio
-    async def test_get_transfer_metrics_success(self, valid_api_url, valid_cert_sha256, server_metrics_response):
+    async def test_get_transfer_metrics_success(
+        self, valid_api_url, valid_cert_sha256, server_metrics_response
+    ):
         """Test successful transfer metrics retrieval."""
         with aioresponses() as m:
             m.get(f"{valid_api_url}/metrics/transfer", payload=server_metrics_response)
@@ -472,7 +497,9 @@ class TestAsyncOutlineClientAccessKeyMethods:
     """Test access key management methods."""
 
     @pytest.mark.asyncio
-    async def test_create_access_key_success(self, valid_api_url, valid_cert_sha256, access_key_response):
+    async def test_create_access_key_success(
+        self, valid_api_url, valid_cert_sha256, access_key_response
+    ):
         """Test successful access key creation."""
         with aioresponses() as m:
             m.post(f"{valid_api_url}/access-keys", payload=access_key_response)
@@ -485,36 +512,44 @@ class TestAsyncOutlineClientAccessKeyMethods:
                 assert result.id == "1"
 
     @pytest.mark.asyncio
-    async def test_create_access_key_with_all_params(self, valid_api_url, valid_cert_sha256, access_key_response):
+    async def test_create_access_key_with_all_params(
+        self, valid_api_url, valid_cert_sha256, access_key_response
+    ):
         """Test access key creation with all parameters."""
         with aioresponses() as m:
             m.post(f"{valid_api_url}/access-keys", payload=access_key_response)
 
             async with AsyncOutlineClient(valid_api_url, valid_cert_sha256) as client:
-                limit = DataLimit(bytes=1024 ** 3)
+                limit = DataLimit(bytes=1024**3)
                 result = await client.create_access_key(
                     name="Full Key",
                     password="secret",
                     port=8388,
                     method="chacha20-ietf-poly1305",
-                    limit=limit
+                    limit=limit,
                 )
 
                 assert isinstance(result, AccessKey)
 
     @pytest.mark.asyncio
-    async def test_create_access_key_with_id(self, valid_api_url, valid_cert_sha256, access_key_response):
+    async def test_create_access_key_with_id(
+        self, valid_api_url, valid_cert_sha256, access_key_response
+    ):
         """Test access key creation with specific ID."""
         with aioresponses() as m:
             m.put(f"{valid_api_url}/access-keys/custom-id", payload=access_key_response)
 
             async with AsyncOutlineClient(valid_api_url, valid_cert_sha256) as client:
-                result = await client.create_access_key_with_id("custom-id", name="Custom Key")
+                result = await client.create_access_key_with_id(
+                    "custom-id", name="Custom Key"
+                )
 
                 assert isinstance(result, AccessKey)
 
     @pytest.mark.asyncio
-    async def test_get_access_keys_success(self, valid_api_url, valid_cert_sha256, access_keys_list_response):
+    async def test_get_access_keys_success(
+        self, valid_api_url, valid_cert_sha256, access_keys_list_response
+    ):
         """Test successful access keys retrieval."""
         with aioresponses() as m:
             m.get(f"{valid_api_url}/access-keys", payload=access_keys_list_response)
@@ -527,7 +562,9 @@ class TestAsyncOutlineClientAccessKeyMethods:
                 assert result.access_keys[0].id == "1"
 
     @pytest.mark.asyncio
-    async def test_get_access_key_success(self, valid_api_url, valid_cert_sha256, access_key_response):
+    async def test_get_access_key_success(
+        self, valid_api_url, valid_cert_sha256, access_key_response
+    ):
         """Test successful single access key retrieval."""
         with aioresponses() as m:
             m.get(f"{valid_api_url}/access-keys/1", payload=access_key_response)
@@ -559,17 +596,21 @@ class TestAsyncOutlineClientAccessKeyMethods:
                 assert result is True
 
     @pytest.mark.asyncio
-    async def test_set_access_key_data_limit_success(self, valid_api_url, valid_cert_sha256):
+    async def test_set_access_key_data_limit_success(
+        self, valid_api_url, valid_cert_sha256
+    ):
         """Test successful access key data limit setting."""
         with aioresponses() as m:
             m.put(f"{valid_api_url}/access-keys/1/data-limit", status=204)
 
             async with AsyncOutlineClient(valid_api_url, valid_cert_sha256) as client:
-                result = await client.set_access_key_data_limit("1", 1024 ** 3)
+                result = await client.set_access_key_data_limit("1", 1024**3)
                 assert result is True
 
     @pytest.mark.asyncio
-    async def test_remove_access_key_data_limit_success(self, valid_api_url, valid_cert_sha256):
+    async def test_remove_access_key_data_limit_success(
+        self, valid_api_url, valid_cert_sha256
+    ):
         """Test successful access key data limit removal."""
         with aioresponses() as m:
             m.delete(f"{valid_api_url}/access-keys/1/data-limit", status=204)
@@ -583,17 +624,21 @@ class TestAsyncOutlineClientGlobalDataLimit:
     """Test global data limit methods."""
 
     @pytest.mark.asyncio
-    async def test_set_global_data_limit_success(self, valid_api_url, valid_cert_sha256):
+    async def test_set_global_data_limit_success(
+        self, valid_api_url, valid_cert_sha256
+    ):
         """Test successful global data limit setting."""
         with aioresponses() as m:
             m.put(f"{valid_api_url}/server/access-key-data-limit", status=204)
 
             async with AsyncOutlineClient(valid_api_url, valid_cert_sha256) as client:
-                result = await client.set_global_data_limit(100 * 1024 ** 3)
+                result = await client.set_global_data_limit(100 * 1024**3)
                 assert result is True
 
     @pytest.mark.asyncio
-    async def test_remove_global_data_limit_success(self, valid_api_url, valid_cert_sha256):
+    async def test_remove_global_data_limit_success(
+        self, valid_api_url, valid_cert_sha256
+    ):
         """Test successful global data limit removal."""
         with aioresponses() as m:
             m.delete(f"{valid_api_url}/server/access-key-data-limit", status=204)
@@ -607,7 +652,9 @@ class TestAsyncOutlineClientBatchOperations:
     """Test batch operations."""
 
     @pytest.mark.asyncio
-    async def test_batch_create_access_keys_success(self, valid_api_url, valid_cert_sha256, access_key_response):
+    async def test_batch_create_access_keys_success(
+        self, valid_api_url, valid_cert_sha256, access_key_response
+    ):
         """Test successful batch access key creation."""
         with aioresponses() as m:
             # Mock multiple POST requests
@@ -618,40 +665,48 @@ class TestAsyncOutlineClientBatchOperations:
                 m.post(f"{valid_api_url}/access-keys", payload=response_copy)
 
             async with AsyncOutlineClient(valid_api_url, valid_cert_sha256) as client:
-                configs = [
-                    {"name": "Key 1"},
-                    {"name": "Key 2", "port": 8388}
-                ]
+                configs = [{"name": "Key 1"}, {"name": "Key 2", "port": 8388}]
                 results = await client.batch_create_access_keys(configs)
 
                 assert len(results) == 2
                 assert all(isinstance(r, AccessKey) for r in results)
 
     @pytest.mark.asyncio
-    async def test_batch_create_access_keys_with_failure(self, valid_api_url, valid_cert_sha256, access_key_response):
+    async def test_batch_create_access_keys_with_failure(
+        self, valid_api_url, valid_cert_sha256, access_key_response
+    ):
         """Test batch creation with some failures and fail_fast=False."""
         with aioresponses() as m:
             # First request succeeds
             m.post(f"{valid_api_url}/access-keys", payload=access_key_response)
             # Second request fails
-            m.post(f"{valid_api_url}/access-keys", status=400, payload={"error": "Bad request"})
+            m.post(
+                f"{valid_api_url}/access-keys",
+                status=400,
+                payload={"error": "Bad request"},
+            )
 
             async with AsyncOutlineClient(valid_api_url, valid_cert_sha256) as client:
-                configs = [
-                    {"name": "Key 1"},
-                    {"name": "Key 2"}
-                ]
-                results = await client.batch_create_access_keys(configs, fail_fast=False)
+                configs = [{"name": "Key 1"}, {"name": "Key 2"}]
+                results = await client.batch_create_access_keys(
+                    configs, fail_fast=False
+                )
 
                 assert len(results) == 2
                 assert isinstance(results[0], AccessKey)
                 assert isinstance(results[1], Exception)
 
     @pytest.mark.asyncio
-    async def test_batch_create_access_keys_fail_fast(self, valid_api_url, valid_cert_sha256):
+    async def test_batch_create_access_keys_fail_fast(
+        self, valid_api_url, valid_cert_sha256
+    ):
         """Test batch creation with fail_fast=True."""
         with aioresponses() as m:
-            m.post(f"{valid_api_url}/access-keys", status=400, payload={"error": "Bad request"})
+            m.post(
+                f"{valid_api_url}/access-keys",
+                status=400,
+                payload={"error": "Bad request"},
+            )
 
             async with AsyncOutlineClient(valid_api_url, valid_cert_sha256) as client:
                 configs = [{"name": "Key 1"}]
@@ -664,7 +719,9 @@ class TestAsyncOutlineClientHealthCheck:
     """Test health check functionality."""
 
     @pytest.mark.asyncio
-    async def test_health_check_success(self, valid_api_url, valid_cert_sha256, server_response):
+    async def test_health_check_success(
+        self, valid_api_url, valid_cert_sha256, server_response
+    ):
         """Test successful health check."""
         with aioresponses() as m:
             m.get(f"{valid_api_url}/server", payload=server_response)

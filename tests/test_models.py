@@ -56,7 +56,7 @@ def sample_access_key_data():
         "port": 8080,
         "method": "chacha20-ietf-poly1305",
         "accessUrl": "ss://test-url",
-        "dataLimit": {"bytes": 1073741824}
+        "dataLimit": {"bytes": 1073741824},
     }
 
 
@@ -70,15 +70,15 @@ def sample_access_key_list_data():
                 "password": "pass1",
                 "port": 8080,
                 "method": "aes-256-gcm",
-                "accessUrl": "ss://url1"
+                "accessUrl": "ss://url1",
             },
             {
                 "id": "2",
                 "password": "pass2",
                 "port": 8081,
                 "method": "chacha20-ietf-poly1305",
-                "accessUrl": "ss://url2"
-            }
+                "accessUrl": "ss://url2",
+            },
         ]
     }
 
@@ -94,7 +94,7 @@ def sample_server_data():
         "version": "1.0.0",
         "portForNewAccessKeys": 8080,
         "hostnameForAccessKeys": "test.example.com",
-        "accessKeyDataLimit": {"bytes": 1073741824}
+        "accessKeyDataLimit": {"bytes": 1073741824},
     }
 
 
@@ -128,7 +128,12 @@ class TestAccessKey:
 
     def test_access_key_method_variations(self, sample_access_key_data):
         """Test different encryption methods."""
-        methods = ["aes-256-gcm", "aes-192-gcm", "aes-128-gcm", "chacha20-ietf-poly1305"]
+        methods = [
+            "aes-256-gcm",
+            "aes-192-gcm",
+            "aes-128-gcm",
+            "chacha20-ietf-poly1305",
+        ]
 
         for method in methods:
             sample_access_key_data["method"] = method
@@ -142,7 +147,7 @@ class TestAccessKey:
             "password": "pass",
             "port": 8080,
             "method": "aes-256-gcm",
-            "accessUrl": "ss://minimal-url"
+            "accessUrl": "ss://minimal-url",
         }
         key = AccessKey(**minimal_data)
         assert key.id == "minimal"
@@ -246,7 +251,7 @@ class TestServer:
             "metricsEnabled": False,
             "createdTimestampMs": 1640995200000,
             "version": "1.0.0",
-            "portForNewAccessKeys": 8080
+            "portForNewAccessKeys": 8080,
         }
         server = Server(**minimal_data)
         assert server.hostname_for_access_keys is None
@@ -317,7 +322,7 @@ class TestServerMetrics:
                 "1": 1024,
                 "key-with-dashes": 2048,
                 "key_with_underscores": 512,
-                "very-long-key-name-12345": 256
+                "very-long-key-name-12345": 256,
             }
         }
         metrics = ServerMetrics(**data)
@@ -376,7 +381,7 @@ class TestDataTransferred:
 
     def test_data_transferred_large_value(self):
         """Test handling of very large byte values."""
-        large_value = 2 ** 63 - 1  # Max int64
+        large_value = 2**63 - 1  # Max int64
         data_transferred = DataTransferred(bytes=large_value)
         assert data_transferred.bytes == large_value
 
@@ -402,24 +407,14 @@ class TestBandwidthData:
 
     def test_bandwidth_data_with_complex_data(self):
         """Test bandwidth data with complex data structure."""
-        complex_data = {
-            "bytes": 1024,
-            "packets": 100,
-            "errors": 0
-        }
-        bandwidth_data = BandwidthData(
-            data=complex_data,
-            timestamp=1640995200
-        )
+        complex_data = {"bytes": 1024, "packets": 100, "errors": 0}
+        bandwidth_data = BandwidthData(data=complex_data, timestamp=1640995200)
         assert bandwidth_data.data == complex_data
         assert bandwidth_data.timestamp == 1640995200
 
     def test_valid_bandwidth_data(self):
         """Test valid bandwidth data creation."""
-        bandwidth_data = BandwidthData(
-            data={"bytes": 1024},
-            timestamp=1640995200
-        )
+        bandwidth_data = BandwidthData(data={"bytes": 1024}, timestamp=1640995200)
         assert bandwidth_data.data == {"bytes": 1024}
         assert bandwidth_data.timestamp == 1640995200
 
@@ -431,7 +426,7 @@ class TestBandwidthInfo:
         """Test valid bandwidth info creation."""
         bandwidth_info = BandwidthInfo(
             current=BandwidthData(data={"bytes": 1024}, timestamp=1640995200),
-            peak=BandwidthData(data={"bytes": 2048}, timestamp=1640995300)
+            peak=BandwidthData(data={"bytes": 2048}, timestamp=1640995300),
         )
         assert bandwidth_info.current.data == {"bytes": 1024}
         assert bandwidth_info.peak.data == {"bytes": 2048}
@@ -447,7 +442,7 @@ class TestLocationMetric:
             asn=12345,
             asOrg="Test Organization",
             tunnelTime=TunnelTime(seconds=1800),
-            dataTransferred=DataTransferred(bytes=524288)
+            dataTransferred=DataTransferred(bytes=524288),
         )
         assert location_metric.asn == 12345
         assert location_metric.as_org == "Test Organization"
@@ -459,7 +454,7 @@ class TestLocationMetric:
             asn=12345,
             asOrg="Test AS",
             tunnelTime=TunnelTime(seconds=1800),
-            dataTransferred=DataTransferred(bytes=524288)
+            dataTransferred=DataTransferred(bytes=524288),
         )
         assert location_metric.location == "US"
         assert location_metric.asn == 12345
@@ -484,8 +479,7 @@ class TestConnectionInfo:
     def test_connection_info_with_zero_timestamp(self):
         """Test connection info with zero timestamp."""
         connection_info = ConnectionInfo(
-            lastTrafficSeen=0,
-            peakDeviceCount=PeakDeviceCount(data=1, timestamp=0)
+            lastTrafficSeen=0, peakDeviceCount=PeakDeviceCount(data=1, timestamp=0)
         )
         assert connection_info.last_traffic_seen == 0
         assert connection_info.peak_device_count.timestamp == 0
@@ -494,7 +488,7 @@ class TestConnectionInfo:
         """Test valid connection info creation."""
         connection_info = ConnectionInfo(
             lastTrafficSeen=1640995400,
-            peakDeviceCount=PeakDeviceCount(data=3, timestamp=1640995500)
+            peakDeviceCount=PeakDeviceCount(data=3, timestamp=1640995500),
         )
         assert connection_info.last_traffic_seen == 1640995400
         assert connection_info.peak_device_count.data == 3
@@ -511,8 +505,8 @@ class TestAccessKeyMetric:
             dataTransferred=DataTransferred(bytes=262144),
             connection=ConnectionInfo(
                 lastTrafficSeen=1640995400,
-                peakDeviceCount=PeakDeviceCount(data=2, timestamp=1640995500)
-            )
+                peakDeviceCount=PeakDeviceCount(data=2, timestamp=1640995500),
+            ),
         )
         assert access_key_metric.access_key_id == 1
         assert access_key_metric.tunnel_time.seconds == 900
@@ -530,15 +524,15 @@ class TestServerExperimentalMetric:
             dataTransferred=DataTransferred(bytes=1048576),
             bandwidth=BandwidthInfo(
                 current=BandwidthData(data={"bytes": 1024}, timestamp=1640995200),
-                peak=BandwidthData(data={"bytes": 2048}, timestamp=1640995300)
+                peak=BandwidthData(data={"bytes": 2048}, timestamp=1640995300),
             ),
             locations=[
                 LocationMetric(
                     location="US",
                     tunnelTime=TunnelTime(seconds=1800),
-                    dataTransferred=DataTransferred(bytes=524288)
+                    dataTransferred=DataTransferred(bytes=524288),
                 )
-            ]
+            ],
         )
         assert server_metric.tunnel_time.seconds == 3600
         assert server_metric.data_transferred.bytes == 1048576
@@ -644,7 +638,7 @@ class TestRequestModels:
             "Server_with_underscores",
             "Server in Russian",
             "Server with spaces",
-            "Server@#$%"
+            "Server@#$%",
         ]
 
         for name in special_names:
@@ -658,7 +652,7 @@ class TestRequestModels:
             "sub.example.com",
             "192.168.1.1",
             "localhost",
-            "server-123.domain.org"
+            "server-123.domain.org",
         ]
 
         for hostname in hostnames:

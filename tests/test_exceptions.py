@@ -254,9 +254,9 @@ class TestAPIError:
         error = APIError(message, status_code, attempt)
 
         # Test attribute access
-        assert hasattr(error, 'status_code')
-        assert hasattr(error, 'attempt')
-        assert hasattr(error, 'args')
+        assert hasattr(error, "status_code")
+        assert hasattr(error, "attempt")
+        assert hasattr(error, "args")
 
         # Test attribute values
         assert error.status_code == status_code
@@ -271,7 +271,9 @@ class TestAPIError:
 
     def test_api_error_with_complex_message(self):
         """Test APIError with complex message containing special characters."""
-        message = "API error: Connection failed!\nDetails: timeout after 30s\n→ Check network"
+        message = (
+            "API error: Connection failed!\nDetails: timeout after 30s\n→ Check network"
+        )
         attempt = 3
 
         error = APIError(message, attempt=attempt)
@@ -495,8 +497,12 @@ class TestExceptionIntegration:
         try:
             raise APIError("Critical API failure", 500, 5)
         except APIError as e:
-            logger.error("API Error occurred: %s (Status: %s, Attempt: %s)",
-                         str(e), e.status_code, e.attempt)
+            logger.error(
+                "API Error occurred: %s (Status: %s, Attempt: %s)",
+                str(e),
+                e.status_code,
+                e.attempt,
+            )
 
         log_output = log_capture.getvalue()
         assert "Critical API failure" in log_output

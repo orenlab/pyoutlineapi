@@ -1,445 +1,598 @@
 # PyOutlineAPI
 
-A modern, async-first Python client for the [Outline VPN Server API](https://github.com/Jigsaw-Code/outline-server) with
-advanced features including circuit breaker protection, health monitoring, and comprehensive batch operations.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Type Checked](https://img.shields.io/badge/type--checked-mypy-blue.svg)](http://mypy-lang.org/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-[![tests](https://github.com/orenlab/pyoutlineapi/actions/workflows/python_tests.yml/badge.svg)](https://github.com/orenlab/pyoutlineapi/actions/workflows/python_tests.yml)
-[![codecov](https://codecov.io/gh/orenlab/pyoutlineapi/branch/main/graph/badge.svg?token=D0MPKCKFJQ)](https://codecov.io/gh/orenlab/pyoutlineapi)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=orenlab_pyoutlineapi&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=orenlab_pyoutlineapi)
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=orenlab_pyoutlineapi&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=orenlab_pyoutlineapi)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=orenlab_pyoutlineapi&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=orenlab_pyoutlineapi)
-![PyPI - Downloads](https://img.shields.io/pypi/dm/pyoutlineapi)
-![PyPI - Version](https://img.shields.io/pypi/v/pyoutlineapi)
-![Python Version](https://img.shields.io/pypi/pyversions/pyoutlineapi)
+> **Production-ready async Python client for Outline VPN Server API**
 
-## ✨ Features
+Modern, type-safe, and secure Python library for managing [Outline VPN](https://getoutline.org/) servers. Built with
+async/await, comprehensive error handling, and battle-tested reliability.
 
-### Core Features
+## ✨ Why PyOutlineAPI?
 
-- ⚡ **Async-first design** with full asyncio support and connection pooling
-- 🔒 **Enterprise-grade security** with TLS certificate fingerprint verification
-- ✅ **Type-safe** with comprehensive Pydantic models and static typing
-- 📊 **Complete API coverage** including experimental server metrics
-- 🎯 **Advanced key management** with custom IDs, data limits, and flexible configuration
-- 🌐 **Flexible response formats** - return JSON dict or typed Pydantic models
+- 🚀 **Blazing Fast** - Lazy loading, minimal overhead, async-first design
+- 🔒 **Security First** - SecretStr for credentials, input sanitization, path traversal protection
+- 📝 **100% Type Safe** - Complete type hints, mypy strict mode compatible
+- 🛡️ **Production Ready** - Circuit breaker, retry logic, rate limiting, health monitoring
+- 🎯 **Complete API Coverage** - All Outline API v1.0 endpoints fully implemented
+- 🧩 **Zero Dependencies Bloat** - Optional addons, import only what you need
+- 📚 **Excellent Documentation** - Comprehensive examples, docstrings, and type hints
 
-### Advanced Features
+## 🎯 Key Features
 
-- 🛡️ **Circuit breaker protection** with automatic failure detection and recovery
-- 🏥 **Health monitoring** with comprehensive status checks and metrics
-- 🚀 **Batch operations** for efficient bulk key management
-- 🔄 **Smart retry logic** with exponential backoff and rate limiting
-- 📈 **Performance metrics** collection and monitoring
-- 🎛️ **Dynamic configuration** with runtime parameter updates
-- 📚 **Production-ready** with comprehensive logging and debugging support
+### Security & Reliability
 
-### Reliability Features
+- ✅ **SecretStr Protection** - Sensitive data never exposed in logs or errors
+- ✅ **Input Validation** - Pydantic v2 models with strict validation
+- ✅ **Path Traversal Protection** - Prevents injection attacks
+- ✅ **Circuit Breaker Pattern** - Prevents cascading failures
+- ✅ **Automatic Retries** - Configurable retry logic for transient failures
+- ✅ **Rate Limiting** - Protects against API overload
 
-- 🛠️ **Robust error handling** with detailed exception hierarchy
-- 🔧 **Connection management** with automatic session handling
-- ⚡ **Performance optimization** with configurable connection pooling
-- 🎯 **Graceful degradation** when services are temporarily unavailable
+### Developer Experience
 
-## 🚀 Installation
+- ✅ **Async/Await Native** - Built for modern Python async code
+- ✅ **Type Hints Everywhere** - Full IDE autocomplete support
+- ✅ **Context Managers** - Automatic resource cleanup
+- ✅ **Rich Error Messages** - Detailed exceptions with context
+- ✅ **Environment Config** - Load settings from .env files
+- ✅ **Debug Logging** - Optional detailed logging with sanitization
 
-### From PyPI (Recommended)
+### Performance
+
+- ✅ **Lazy Loading** - Features loaded only when needed
+- ✅ **Connection Pooling** - Efficient HTTP connection reuse
+- ✅ **Concurrent Requests** - Configurable rate limiting
+- ✅ **Minimal Memory** - Small footprint, efficient design
+
+
+## 📦 Installation
 
 ```bash
 pip install pyoutlineapi
 ```
 
-### With Poetry
+**Requirements:**
 
-```bash
-poetry add pyoutlineapi
-```
+- Python 3.10 or higher
+- aiohttp
+- pydantic >= 2.0
+- pydantic-settings
 
-### Development Installation
-
-```bash
-git clone https://github.com/orenlab/pyoutlineapi.git
-cd pyoutlineapi
-pip install -e ".[dev]"
-```
-
-## 📋 Requirements
-
-- Python 3.10+
-- aiohttp >= 3.8.0
-- pydantic >= 2.0.0
-- A running Outline VPN Server
-
-## 🎯 Quick Start
+## 🚀 Quick Start
 
 ### Basic Usage
 
 ```python
-import asyncio
-from pyoutlineapi import AsyncOutlineClient, DataLimit
+from pyoutlineapi import AsyncOutlineClient
 
+async with AsyncOutlineClient.create(
+        api_url="https://your-server.com:12345/secret-path",
+        cert_sha256="your-certificate-fingerprint",
+) as client:
+    # Get server information
+    server = await client.get_server_info()
+    print(f"Server: {server.name}")
 
-async def main():
-    # Initialize client with context manager (recommended)
-    async with AsyncOutlineClient.create(
-            api_url="https://your-outline-server:port/secret-path",
-            cert_sha256="your-certificate-fingerprint",
-            enable_logging=True
-    ) as client:
-        # Get server information
-        server = await client.get_server_info()
-        print(f"Connected to {server.name} (v{server.version})")
+    # Create access key
+    key = await client.create_access_key(name="Alice")
+    print(f"Access URL: {key.access_url}")
 
-        # Create a new access key with data limit
-        key = await client.create_access_key(
-            name="Alice",
-            limit=DataLimit(bytes=5 * 1024 ** 3)  # 5 GB limit
-        )
-        print(f"Created key: {key.access_url}")
-
-        # Get comprehensive server summary
-        summary = await client.get_server_summary()
-        print(f"Server healthy: {summary['healthy']}")
-        print(f"Access keys count: {summary['access_keys_count']}")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    # List all keys
+    keys = await client.get_access_keys()
+    print(f"Total keys: {keys.count}")
 ```
 
-### Advanced Configuration
+### Environment-Based Configuration
+
+**Step 1:** Generate configuration template
 
 ```python
-from pyoutlineapi import AsyncOutlineClient, CircuitConfig
+from pyoutlineapi import quick_setup
 
-
-async def advanced_setup():
-    # Custom circuit breaker configuration
-    circuit_config = CircuitConfig(
-        failure_threshold=3,  # Open after 3 failures
-        recovery_timeout=30.0,  # Wait 30s before retry
-        success_threshold=2,  # Need 2 successes to close
-        failure_rate_threshold=0.5,  # 50% failure rate threshold
-        min_calls_to_evaluate=5  # Minimum calls before evaluation
-    )
-
-    async with AsyncOutlineClient(
-            api_url="https://your-server:port/secret-path",
-            cert_sha256="your-cert-fingerprint",
-            json_format=False,  # Return Pydantic models (default)
-            timeout=30,  # Request timeout
-            retry_attempts=3,  # Retry failed requests
-            enable_logging=True,  # Debug logging
-            max_connections=10,  # Connection pool size
-            rate_limit_delay=0.1,  # 100ms between requests
-            circuit_breaker_enabled=True,  # Enable circuit breaker
-            circuit_config=circuit_config,  # Custom configuration
-            enable_health_monitoring=True,  # Health monitoring
-            enable_metrics_collection=True  # Performance metrics
-    ) as client:
-        # Check health with detailed metrics
-        health = await client.health_check(include_detailed_metrics=True)
-        print(f"Health Status: {health['healthy']}")
-
-        # Monitor circuit breaker
-        cb_status = await client.get_circuit_breaker_status()
-        print(f"Circuit State: {cb_status['state']}")
-
-
-asyncio.run(advanced_setup())
+quick_setup()  # Creates .env.example
 ```
 
-## 🔧 Core Operations
+**Step 2:** Edit `.env` file
+
+```bash
+OUTLINE_API_URL=https://your-server.com:12345/secret-path
+OUTLINE_CERT_SHA256=your-certificate-fingerprint
+
+# Optional settings
+OUTLINE_TIMEOUT=30
+OUTLINE_RETRY_ATTEMPTS=3
+OUTLINE_RATE_LIMIT=100
+OUTLINE_ENABLE_CIRCUIT_BREAKER=true
+OUTLINE_ENABLE_LOGGING=false
+```
+
+**Step 3:** Use in your application
+
+```python
+from pyoutlineapi import AsyncOutlineClient
+
+# Automatically loads from .env
+async with AsyncOutlineClient.from_env() as client:
+    server = await client.get_server_info()
+    print(f"Connected to: {server.name}")
+```
+
+## 📚 Core API
 
 ### Server Management
 
 ```python
-async def manage_server():
-    async with AsyncOutlineClient.create(api_url, cert_sha256) as client:
-        # Get server information
-        server = await client.get_server_info()
-        print(f"Server: {server.name}, Version: {server.version}")
+# Get comprehensive server information
+server = await client.get_server_info()
+print(f"Name: {server.name}")
+print(f"ID: {server.server_id}")
+print(f"Port: {server.port_for_new_access_keys}")
+print(f"Created: {server.created_timestamp_ms}")
 
-        # Configure server
-        await client.rename_server("Production VPN Server")
-        await client.set_hostname("vpn.yourcompany.com")
-        await client.set_default_port(8388)
+# Rename server
+await client.rename_server("Production VPN")
 
-        # Get comprehensive summary
-        summary = await client.get_server_summary(metrics_since="24h")
-        print(f"Health: {summary['healthy']}")
-        print(f"Keys: {summary['access_keys_count']}")
+# Configure hostname for access keys
+await client.set_hostname("vpn.example.com")
+
+# Set default port for new keys
+await client.set_default_port(443)
 ```
 
 ### Access Key Management
 
+#### Creating Keys
+
 ```python
-async def manage_keys():
-    async with AsyncOutlineClient.create(api_url, cert_sha256) as client:
-        # Create keys with various configurations
-        basic_key = await client.create_access_key(name="John Doe")
+from pyoutlineapi.models import DataLimit
 
-        premium_key = await client.create_access_key(
-            name="Premium User",
-            port=9999,
-            method="chacha20-ietf-poly1305",
-            limit=DataLimit(bytes=10 * 1024 ** 3)  # 10 GB
-        )
+# Simple key creation
+key = await client.create_access_key(name="Alice")
 
-        # Create key with specific ID
-        custom_key = await client.create_access_key_with_id(
-            "user-123",
-            name="Custom User",
-            limit=DataLimit(bytes=5 * 1024 ** 3)
-        )
+# Key with data limit
+key = await client.create_access_key(
+    name="Bob",
+    limit=DataLimit(bytes=10 * 1024 ** 3)  # 10 GB
+)
 
-        # List and manage existing keys
+# Key with custom settings
+key = await client.create_access_key(
+    name="Charlie",
+    port=8388,
+    method="chacha20-ietf-poly1305",
+    limit=DataLimit(bytes=5 * 1024 ** 3)
+)
+
+# Key with specific ID
+key = await client.create_access_key_with_id(
+    key_id="user-001",
+    name="Alice"
+)
+```
+
+#### Managing Keys
+
+```python
+# Get all access keys
+keys = await client.get_access_keys()
+print(f"Total keys: {keys.count}")
+
+for key in keys.access_keys:
+    print(f"{key.name}: {key.access_url}")
+
+# Get specific key
+key = await client.get_access_key("key-id")
+
+# Rename key
+await client.rename_access_key("key-id", "Alice Smith")
+
+# Delete key
+success = await client.delete_access_key("key-id")
+```
+
+### Data Limits
+
+#### Per-Key Limits
+
+```python
+from pyoutlineapi.models import DataLimit
+
+# Set data limit for specific key
+await client.set_access_key_data_limit(
+    key_id="key-id",
+    bytes_limit=5 * 1024 ** 3  # 5 GB
+)
+
+# Remove limit from key
+await client.remove_access_key_data_limit("key-id")
+```
+
+#### Global Limits
+
+```python
+# Set global limit for all keys
+await client.set_global_data_limit(100 * 1024 ** 3)  # 100 GB
+
+# Remove global limit
+await client.remove_global_data_limit()
+```
+
+### Metrics & Monitoring
+
+```python
+# Check metrics status
+status = await client.get_metrics_status()
+print(f"Metrics enabled: {status.metrics_enabled}")
+
+# Enable/disable metrics
+await client.set_metrics_status(True)
+
+# Get transfer metrics
+metrics = await client.get_transfer_metrics()
+print(f"Total transferred: {metrics.total_bytes / 1024 ** 3:.2f} GB")
+
+for key_id, bytes_used in metrics.bytes_transferred_by_user_id.items():
+    mb = bytes_used / 1024 ** 2
+    print(f"Key {key_id}: {mb:.2f} MB")
+
+# Get experimental metrics
+exp_metrics = await client.get_experimental_metrics("24h")
+print(f"Server data: {exp_metrics.server.data_transferred.bytes}")
+print(f"Locations: {len(exp_metrics.server.locations)}")
+```
+
+## 🛡️ Advanced Features
+
+### Circuit Breaker Pattern
+
+Prevent cascading failures with automatic circuit breaker protection:
+
+```python
+from pyoutlineapi import OutlineClientConfig
+from pyoutlineapi.circuit_breaker import CircuitConfig
+
+config = OutlineClientConfig(
+    api_url="https://server.com:12345/secret",
+    cert_sha256="abc123...",
+    enable_circuit_breaker=True,
+    circuit_failure_threshold=5,  # Open after 5 failures
+    circuit_recovery_timeout=60.0,  # Test recovery after 60s
+)
+
+async with AsyncOutlineClient(config) as client:
+    try:
+        await client.get_server_info()
+    except CircuitOpenError as e:
+        print(f"Circuit open, retry after {e.retry_after}s")
+
+    # Check circuit state
+    if client.circuit_state == "OPEN":
+        print("Service experiencing issues")
+
+    # Get circuit metrics
+    metrics = client.get_circuit_metrics()
+    if metrics:
+        print(f"Success rate: {metrics['success_rate']:.2%}")
+```
+
+### Rate Limiting
+
+Control concurrent requests to protect your server:
+
+```python
+# Configure rate limit (default: 100 concurrent requests)
+config = OutlineClientConfig(
+    api_url="...",
+    cert_sha256="...",
+    rate_limit=50,  # Max 50 concurrent requests
+)
+
+async with AsyncOutlineClient(config) as client:
+    # Check current rate limiter status
+    stats = client.get_rate_limiter_stats()
+    print(f"Active: {stats['active']}/{stats['limit']}")
+    print(f"Available: {stats['available']}")
+
+    # Dynamically adjust rate limit
+    await client.set_rate_limit(100)  # Increase to 100
+```
+
+### Health Monitoring
+
+Comprehensive health checks for production systems:
+
+```python
+from pyoutlineapi.health_monitoring import HealthMonitor
+
+async with AsyncOutlineClient.from_env() as client:
+    monitor = HealthMonitor(client)
+
+    # Quick connectivity check
+    if await monitor.quick_check():
+        print("✅ Service reachable")
+
+    # Comprehensive health check
+    health = await monitor.comprehensive_check()
+
+    if not health.healthy:
+        print("❌ Service unhealthy")
+        for check_name in health.failed_checks:
+            result = health.checks[check_name]
+            print(f"  {check_name}: {result['message']}")
+
+    if health.is_degraded:
+        print("⚠️  Service degraded but operational")
+
+    # Wait for service to become healthy
+    if await monitor.wait_for_healthy(timeout=120):
+        print("Service recovered!")
+
+
+    # Custom health checks
+    async def check_key_count(client):
         keys = await client.get_access_keys()
-        for key in keys.access_keys:
-            print(f"Key: {key.name} ({key.id})")
+        return {
+            "status": "healthy" if keys.count > 0 else "warning",
+            "count": keys.count,
+            "message": f"{keys.count} keys configured"
+        }
 
-            # Update key
-            await client.rename_access_key(key.id, f"Updated-{key.name}")
-            await client.set_access_key_data_limit(key.id, 20 * 1024 ** 3)
+
+    monitor.add_custom_check("key_count", check_key_count)
+    health = await monitor.comprehensive_check()
 ```
 
 ### Batch Operations
 
+Efficient bulk operations with concurrency control:
+
 ```python
-async def batch_operations():
-    async with AsyncOutlineClient.create(api_url, cert_sha256) as client:
-        # Bulk key creation
-        configs = [
-            {"name": "Employee-001", "limit": DataLimit(bytes=10 * 1024 ** 3)},
-            {"name": "Employee-002", "limit": DataLimit(bytes=10 * 1024 ** 3)},
-            {"name": "Contractor-001", "limit": DataLimit(bytes=5 * 1024 ** 3)},
-            {"name": "Guest-User", "limit": DataLimit(bytes=1 * 1024 ** 3)},
-        ]
+from pyoutlineapi.batch_operations import BatchOperations
+from pyoutlineapi.models import DataLimit
 
-        # Create all keys concurrently
-        results = await client.batch_create_access_keys(
-            configs,
-            fail_fast=False,  # Continue on errors
-            max_concurrent=3  # Limit concurrent operations
-        )
+async with AsyncOutlineClient.from_env() as client:
+    batch = BatchOperations(client, max_concurrent=10)
 
-        successful = sum(1 for r in results if not isinstance(r, Exception))
-        print(f"Created {successful}/{len(configs)} keys successfully")
+    # Create multiple keys
+    configs = [
+        {"name": "User1", "limit": DataLimit(bytes=1024 ** 3)},
+        {"name": "User2", "limit": DataLimit(bytes=2 * 1024 ** 3)},
+        {"name": "User3", "port": 8388},
+    ]
 
-        # Batch rename operations
-        key_ids = [r.id for r in results if not isinstance(r, Exception)]
-        rename_pairs = [(kid, f"Renamed-{i}") for i, kid in enumerate(key_ids)]
+    result = await batch.create_multiple_keys(configs)
+    print(f"Created: {result.successful}/{result.total}")
+    print(f"Success rate: {result.success_rate:.2%}")
 
-        await client.batch_rename_access_keys(rename_pairs, max_concurrent=2)
+    if result.has_errors:
+        for error in result.get_failures():
+            print(f"Error: {error}")
 
-        # Batch delete
-        await client.batch_delete_access_keys(key_ids[:2], fail_fast=False)
+    # Delete multiple keys
+    key_ids = ["key1", "key2", "key3"]
+    result = await batch.delete_multiple_keys(key_ids)
+
+    # Rename multiple keys
+    pairs = [
+        ("key1", "Alice"),
+        ("key2", "Bob"),
+        ("key3", "Charlie"),
+    ]
+    result = await batch.rename_multiple_keys(pairs)
+
+    # Set multiple data limits
+    limits = [
+        ("key1", 5 * 1024 ** 3),  # 5 GB
+        ("key2", 10 * 1024 ** 3),  # 10 GB
+    ]
+    result = await batch.set_multiple_data_limits(limits)
 ```
 
-## 🏥 Health Monitoring & Circuit Breaker
+### Metrics Collection
 
-### Health Monitoring
-
-```python
-async def monitor_health():
-    async with AsyncOutlineClient.create(
-            api_url, cert_sha256,
-            enable_health_monitoring=True,
-            enable_metrics_collection=True
-    ) as client:
-        # Basic health check
-        health = await client.health_check()
-        print(f"Healthy: {'✅' if health['healthy'] else '❌'}")
-
-        # Detailed health check
-        detailed = await client.health_check(include_detailed_metrics=True)
-        for check_name, check_data in detailed['checks'].items():
-            status = "✅" if check_data['status'] == 'healthy' else "⚠️"
-            print(f"{status} {check_name}: {check_data['message']}")
-
-        # Performance metrics
-        metrics = client.get_performance_metrics()
-        print(f"Success Rate: {metrics['success_rate']:.1%}")
-        print(f"Avg Response: {metrics['avg_response_time']:.3f}s")
-        print(f"Total Requests: {metrics['total_requests']}")
-```
-
-### Circuit Breaker Protection
+Automated metrics collection with historical data:
 
 ```python
-async def circuit_breaker_example():
-    circuit_config = CircuitConfig(
-        failure_threshold=2,
-        recovery_timeout=10.0
+from pyoutlineapi.metrics_collector import MetricsCollector
+
+async with AsyncOutlineClient.from_env() as client:
+    # Create collector with 1-minute interval
+    collector = MetricsCollector(
+        client,
+        interval=60,  # Collect every 60 seconds
+        max_history=1440,  # Keep 24 hours (1440 minutes)
     )
 
-    async with AsyncOutlineClient(
-            api_url, cert_sha256,
-            circuit_breaker_enabled=True,
-            circuit_config=circuit_config
-    ) as client:
-        # Monitor circuit breaker status
-        status = await client.get_circuit_breaker_status()
-        print(f"Circuit State: {status['state']}")
-        print(f"Success Rate: {status['metrics']['success_rate']:.1%}")
+    # Start collection
+    await collector.start()
 
-        # Use circuit protected operations
-        try:
-            async with client.circuit_protected_operation():
-                result = await client.get_server_info()
-                print(f"Protected operation successful: {result.name}")
-        except Exception as e:
-            print(f"Operation failed: {e}")
+    # Let it run...
+    await asyncio.sleep(3600)  # 1 hour
 
-        # Manual circuit breaker management
-        await client.reset_circuit_breaker()  # Reset if needed
+    # Stop collection
+    await collector.stop()
+
+    # Get usage statistics
+    stats = collector.get_usage_stats(period_minutes=60)
+    print(f"Total bytes: {stats.total_bytes_transferred}")
+    print(f"Avg rate: {stats.bytes_per_second / 1024:.2f} KB/s")
+    print(f"Active keys: {len(stats.active_keys)}")
+
+    # Per-key usage
+    usage = collector.get_key_usage("key-id", period_minutes=60)
+    print(f"Key usage: {usage['total_bytes'] / 1024 ** 2:.2f} MB")
+
+    # Export data
+    data = collector.export_to_dict()
+
+    # Prometheus format
+    prom_metrics = collector.export_prometheus_format()
 ```
 
-## 📊 Metrics and Monitoring
+## ⚙️ Configuration
 
-### Transfer Metrics
+### Environment Variables
 
-```python
-async def monitor_usage():
-    async with AsyncOutlineClient.create(api_url, cert_sha256) as client:
-        # Enable metrics collection
-        await client.set_metrics_status(True)
+All configuration options with `OUTLINE_` prefix:
 
-        # Get transfer metrics
-        metrics = await client.get_transfer_metrics()
-        total_bytes = sum(metrics.bytes_transferred_by_user_id.values())
-        print(f"Total transferred: {total_bytes / 1024 ** 3:.2f} GB")
+```bash
+# Required
+OUTLINE_API_URL=https://server.com:12345/secret
+OUTLINE_CERT_SHA256=your-certificate-fingerprint
 
-        # Per-user breakdown
-        for user_id, bytes_used in metrics.bytes_transferred_by_user_id.items():
-            gb_used = bytes_used / 1024 ** 3
-            print(f"User {user_id}: {gb_used:.2f} GB")
+# Client Settings
+OUTLINE_TIMEOUT=30                    # Request timeout (seconds)
+OUTLINE_RETRY_ATTEMPTS=3              # Number of retries
+OUTLINE_MAX_CONNECTIONS=10            # Connection pool size
+OUTLINE_RATE_LIMIT=100                # Max concurrent requests
+
+# Features
+OUTLINE_ENABLE_CIRCUIT_BREAKER=true   # Enable circuit breaker
+OUTLINE_ENABLE_LOGGING=false          # Enable debug logging
+OUTLINE_JSON_FORMAT=false             # Return JSON instead of models
+
+# Circuit Breaker
+OUTLINE_CIRCUIT_FAILURE_THRESHOLD=5   # Failures before opening
+OUTLINE_CIRCUIT_RECOVERY_TIMEOUT=60.0 # Recovery timeout (seconds)
 ```
 
-### Experimental Metrics
+### Configuration Objects
 
 ```python
-async def detailed_metrics():
-    async with AsyncOutlineClient.create(api_url, cert_sha256) as client:
-        # Get experimental metrics for different time periods
-        metrics_24h = await client.get_experimental_metrics("24h")
-        metrics_7d = await client.get_experimental_metrics("7d")
-        metrics_30d = await client.get_experimental_metrics("30d")
+from pyoutlineapi import OutlineClientConfig
+from pydantic import SecretStr
 
-        # Server-level metrics
-        server_metrics = metrics_24h.server
-        print(f"Server tunnel time: {server_metrics.tunnel_time.seconds}s")
-        print(f"Server data: {server_metrics.data_transferred.bytes} bytes")
+# Minimal configuration
+config = OutlineClientConfig.create_minimal(
+    api_url="https://server.com:12345/secret",
+    cert_sha256="abc123...",
+)
 
-        # Access key metrics
-        for key_metric in metrics_24h.access_keys:
-            print(f"Key {key_metric.access_key_id}:")
-            print(f"  Tunnel time: {key_metric.tunnel_time.seconds}s")
-            print(f"  Data: {key_metric.data_transferred.bytes} bytes")
+# Full configuration
+config = OutlineClientConfig(
+    api_url="https://server.com:12345/secret",
+    cert_sha256=SecretStr("abc123..."),
+    timeout=60,
+    retry_attempts=5,
+    max_connections=20,
+    rate_limit=200,
+    enable_circuit_breaker=True,
+    enable_logging=True,
+)
+
+# From environment
+config = OutlineClientConfig.from_env()
+
+# From custom .env file
+config = OutlineClientConfig.from_env(".env.production")
 ```
 
-## 🎛️ Advanced Features
-
-### Data Limits Management
+### Environment-Specific Configs
 
 ```python
-async def manage_data_limits():
-    async with AsyncOutlineClient.create(api_url, cert_sha256) as client:
-        # Set global data limit for all keys
-        await client.set_global_data_limit(100 * 1024 ** 3)  # 100 GB
-        print("Set global 100GB limit")
+from pyoutlineapi import DevelopmentConfig, ProductionConfig
 
-        # Create key with individual limit
-        key = await client.create_access_key(
-            name="VIP User",
-            limit=DataLimit(bytes=200 * 1024 ** 3)  # 200 GB
-        )
+# Development: logging enabled, circuit breaker disabled
+dev_config = DevelopmentConfig.from_env()
 
-        # Update individual limits
-        await client.set_access_key_data_limit(key.id, 150 * 1024 ** 3)
-        print("Updated VIP user to 150GB")
+# Production: strict security, circuit breaker enabled
+prod_config = ProductionConfig.from_env()  # Enforces HTTPS
 
-        # Remove limits
-        await client.remove_access_key_data_limit(key.id)
-        await client.remove_global_data_limit()
-        print("Removed all limits")
+async with AsyncOutlineClient(prod_config) as client:
+    await client.get_server_info()
 ```
 
-### Dynamic Configuration
+### Safe Configuration Display
 
 ```python
-async def dynamic_config():
-    async with AsyncOutlineClient.create(api_url, cert_sha256) as client:
-        # Configure logging at runtime
-        client.configure_logging("DEBUG", "%(levelname)s: %(message)s")
+# Get sanitized config (safe for logging)
+safe_config = client.get_sanitized_config()
+print(safe_config)
+# Output:
+# {
+#     'api_url': 'https://server.com:12345/***',
+#     'cert_sha256': '***MASKED***',
+#     'timeout': 30,
+#     ...
+# }
 
-        # Reconfigure circuit breaker
-        client.configure_circuit_breaker(
-            failure_threshold=5,
-            recovery_timeout=60.0,
-            failure_rate_threshold=0.3
-        )
+# Never do this (exposes secrets):
+print(client.config)  # ❌ Unsafe!
 
-        # Test the updated configuration
-        server = await client.get_server_info()
-        print(f"Server accessible: {server.name}")
+# Always use sanitized version:
+print(client.get_sanitized_config())  # ✅ Safe
 ```
 
-### JSON Response Format
+## 🚨 Error Handling
+
+### Exception Hierarchy
 
 ```python
-async def json_responses():
-    # Configure client to return raw JSON
-    async with AsyncOutlineClient.create(
-            api_url, cert_sha256,
-            json_format=True
-    ) as client:
-        # All responses will be JSON dictionaries
-        server_data = await client.get_server_info()
-        print(f"Server: {server_data['name']}")
+from pyoutlineapi.exceptions import (
+    OutlineError,  # Base exception
+    APIError,  # API request failures
+    CircuitOpenError,  # Circuit breaker open
+    ConfigurationError,  # Invalid configuration
+    ValidationError,  # Data validation errors
+    ConnectionError,  # Connection failures
+    TimeoutError,  # Request timeouts
+)
 
-        keys_data = await client.get_access_keys()
-        for key in keys_data['accessKeys']:
-            print(f"Key: {key['id']}")
+try:
+    async with AsyncOutlineClient.from_env() as client:
+        await client.get_server_info()
+
+except APIError as e:
+    print(f"API error: {e}")
+    print(f"Status: {e.status_code}")
+    print(f"Endpoint: {e.endpoint}")
+
+    if e.is_client_error:
+        print("Client error (4xx) - fix your request")
+    elif e.is_server_error:
+        print("Server error (5xx) - can retry")
+
+    if e.is_retryable:
+        print("This error is retryable")
+
+except CircuitOpenError as e:
+    print(f"Circuit open, retry after {e.retry_after}s")
+
+except ConfigurationError as e:
+    print(f"Configuration error in '{e.field}': {e}")
+    if e.security_issue:
+        print("⚠️  Security issue detected")
+
+except ConnectionError as e:
+    print(f"Connection failed: {e.host}:{e.port}")
+
+except TimeoutError as e:
+    print(f"Request timed out after {e.timeout}s")
+
+except OutlineError as e:
+    print(f"Generic error: {e}")
+    print(f"Details: {e.details}")
 ```
 
-## 🛠️ Error Handling
-
-### Comprehensive Error Handling
+### Retry Logic
 
 ```python
-from pyoutlineapi import APIError, CircuitOpenError, OutlineError
+from pyoutlineapi.exceptions import get_retry_delay
 
-
-async def robust_error_handling():
-    try:
-        async with AsyncOutlineClient.create(
-                api_url, cert_sha256,
-                retry_attempts=3,
-                enable_logging=True
-        ) as client:
-            # Check health first
-            health = await client.health_check()
-            if not health['healthy']:
-                print("⚠️ Server health issues detected")
-                return
-
-            # Perform operations
-            server = await client.get_server_info()
-            print(f"✅ Connected to {server.name}")
-
-    except CircuitOpenError as e:
-        print(f"⚠️ Circuit breaker open, retry after {e.retry_after}s")
-    except APIError as e:
-        if e.status_code == 404:
-            print("❌ Server endpoint not found")
-        elif e.status_code == 401:
-            print("❌ Authentication failed - check certificate")
-        else:
-            print(f"❌ API Error {e.status_code}: {e}")
-    except OutlineError as e:
-        print(f"❌ Outline client error: {e}")
-    except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+try:
+    await client.get_server_info()
+except Exception as e:
+    delay = get_retry_delay(e)
+    if delay:
+        print(f"Retrying in {delay}s")
+        await asyncio.sleep(delay)
+        # Retry operation
+    else:
+        print("Error is not retryable")
+        raise
 ```
 
 ## 🎯 Best Practices
@@ -447,303 +600,360 @@ async def robust_error_handling():
 ### 1. Always Use Context Managers
 
 ```python
-# ✅ Recommended - automatic resource management
-async with AsyncOutlineClient.create(api_url, cert) as client:
-    result = await client.get_server_info()
+# ✅ Good - automatic cleanup
+async with AsyncOutlineClient.from_env() as client:
+    await client.get_server_info()
 
-# ❌ Avoid - manual resource management
-client = AsyncOutlineClient(api_url, cert)
-# ... manual session management required
+# ❌ Bad - manual cleanup required
+client = AsyncOutlineClient.from_env()
+await client.__aenter__()
+try:
+    await client.get_server_info()
+finally:
+    await client.__aexit__(None, None, None)
 ```
 
-### 2. Enable Circuit Breaker for Production
+### 2. Environment-Based Configuration
 
 ```python
-# ✅ Production configuration
+# ✅ Good - secure, flexible
+async with AsyncOutlineClient.from_env() as client:
+    pass
+
+# ❌ Bad - hardcoded credentials
 async with AsyncOutlineClient.create(
-        api_url, cert_sha256,
-        circuit_breaker_enabled=True,
-        enable_health_monitoring=True,
-        enable_logging=True,
-        retry_attempts=3
+        api_url="https://server.com:12345/secret123",  # Secret in code!
+        cert_sha256="abc123...",
 ) as client:
-    # Operations with automatic protection
     pass
 ```
 
-### 3. Use Batch Operations for Efficiency
+### 3. Error Handling
 
 ```python
-# ✅ Efficient batch creation
-configs = [{"name": f"User-{i}"} for i in range(10)]
-results = await client.batch_create_access_keys(configs, max_concurrent=3)
+# ✅ Good - specific error handling
+try:
+    key = await client.get_access_key(key_id)
+except APIError as e:
+    if e.status_code == 404:
+        print("Key not found")
+    elif e.is_retryable:
+        # Retry logic
+        pass
+    else:
+        raise
 
-# ❌ Inefficient individual operations
-for i in range(10):
-    await client.create_access_key(name=f"User-{i}")
+# ❌ Bad - catching all exceptions
+try:
+    key = await client.get_access_key(key_id)
+except Exception:
+    pass  # Silently fails
 ```
 
-### 4. Monitor Performance
+### 4. Resource Limits
 
 ```python
-# Regular health and performance monitoring
-health = await client.health_check(include_detailed_metrics=True)
-if not health['healthy']:
-    print("⚠️ Server issues detected")
+# ✅ Good - configure limits
+config = OutlineClientConfig.from_env()
+config.rate_limit = 50  # Reasonable limit
+config.max_connections = 10  # Control pool size
 
-metrics = client.get_performance_metrics()
-if metrics['failure_rate'] > 0.1:  # 10% failure rate
-    print("⚠️ High failure rate detected")
+# ❌ Bad - no limits
+config.rate_limit = 1000  # Too high
+config.max_connections = 100  # Excessive
 ```
 
-### 5. Handle Data Limits Properly
+### 5. Logging
 
 ```python
-from pyoutlineapi.models import DataLimit
+# ✅ Good - use sanitized logging
+import logging
 
-# ✅ Correct GB to bytes conversion
-data_limit_gb = 5
-limit = DataLimit(bytes=data_limit_gb * 1024 ** 3)  # Use 1024^3 for GB
+logger = logging.getLogger(__name__)
 
-await client.create_access_key(name="User", limit=limit)
+safe_config = client.get_sanitized_config()
+logger.info(f"Connected: {safe_config}")
+
+# ❌ Bad - exposes secrets
+logger.info(f"Config: {client.config}")  # Leaks secrets!
 ```
 
-## 📚 API Reference
+## 🔧 Performance Tips
 
-### Client Initialization
+### 1. Lazy Loading
 
 ```python
-AsyncOutlineClient(
-    api_url: str,  # Outline server API URL
-cert_sha256: str,  # Certificate fingerprint
-json_format: bool = False,  # Return JSON vs Pydantic models
-timeout: int = 30,  # Request timeout (seconds)
-retry_attempts: int = 3,  # Number of retry attempts
-enable_logging: bool = False,  # Enable debug logging
-user_agent: str = "PyOutlineAPI/0.4.0",  # Custom user agent
-max_connections: int = 10,  # Connection pool size
-rate_limit_delay: float = 0.0,  # Delay between requests
-circuit_breaker_enabled: bool = True,  # Enable circuit breaker
-circuit_config: CircuitConfig = None,  # Circuit breaker config
-enable_health_monitoring: bool = True,  # Health monitoring
-enable_metrics_collection: bool = True  # Performance metrics
+# Core client - fast import
+from pyoutlineapi import AsyncOutlineClient
+
+# Addons - import only when needed
+from pyoutlineapi.health_monitoring import HealthMonitor  # +~5ms
+from pyoutlineapi.batch_operations import BatchOperations  # +~3ms
+from pyoutlineapi.metrics_collector import MetricsCollector  # +~4ms
+```
+
+### 2. Connection Pooling
+
+```python
+# Reuse client instance
+async with AsyncOutlineClient.from_env() as client:
+    # Connection pool reused for all requests
+    await client.get_server_info()
+    await client.get_access_keys()
+    await client.get_transfer_metrics()
+```
+
+### 3. Batch Operations
+
+```python
+# ✅ Good - batch operations
+batch = BatchOperations(client, max_concurrent=10)
+result = await batch.create_multiple_keys(configs)
+
+# ❌ Bad - sequential operations
+for config in configs:
+    await client.create_access_key(**config)  # Slow!
+```
+
+### 4. Rate Limiting
+
+```python
+# Configure based on your needs
+config = OutlineClientConfig(
+    api_url="...",
+    cert_sha256="...",
+    rate_limit=100,  # 100 concurrent requests
+    max_connections=20,  # 20 connection pool size
 )
 ```
 
-### Server Management
+## 🐳 Docker Example
 
-| Method                              | Description               | Returns              |
-|-------------------------------------|---------------------------|----------------------|
-| `get_server_info()`                 | Get server information    | `Server \| JsonDict` |
-| `rename_server(name)`               | Rename the server         | `bool`               |
-| `set_hostname(hostname)`            | Set hostname for keys     | `bool`               |
-| `set_default_port(port)`            | Set default port          | `bool`               |
-| `get_server_summary(metrics_since)` | Comprehensive server info | `dict`               |
+```dockerfile
+FROM python:3.12-slim
 
-### Access Key Management
+WORKDIR /app
 
-| Method                                    | Description                 | Returns                     |
-|-------------------------------------------|-----------------------------|-----------------------------|
-| `create_access_key(**kwargs)`             | Create new access key       | `AccessKey \| JsonDict`     |
-| `create_access_key_with_id(id, **kwargs)` | Create key with specific ID | `AccessKey \| JsonDict`     |
-| `get_access_keys()`                       | List all access keys        | `AccessKeyList \| JsonDict` |
-| `get_access_key(key_id)`                  | Get specific access key     | `AccessKey \| JsonDict`     |
-| `rename_access_key(key_id, name)`         | Rename access key           | `bool`                      |
-| `delete_access_key(key_id)`               | Delete access key           | `bool`                      |
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-### Batch Operations
+# Copy application
+COPY . .
 
-| Method                                       | Description             | Returns                        |
-|----------------------------------------------|-------------------------|--------------------------------|
-| `batch_create_access_keys(configs, ...)`     | Create multiple keys    | `list[AccessKey \| Exception]` |
-| `batch_delete_access_keys(key_ids, ...)`     | Delete multiple keys    | `list[bool \| Exception]`      |
-| `batch_rename_access_keys(pairs, ...)`       | Rename multiple keys    | `list[bool \| Exception]`      |
-| `batch_operations_with_resilience(ops, ...)` | Custom batch operations | `list[Any \| Exception]`       |
+# Environment variables
+ENV OUTLINE_API_URL=""
+ENV OUTLINE_CERT_SHA256=""
+ENV OUTLINE_ENABLE_LOGGING="true"
 
-### Data Limits
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import asyncio; from app import health_check; asyncio.run(health_check())"
 
-| Method                                     | Description              | Returns |
-|--------------------------------------------|--------------------------|---------|
-| `set_access_key_data_limit(key_id, bytes)` | Set key data limit       | `bool`  |
-| `remove_access_key_data_limit(key_id)`     | Remove key data limit    | `bool`  |
-| `set_global_data_limit(bytes)`             | Set global data limit    | `bool`  |
-| `remove_global_data_limit()`               | Remove global data limit | `bool`  |
-
-### Metrics & Monitoring
-
-| Method                            | Description            | Returns                             |
-|-----------------------------------|------------------------|-------------------------------------|
-| `get_metrics_status()`            | Check metrics status   | `MetricsStatusResponse \| JsonDict` |
-| `set_metrics_status(enabled)`     | Enable/disable metrics | `bool`                              |
-| `get_transfer_metrics()`          | Get transfer metrics   | `ServerMetrics \| JsonDict`         |
-| `get_experimental_metrics(since)` | Get detailed metrics   | `ExperimentalMetrics \| JsonDict`   |
-
-### Health & Circuit Breaker
-
-| Method                                   | Description                    | Returns               |
-|------------------------------------------|--------------------------------|-----------------------|
-| `health_check(include_detailed_metrics)` | Comprehensive health check     | `dict`                |
-| `get_performance_metrics()`              | Get performance metrics        | `dict`                |
-| `get_circuit_breaker_status()`           | Circuit breaker status         | `dict`                |
-| `reset_circuit_breaker()`                | Reset circuit breaker          | `bool`                |
-| `force_circuit_open()`                   | Force circuit open             | `bool`                |
-| `circuit_protected_operation()`          | Context manager for protection | `AsyncContextManager` |
-
-### Configuration
-
-| Method                                 | Description                   | Returns                 |
-|----------------------------------------|-------------------------------|-------------------------|
-| `configure_logging(level, format)`     | Configure logging             | `None`                  |
-| `configure_circuit_breaker(**kwargs)`  | Update circuit breaker config | `None`                  |
-| `parse_response(data, model, as_json)` | Parse API response            | `BaseModel \| JsonDict` |
-
-### Properties
-
-| Property                  | Description              | Type                            |
-|---------------------------|--------------------------|---------------------------------|
-| `circuit_breaker_enabled` | Circuit breaker status   | `bool`                          |
-| `circuit_state`           | Current circuit state    | `str \| None`                   |
-| `is_healthy`              | Last health check result | `bool`                          |
-| `api_url`                 | API URL (sanitized)      | `str`                           |
-| `session`                 | Current HTTP session     | `aiohttp.ClientSession \| None` |
-
-## 🔧 Real-World Examples
-
-### VPN User Management System
-
-```python
-class VPNUserManager:
-    """Production-ready VPN user management."""
-
-    def __init__(self, api_url: str, cert_sha256: str):
-        self.api_url = api_url
-        self.cert_sha256 = cert_sha256
-
-    async def create_user(self, username: str, data_limit_gb: int = 10):
-        async with AsyncOutlineClient.create(self.api_url, self.cert_sha256) as client:
-            key = await client.create_access_key(
-                name=username,
-                limit=DataLimit(bytes=data_limit_gb * 1024 ** 3)
-            )
-            return {
-                "user_id": key.id,
-                "username": username,
-                "access_url": key.access_url,
-                "data_limit_gb": data_limit_gb
-            }
-
-    async def get_user_usage(self, user_id: str) -> float:
-        async with AsyncOutlineClient.create(self.api_url, self.cert_sha256) as client:
-            metrics = await client.get_transfer_metrics()
-            usage_bytes = metrics.bytes_transferred_by_user_id.get(user_id, 0)
-            return usage_bytes / (1024 ** 3)  # Convert to GB
-
-    async def bulk_create_users(self, usernames: list[str], data_limit_gb: int = 10):
-        async with AsyncOutlineClient.create(self.api_url, self.cert_sha256) as client:
-            configs = [
-                {"name": username, "limit": DataLimit(bytes=data_limit_gb * 1024 ** 3)}
-                for username in usernames
-            ]
-            return await client.batch_create_access_keys(configs, fail_fast=False)
-
-
-# Usage
-manager = VPNUserManager(api_url, cert_sha256)
-user = await manager.create_user("alice@company.com", 25)
-usage = await manager.get_user_usage(user["user_id"])
+CMD ["python", "app.py"]
 ```
 
-### Monitoring Dashboard
+## 📖 Complete Example
 
 ```python
-async def collect_dashboard_data():
-    """Collect comprehensive monitoring data."""
-    async with AsyncOutlineClient.create(
-            api_url, cert_sha256,
-            enable_health_monitoring=True,
-            enable_metrics_collection=True
-    ) as client:
-        dashboard = {}
+"""
+Complete Outline VPN management application.
 
-        # Server status and info
-        try:
+Features:
+- Health monitoring
+- Batch operations
+- Metrics collection
+- Error handling
+- Graceful shutdown
+"""
+import asyncio
+import logging
+from pyoutlineapi import AsyncOutlineClient
+from pyoutlineapi.health_monitoring import HealthMonitor
+from pyoutlineapi.batch_operations import BatchOperations
+from pyoutlineapi.metrics_collector import MetricsCollector
+from pyoutlineapi.exceptions import OutlineError
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+async def main():
+    """Main application entry point."""
+    try:
+        async with AsyncOutlineClient.from_env() as client:
+            # Health check
+            monitor = HealthMonitor(client)
+            health = await monitor.comprehensive_check()
+
+            if not health.healthy:
+                logger.error("❌ Service unhealthy!")
+                for check in health.failed_checks:
+                    logger.error(f"  {check}: {health.checks[check]}")
+                return 1
+
+            logger.info("✅ Service healthy")
+
+            # Get server info
             server = await client.get_server_info()
-            dashboard['server'] = {
-                'name': server.name,
-                'version': server.version,
-                'status': 'online',
-                'uptime': time.time() - (server.created_timestamp_ms / 1000)
-            }
-        except Exception as e:
-            dashboard['server'] = {'status': 'offline', 'error': str(e)}
+            logger.info(f"📡 Connected to: {server.name}")
+            logger.info(f"   ID: {server.server_id}")
+            logger.info(f"   Port: {server.port_for_new_access_keys}")
 
-        # Health metrics
-        health = await client.health_check(include_detailed_metrics=True)
-        dashboard['health'] = health
+            # Create access keys in batch
+            batch = BatchOperations(client, max_concurrent=5)
+            configs = [
+                {"name": f"User{i}"}
+                for i in range(1, 11)
+            ]
 
-        # User statistics
-        keys = await client.get_access_keys()
-        dashboard['users'] = {
-            'total': len(keys.access_keys),
-            'active': len([k for k in keys.access_keys if k.name])
-        }
+            logger.info("🔑 Creating access keys...")
+            result = await batch.create_multiple_keys(configs)
+            logger.info(f"   Created: {result.successful}/{result.total}")
 
-        # Usage metrics
-        try:
-            metrics = await client.get_transfer_metrics()
-            total_usage = sum(metrics.bytes_transferred_by_user_id.values())
-            dashboard['usage'] = {
-                'total_gb': total_usage / (1024 ** 3),
-                'by_user': {
-                    uid: bytes_used / (1024 ** 3)
-                    for uid, bytes_used in metrics.bytes_transferred_by_user_id.items()
-                }
-            }
-        except Exception:
-            dashboard['usage'] = {'total_gb': 0, 'by_user': {}}
+            if result.has_errors:
+                logger.warning(f"   Errors: {result.failed}")
+                for error in result.get_failures()[:3]:
+                    logger.error(f"      {error}")
 
-        # Performance metrics
-        dashboard['performance'] = client.get_performance_metrics()
+            # List all keys
+            keys = await client.get_access_keys()
+            logger.info(f"📋 Total keys: {keys.count}")
 
-        return dashboard
+            for key in keys.access_keys[:5]:
+                logger.info(f"   • {key.name or key.id}")
+
+            # Get metrics
+            if server.metrics_enabled:
+                metrics = await client.get_transfer_metrics()
+                total_gb = metrics.total_bytes / 1024 ** 3
+                logger.info(f"📊 Total transferred: {total_gb:.2f} GB")
+
+            return 0
+
+    except OutlineError as e:
+        logger.error(f"❌ Outline error: {e}")
+        return 1
+    except Exception as e:
+        logger.error(f"❌ Unexpected error: {e}")
+        return 1
+
+
+if __name__ == "__main__":
+    exit_code = asyncio.run(main())
+    exit(exit_code)
 ```
 
-## 🔗 Links & Resources
+## 🧪 Testing
 
-- 📖 **[Documentation](https://orenlab.github.io/pyoutlineapi/)** - Comprehensive API documentation
-- 🐛 **[Issue Tracker](https://github.com/orenlab/pyoutlineapi/issues)** - Bug reports and feature requests
-- 💬 **[Discussions](https://github.com/orenlab/pyoutlineapi/discussions)** - Community discussions and support
-- 📋 **[Changelog](CHANGELOG.md)** - Version history and changes
-- 🔒 **[Security Policy](SECURITY.md)** - Security reporting and policies
+### Install Development Dependencies
 
-## 📄 License
+```bash
+# Clone repository
+git clone https://github.com/orenlab/pyoutlineapi.git
+cd pyoutlineapi
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+# Install with dev dependencies
+pip install -e ".[dev]"
+```
 
-## 🙏 Acknowledgments
+### Run Tests
 
-- The **Jigsaw team** for creating Outline VPN
-- **Contributors** who have helped improve this project
-- The **Python async/typing community** for inspiration and best practices
+```bash
+# Run all tests
+pytest
+
+# With coverage
+pytest --cov=pyoutlineapi --cov-report=html
+
+# Type checking
+mypy pyoutlineapi
+
+# Linting
+ruff check pyoutlineapi
+
+# Format code
+ruff format .
+```
+
+### Mock Client for Testing
+
+```python
+from unittest.mock import AsyncMock, Mock
+from pyoutlineapi import AsyncOutlineClient
+from pyoutlineapi.models import Server
+
+# Create mock client
+mock_client = AsyncMock(spec=AsyncOutlineClient)
+
+# Mock server response
+mock_client.get_server_info.return_value = Server(
+    name="Test Server",
+    server_id="test-123",
+    metrics_enabled=True,
+    created_timestamp_ms=1234567890,
+    port_for_new_access_keys=8388,
+)
+
+
+# Use in tests
+async def test_get_server():
+    server = await mock_client.get_server_info()
+    assert server.name == "Test Server"
+```
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
+Contributions are welcome! Here's how to contribute: [CONTRIBUTING.md](CONTRIBUTING.md)
 
-- Setting up the development environment
-- Running tests and code quality checks
-- Submitting pull requests
-- Reporting issues
+## 📄 License
 
-## 🆘 Support
+MIT License - see [LICENSE](LICENSE) file for details.
 
-If you encounter any issues or need help:
+Copyright (c) 2025 Denis Rozhnovskiy
 
-1. Check the [documentation](https://orenlab.github.io/pyoutlineapi/)
-2. Search existing [issues](https://github.com/orenlab/pyoutlineapi/issues)
-3. Create a new issue with detailed information
-4. Join our [discussions](https://github.com/orenlab/pyoutlineapi/discussions) for community support
+## 🔗 Links
+
+- **Documentation**: [GitHub Wiki](https://github.com/orenlab/pyoutlineapi/wiki)
+- **Issue Tracker**: [GitHub Issues](https://github.com/orenlab/pyoutlineapi/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/orenlab/pyoutlineapi/discussions)
+- **Changelog**: [CHANGELOG.md](CHANGELOG.md)
+- **Outline VPN**: [getoutline.org](https://getoutline.org/)
+- **API Schema**: [outline-server/api.yml](https://github.com/Jigsaw-Code/outline-server/blob/master/src/shadowbox/server/api.yml)
+
+## 💬 Support
+
+Need help? Here's how to get support:
+
+- 📧 **Email**: pytelemonbot@mail.ru
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/orenlab/pyoutlineapi/issues)
+- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/orenlab/pyoutlineapi/discussions)
+- 📖 **Documentation**: [GitHub Wiki](https://github.com/orenlab/pyoutlineapi/wiki)
+
+## ⭐ Show Your Support
+
+If you find PyOutlineAPI useful, please consider:
+
+- ⭐ **Starring** the repository
+- 🐦 **Sharing** on social media
+- 📝 **Writing** a blog post about your experience
+- 🤝 **Contributing** code or documentation
+
+## 🙏 Acknowledgments
+
+- [Outline VPN](https://getoutline.org/) - The excellent VPN service
+- [Jigsaw](https://jigsaw.google.com/) - Creators of Outline
+- All [contributors](https://github.com/orenlab/pyoutlineapi/graphs/contributors) who helped improve this library
+
+## 📈 Stats
+
+![GitHub stars](https://img.shields.io/github/stars/orenlab/pyoutlineapi?style=social)
+![GitHub forks](https://img.shields.io/github/forks/orenlab/pyoutlineapi?style=social)
+![GitHub issues](https://img.shields.io/github/issues/orenlab/pyoutlineapi)
+![GitHub pull requests](https://img.shields.io/github/issues-pr/orenlab/pyoutlineapi)
 
 ---
 
-**Made with ❤️ by the PyOutlineAPI team**
+**Made with ❤️ by [Denis Rozhnovskiy](https://github.com/orenlab)**
+
+*PyOutlineAPI - Production-ready Python client for Outline VPN Server*
