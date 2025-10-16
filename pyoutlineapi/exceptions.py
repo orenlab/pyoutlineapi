@@ -1,96 +1,83 @@
-"""
-PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+"""PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
 
 Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
 All rights reserved.
 
 This software is licensed under the MIT License.
-Full license text: https://opensource.org/licenses/MIT
-Source repository: https://github.com/orenlab/pyoutlineapi
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
 
-Module: Modern exception hierarchy with enhanced error handling.
-
-Provides a comprehensive exception hierarchy with rich error information
-and retry guidance.
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
 """
 
 from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from .common_types import Constants
+
 
 class OutlineError(Exception):
-    """
-    Base exception for all PyOutlineAPI errors.
+    """Base exception for all PyOutlineAPI errors.
 
-    Provides common interface for error handling with optional details
-    and retry configuration.
-
-    Attributes:
-        details: Dictionary with additional error context
-        is_retryable: Whether the error is retryable (class-level)
-        default_retry_delay: Suggested retry delay in seconds (class-level)
-
-    Example:
-        >>> try:
-        ...     await client.get_server_info()
-        ... except OutlineError as e:
-        ...     print(f"Error: {e}")
-        ...     if hasattr(e, 'is_retryable') and e.is_retryable:
-        ...         print(f"Can retry after {e.default_retry_delay}s")
+    Features:
+    - Rich error context
+    - Retry guidance
+    - Safe serialization (no secrets)
     """
 
-    # Class-level retry configuration
     is_retryable: ClassVar[bool] = False
     default_retry_delay: ClassVar[float] = 1.0
 
-    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
-        """
-        Initialize base exception.
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+        safe_details: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize exception.
 
         Args:
             message: Error message
-            details: Additional error context
+            details: Internal details (may contain sensitive data)
+            safe_details: Safe details for logging/display
         """
         super().__init__(message)
-        self.details = details or {}
+        self._details = details or {}
+        self._safe_details = safe_details or {}
+
+    @property
+    def details(self) -> dict[str, Any]:
+        """Get internal details (use with caution)."""
+        return self._details
+
+    @property
+    def safe_details(self) -> dict[str, Any]:
+        """Get safe details (for logging/display)."""
+        return self._safe_details
 
     def __str__(self) -> str:
-        """String representation with details if available."""
-        if not self.details:
+        """Safe string representation using safe_details."""
+        if not self._safe_details:
             return super().__str__()
-        details_str = ", ".join(f"{k}={v}" for k, v in self.details.items())
+        details_str = ", ".join(f"{k}={v}" for k, v in self._safe_details.items())
         return f"{super().__str__()} ({details_str})"
+
+    def __repr__(self) -> str:
+        """Safe repr without sensitive data."""
+        class_name = self.__class__.__name__
+        message = super().__str__()
+        return f"{class_name}({message!r})"
 
 
 class APIError(OutlineError):
+    """API request failure.
+
+    Automatically determines retry eligibility based on HTTP status.
+    Uses Constants.RETRY_STATUS_CODES for consistency.
     """
-    Raised when API requests fail.
-
-    Automatically determines if the error is retryable based on HTTP status code.
-
-    Attributes:
-        status_code: HTTP status code (e.g., 404, 500)
-        endpoint: API endpoint that failed
-        response_data: Raw response data (if available)
-
-    Example:
-        >>> try:
-        ...     await client.get_access_key("invalid-id")
-        ... except APIError as e:
-        ...     print(f"API error: {e}")
-        ...     print(f"Status: {e.status_code}")
-        ...     print(f"Endpoint: {e.endpoint}")
-        ...     if e.is_client_error:
-        ...         print("Client error (4xx)")
-        ...     if e.is_retryable:
-        ...         print("Can retry this request")
-    """
-
-    # Retryable for specific status codes
-    RETRYABLE_CODES: ClassVar[frozenset[int]] = frozenset(
-        {408, 429, 500, 502, 503, 504}
-    )
 
     def __init__(
         self,
@@ -100,122 +87,56 @@ class APIError(OutlineError):
         endpoint: str | None = None,
         response_data: dict[str, Any] | None = None,
     ) -> None:
-        """
-        Initialize API error.
+        # Sanitize endpoint for safe display
+        from .common_types import Validators
 
-        Args:
-            message: Error message
-            status_code: HTTP status code
-            endpoint: API endpoint that failed
-            response_data: Raw response data
-        """
-        details = {}
+        safe_endpoint = (
+            Validators.sanitize_endpoint_for_logging(endpoint) if endpoint else None
+        )
+
+        safe_details = {}
         if status_code is not None:
-            details["status_code"] = status_code
-        if endpoint is not None:
-            details["endpoint"] = endpoint
+            safe_details["status_code"] = status_code
+        if safe_endpoint is not None:
+            safe_details["endpoint"] = safe_endpoint
 
-        super().__init__(message, details=details)
+        details = {"status_code": status_code, "endpoint": endpoint}
+
+        super().__init__(message, details=details, safe_details=safe_details)
         self.status_code = status_code
         self.endpoint = endpoint
         self.response_data = response_data
 
-        # Set retryable based on status code
+        # Use centralized retry codes from Constants
         self.is_retryable = (
-            status_code in self.RETRYABLE_CODES if status_code else False
+            status_code in Constants.RETRY_STATUS_CODES if status_code else False
         )
 
     @property
     def is_client_error(self) -> bool:
-        """
-        Check if this is a client error (4xx).
-
-        Returns:
-            bool: True if status code is 400-499
-
-        Example:
-            >>> try:
-            ...     await client.get_access_key("invalid")
-            ... except APIError as e:
-            ...     if e.is_client_error:
-            ...         print("Fix the request")
-        """
+        """Check if this is a client error (4xx)."""
         return self.status_code is not None and 400 <= self.status_code < 500
 
     @property
     def is_server_error(self) -> bool:
-        """
-        Check if this is a server error (5xx).
-
-        Returns:
-            bool: True if status code is 500-599
-
-        Example:
-            >>> try:
-            ...     await client.get_server_info()
-            ... except APIError as e:
-            ...     if e.is_server_error:
-            ...         print("Server issue, can retry")
-        """
+        """Check if this is a server error (5xx)."""
         return self.status_code is not None and 500 <= self.status_code < 600
 
 
 class CircuitOpenError(OutlineError):
-    """
-    Raised when circuit breaker is open.
-
-    Indicates the service is experiencing issues and requests
-    are temporarily blocked to prevent cascading failures.
-
-    Attributes:
-        retry_after: Seconds to wait before retrying
-
-    Example:
-        >>> try:
-        ...     await client.get_server_info()
-        ... except CircuitOpenError as e:
-        ...     print(f"Circuit is open")
-        ...     print(f"Retry after {e.retry_after} seconds")
-        ...     await asyncio.sleep(e.retry_after)
-        ...     # Try again
-    """
+    """Circuit breaker is open."""
 
     is_retryable: ClassVar[bool] = True
 
     def __init__(self, message: str, *, retry_after: float = 60.0) -> None:
-        """
-        Initialize circuit open error.
-
-        Args:
-            message: Error message
-            retry_after: Seconds to wait before retrying (default: 60.0)
-        """
-        super().__init__(message, details={"retry_after": retry_after})
+        safe_details = {"retry_after": retry_after}
+        super().__init__(message, safe_details=safe_details)
         self.retry_after = retry_after
         self.default_retry_delay = retry_after
 
 
 class ConfigurationError(OutlineError):
-    """
-    Configuration validation error.
-
-    Raised when configuration is invalid or missing required fields.
-
-    Attributes:
-        field: Configuration field that caused error
-        security_issue: Whether this is a security concern
-
-    Example:
-        >>> try:
-        ...     config = OutlineClientConfig(
-        ...         api_url="invalid",
-        ...         cert_sha256=SecretStr("short"),
-        ...     )
-        ... except ConfigurationError as e:
-        ...     print(f"Config error in field: {e.field}")
-        ...     if e.security_issue:
-        ...         print("⚠️ Security issue detected")
-    """
+    """Configuration validation error."""
 
     def __init__(
         self,
@@ -224,44 +145,19 @@ class ConfigurationError(OutlineError):
         field: str | None = None,
         security_issue: bool = False,
     ) -> None:
-        """
-        Initialize configuration error.
-
-        Args:
-            message: Error message
-            field: Configuration field name
-            security_issue: Whether this is a security concern
-        """
-        details = {}
+        safe_details: dict[str, Any] = {}
         if field:
-            details["field"] = field
+            safe_details["field"] = field
         if security_issue:
-            details["security_issue"] = True
+            safe_details["security_issue"] = True
 
-        super().__init__(message, details=details)
+        super().__init__(message, safe_details=safe_details)
         self.field = field
         self.security_issue = security_issue
 
 
 class ValidationError(OutlineError):
-    """
-    Data validation error.
-
-    Raised when API response or request data fails validation.
-
-    Attributes:
-        field: Field that failed validation
-        model: Model name
-
-    Example:
-        >>> try:
-        ...     # Invalid port number
-        ...     await client.set_default_port(80)
-        ... except ValidationError as e:
-        ...     print(f"Validation error: {e}")
-        ...     print(f"Field: {e.field}")
-        ...     print(f"Model: {e.model}")
-    """
+    """Data validation error."""
 
     def __init__(
         self,
@@ -270,46 +166,19 @@ class ValidationError(OutlineError):
         field: str | None = None,
         model: str | None = None,
     ) -> None:
-        """
-        Initialize validation error.
-
-        Args:
-            message: Error message
-            field: Field name
-            model: Model name
-        """
-        details = {}
+        safe_details: dict[str, Any] = {}
         if field:
-            details["field"] = field
+            safe_details["field"] = field
         if model:
-            details["model"] = model
+            safe_details["model"] = model
 
-        super().__init__(message, details=details)
+        super().__init__(message, safe_details=safe_details)
         self.field = field
         self.model = model
 
 
 class ConnectionError(OutlineError):
-    """
-    Connection failure error.
-
-    Raised when unable to establish connection to the server.
-    This includes connection refused, connection reset, DNS failures, etc.
-
-    Attributes:
-        host: Target hostname
-        port: Target port
-
-    Example:
-        >>> try:
-        ...     async with AsyncOutlineClient.from_env() as client:
-        ...         await client.get_server_info()
-        ... except ConnectionError as e:
-        ...     print(f"Cannot connect to {e.host}:{e.port if e.port else 'unknown'}")
-        ...     print(f"Error: {e}")
-        ...     if e.is_retryable:
-        ...         print("Will retry automatically")
-    """
+    """Connection failure."""
 
     is_retryable: ClassVar[bool] = True
     default_retry_delay: ClassVar[float] = 2.0
@@ -321,48 +190,19 @@ class ConnectionError(OutlineError):
         host: str | None = None,
         port: int | None = None,
     ) -> None:
-        """
-        Initialize connection error.
-
-        Args:
-            message: Error message
-            host: Target hostname
-            port: Target port
-        """
-        details = {}
+        safe_details: dict[str, Any] = {}
         if host:
-            details["host"] = host
+            safe_details["host"] = host
         if port:
-            details["port"] = port
+            safe_details["port"] = port
 
-        super().__init__(message, details=details)
+        super().__init__(message, safe_details=safe_details)
         self.host = host
         self.port = port
 
 
 class TimeoutError(OutlineError):
-    """
-    Operation timeout error.
-
-    Raised when an operation exceeds the configured timeout.
-    This can be either a connection timeout or a request timeout.
-
-    Attributes:
-        timeout: Timeout value that was exceeded (seconds)
-        operation: Operation that timed out
-
-    Example:
-        >>> try:
-        ...     # With 5 second timeout
-        ...     config = OutlineClientConfig.from_env()
-        ...     config.timeout = 5
-        ...     async with AsyncOutlineClient(config) as client:
-        ...         await client.get_server_info()
-        ... except TimeoutError as e:
-        ...     print(f"Operation '{e.operation}' timed out after {e.timeout}s")
-        ...     if e.is_retryable:
-        ...         print("Can retry with longer timeout")
-    """
+    """Operation timeout."""
 
     is_retryable: ClassVar[bool] = True
     default_retry_delay: ClassVar[float] = 2.0
@@ -374,91 +214,63 @@ class TimeoutError(OutlineError):
         timeout: float | None = None,
         operation: str | None = None,
     ) -> None:
-        """
-        Initialize timeout error.
-
-        Args:
-            message: Error message
-            timeout: Timeout value in seconds
-            operation: Operation that timed out
-        """
-        details = {}
+        safe_details: dict[str, Any] = {}
         if timeout is not None:
-            details["timeout"] = timeout
+            safe_details["timeout"] = timeout
         if operation:
-            details["operation"] = operation
+            safe_details["operation"] = operation
 
-        super().__init__(message, details=details)
+        super().__init__(message, safe_details=safe_details)
         self.timeout = timeout
         self.operation = operation
 
 
-# Utility functions
+# ===== Utility Functions =====
 
 
 def get_retry_delay(error: Exception) -> float | None:
-    """
-    Get suggested retry delay for an error.
-
-    Args:
-        error: Exception to check
-
-    Returns:
-        float | None: Delay in seconds, or None if not retryable
-
-    Example:
-        >>> try:
-        ...     await client.get_server_info()
-        ... except Exception as e:
-        ...     delay = get_retry_delay(e)
-        ...     if delay:
-        ...         print(f"Retrying in {delay}s")
-        ...         await asyncio.sleep(delay)
-        ...         # Retry operation
-        ...     else:
-        ...         print("Error is not retryable")
-    """
+    """Get suggested retry delay for an error."""
     if not isinstance(error, OutlineError):
         return None
-
     if not error.is_retryable:
         return None
-
     return getattr(error, "default_retry_delay", 1.0)
 
 
 def is_retryable(error: Exception) -> bool:
-    """
-    Check if error is retryable.
-
-    Args:
-        error: Exception to check
-
-    Returns:
-        bool: True if error can be retried
-
-    Example:
-        >>> try:
-        ...     await client.get_server_info()
-        ... except Exception as e:
-        ...     if is_retryable(e):
-        ...         print("Can retry")
-        ...     else:
-        ...         print("Cannot retry")
-    """
+    """Check if error is retryable."""
     if isinstance(error, OutlineError):
         return error.is_retryable
     return False
 
 
+def get_safe_error_dict(error: Exception) -> dict[str, Any]:
+    """Get safe error dictionary for logging/monitoring.
+
+    Returns only safe information, no sensitive data.
+    """
+    result: dict[str, Any] = {
+        "type": type(error).__name__,
+        "message": str(error),
+    }
+
+    if isinstance(error, OutlineError):
+        result["retryable"] = error.is_retryable
+        result["retry_delay"] = error.default_retry_delay
+        result["safe_details"] = error.safe_details
+
+    return result
+
+
 __all__ = [
-    "OutlineError",
     "APIError",
     "CircuitOpenError",
     "ConfigurationError",
-    "ValidationError",
     "ConnectionError",
+    "OutlineError",
     "TimeoutError",
+    "ValidationError",
     "get_retry_delay",
+    "get_safe_error_dict",
     "is_retryable",
 ]

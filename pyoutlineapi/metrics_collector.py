@@ -1,38 +1,28 @@
-"""
-PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+"""PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
 
 Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
 All rights reserved.
 
 This software is licensed under the MIT License.
-Full license text: https://opensource.org/licenses/MIT
-Source repository: https://github.com/orenlab/pyoutlineapi
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
 
-Module: Advanced metrics collection (optional addon).
-
-Provides periodic metrics collection, historical data storage,
-and export capabilities for Outline VPN servers.
-
-Usage:
-    >>> from pyoutlineapi import AsyncOutlineClient
-    >>> from pyoutlineapi.metrics_collector import MetricsCollector
-    >>>
-    >>> async with AsyncOutlineClient.from_env() as client:
-    ...     collector = MetricsCollector(client, interval=60)
-    ...     await collector.start()
-    ...     await asyncio.sleep(300)  # Collect for 5 minutes
-    ...     await collector.stop()
-    ...     stats = collector.get_usage_stats()
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import time
-from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+from sortedcontainers import SortedList
+
+from .common_types import Constants
 
 if TYPE_CHECKING:
     from .client import AsyncOutlineClient
@@ -40,20 +30,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(slots=True)  # Python 3.10+
 class MetricsSnapshot:
-    """
-    Snapshot of collected metrics at a point in time.
+    """Metrics snapshot with size validation.
 
-    Contains server information, transfer metrics, and key statistics.
-
-    Attributes:
-        timestamp: Snapshot timestamp (Unix time)
-        server_info: Server information
-        transfer_metrics: Transfer metrics by key
-        experimental_metrics: Experimental server metrics
-        key_count: Number of access keys
-        total_bytes_transferred: Total bytes across all keys
+    SECURITY: Validates total size to prevent memory exhaustion.
     """
 
     timestamp: float
@@ -63,18 +44,24 @@ class MetricsSnapshot:
     key_count: int = 0
     total_bytes_transferred: int = 0
 
+    def __post_init__(self) -> None:
+        """Validate snapshot size."""
+        total_size = (
+            sys.getsizeof(self.server_info)
+            + sys.getsizeof(self.transfer_metrics)
+            + sys.getsizeof(self.experimental_metrics)
+        )
+
+        max_bytes = Constants.MAX_SNAPSHOT_SIZE_MB * 1024 * 1024
+
+        if total_size > max_bytes:
+            raise ValueError(
+                f"Snapshot too large: {total_size / 1024 / 1024:.2f} MB "
+                f"(max {Constants.MAX_SNAPSHOT_SIZE_MB} MB)"
+            )
+
     def to_dict(self) -> dict[str, Any]:
-        """
-        Convert snapshot to dictionary.
-
-        Returns:
-            dict: Snapshot as dictionary
-
-        Example:
-            >>> snapshot = await collector.collect_snapshot()
-            >>> data = snapshot.to_dict()
-            >>> print(f"Keys: {data['keys_count']}")
-        """
+        """Convert snapshot to dictionary."""
         return {
             "timestamp": self.timestamp,
             "server": self.server_info,
@@ -85,22 +72,9 @@ class MetricsSnapshot:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class UsageStats:
-    """
-    Usage statistics for a time period.
-
-    Calculates aggregate statistics from multiple snapshots.
-
-    Attributes:
-        period_start: Period start timestamp
-        period_end: Period end timestamp
-        snapshots_count: Number of snapshots in period
-        total_bytes_transferred: Total bytes in period
-        avg_bytes_per_snapshot: Average bytes per snapshot
-        peak_bytes: Peak bytes in single snapshot
-        active_keys: Set of active key IDs
-    """
+    """Usage statistics for a time period."""
 
     period_start: float
     period_end: float
@@ -112,30 +86,12 @@ class UsageStats:
 
     @property
     def duration(self) -> float:
-        """
-        Get period duration in seconds.
-
-        Returns:
-            float: Duration in seconds
-
-        Example:
-            >>> stats = collector.get_usage_stats()
-            >>> print(f"Period: {stats.duration / 3600:.1f} hours")
-        """
+        """Get period duration in seconds."""
         return self.period_end - self.period_start
 
     @property
     def bytes_per_second(self) -> float:
-        """
-        Calculate average bytes per second.
-
-        Returns:
-            float: Bytes per second
-
-        Example:
-            >>> stats = collector.get_usage_stats()
-            >>> print(f"Avg rate: {stats.bytes_per_second / 1024 / 1024:.2f} MB/s")
-        """
+        """Calculate average bytes per second."""
         if self.duration == 0:
             return 0.0
         return self.total_bytes_transferred / self.duration
@@ -156,35 +112,12 @@ class UsageStats:
 
 
 class MetricsCollector:
-    """
-    Advanced metrics collection for Outline server.
+    """Enhanced metrics collector with memory protection.
 
-    Features:
-    - Periodic metrics collection with configurable interval
-    - Historical data storage with size limits
-    - Usage statistics calculation
-    - Per-key usage tracking
-    - Export to JSON and Prometheus formats
-
-    Example:
-        >>> from pyoutlineapi import AsyncOutlineClient
-        >>> from pyoutlineapi.metrics_collector import MetricsCollector
-        >>>
-        >>> async with AsyncOutlineClient.from_env() as client:
-        ...     # Create collector with 1-minute interval
-        ...     collector = MetricsCollector(client, interval=60)
-        ...
-        ...     # Start collection
-        ...     await collector.start()
-        ...
-        ...     # Let it run for a while
-        ...     await asyncio.sleep(3600)  # 1 hour
-        ...
-        ...     # Stop and get stats
-        ...     await collector.stop()
-        ...     stats = collector.get_usage_stats()
-        ...     print(f"Total bytes: {stats.total_bytes_transferred}")
-        ...     print(f"Avg rate: {stats.bytes_per_second:.2f} B/s")
+    IMPROVEMENTS:
+    - SortedList for efficient time-based queries
+    - Memory exhaustion protection
+    - Size validation
     """
 
     def __init__(
@@ -192,43 +125,24 @@ class MetricsCollector:
         client: AsyncOutlineClient,
         *,
         interval: float = 60.0,
-        max_history: int = 1440,  # 24 hours at 1min interval
+        max_history: int = 1440,
     ) -> None:
-        """
-        Initialize metrics collector.
-
-        Args:
-            client: Outline client instance
-            interval: Collection interval in seconds (default: 60)
-            max_history: Maximum snapshots to keep (default: 1440 = 24h at 1min)
-
-        Example:
-            >>> collector = MetricsCollector(
-            ...     client,
-            ...     interval=30,      # Collect every 30 seconds
-            ...     max_history=2880, # Keep 24 hours (at 30s interval)
-            ... )
-        """
+        """Initialize metrics collector."""
         self._client = client
         self._interval = interval
         self._max_history = max_history
 
-        self._history: deque[MetricsSnapshot] = deque(maxlen=max_history)
+        # Use SortedList for efficient time-based queries
+        self._history: SortedList[MetricsSnapshot] = SortedList(
+            key=lambda s: s.timestamp
+        )
+
         self._running = False
         self._task: asyncio.Task | None = None
         self._start_time = 0.0
 
     async def start(self) -> None:
-        """
-        Start periodic metrics collection.
-
-        Begins background collection task that runs every interval seconds.
-
-        Example:
-            >>> collector = MetricsCollector(client, interval=30)
-            >>> await collector.start()
-            >>> # Metrics are now collected every 30 seconds
-        """
+        """Start periodic metrics collection."""
         if self._running:
             logger.warning("Metrics collector already running")
             return
@@ -240,15 +154,7 @@ class MetricsCollector:
         logger.info(f"Metrics collector started (interval: {self._interval}s)")
 
     async def stop(self) -> None:
-        """
-        Stop metrics collection.
-
-        Stops the background collection task gracefully.
-
-        Example:
-            >>> await collector.stop()
-            >>> print(f"Collected {collector.snapshots_count} snapshots")
-        """
+        """Stop metrics collection."""
         if not self._running:
             return
 
@@ -268,11 +174,15 @@ class MetricsCollector:
         """Background collection loop."""
         while self._running:
             try:
-                # Collect snapshot
                 snapshot = await self.collect_snapshot()
-                self._history.append(snapshot)
 
-                # Wait for next interval
+                # Add to sorted list
+                self._history.add(snapshot)
+
+                # Trim old entries
+                while len(self._history) > self._max_history:
+                    self._history.pop(0)
+
                 await asyncio.sleep(self._interval)
 
             except asyncio.CancelledError:
@@ -282,19 +192,7 @@ class MetricsCollector:
                 await asyncio.sleep(self._interval)
 
     async def collect_snapshot(self) -> MetricsSnapshot:
-        """
-        Collect single metrics snapshot.
-
-        Gathers current server info, key count, and transfer metrics.
-
-        Returns:
-            MetricsSnapshot: Current metrics snapshot
-
-        Example:
-            >>> snapshot = await collector.collect_snapshot()
-            >>> print(f"Keys: {snapshot.key_count}")
-            >>> print(f"Total bytes: {snapshot.total_bytes_transferred}")
-        """
+        """Collect single metrics snapshot with size validation."""
         snapshot = MetricsSnapshot(timestamp=time.time())
 
         try:
@@ -313,17 +211,15 @@ class MetricsCollector:
                     transfer = await self._client.get_transfer_metrics(as_json=True)
                     snapshot.transfer_metrics = transfer
 
-                    # Calculate total bytes
                     bytes_by_user = transfer.get("bytesTransferredByUserId", {})
                     snapshot.total_bytes_transferred = sum(bytes_by_user.values())
             except Exception as e:
                 logger.debug(f"Could not collect transfer metrics: {e}")
 
-            # Experimental metrics (optional)
+            # Experimental metrics
             try:
                 experimental = await self._client.get_experimental_metrics(
-                    "24h",
-                    as_json=True,
+                    "24h", as_json=True
                 )
                 snapshot.experimental_metrics = experimental
             except Exception as e:
@@ -335,63 +231,46 @@ class MetricsCollector:
         return snapshot
 
     def get_latest_snapshot(self) -> MetricsSnapshot | None:
-        """
-        Get most recent snapshot.
-
-        Returns:
-            MetricsSnapshot | None: Latest snapshot or None if no history
-
-        Example:
-            >>> latest = collector.get_latest_snapshot()
-            >>> if latest:
-            ...     print(f"Current keys: {latest.key_count}")
-        """
+        """Get most recent snapshot."""
         if not self._history:
             return None
         return self._history[-1]
 
-    def get_usage_stats(
-        self,
-        period_minutes: int | None = None,
-    ) -> UsageStats:
-        """
-        Calculate usage statistics for a time period.
+    def get_snapshots_after(self, cutoff_time: float) -> list[MetricsSnapshot]:
+        """Get snapshots after cutoff time.
 
-        Args:
-            period_minutes: Period in minutes (None = all history)
-
-        Returns:
-            UsageStats: Calculated usage statistics
-
-        Example:
-            >>> # Last hour stats
-            >>> stats = collector.get_usage_stats(period_minutes=60)
-            >>> print(f"Total bytes: {stats.total_bytes_transferred}")
-            >>> print(f"Avg rate: {stats.bytes_per_second / 1024:.2f} KB/s")
-            >>> print(f"Active keys: {len(stats.active_keys)}")
-            >>>
-            >>> # All-time stats
-            >>> stats = collector.get_usage_stats()
+        Uses binary search for O(log n) lookup.
         """
         if not self._history:
+            return []
+
+        # Find insertion point (binary search)
+        idx = self._history.bisect_left(MetricsSnapshot(timestamp=cutoff_time))
+
+        return list(self._history[idx:])
+
+    def get_usage_stats(self, period_minutes: int | None = None) -> UsageStats:
+        """Calculate usage statistics for a time period."""
+        if not self._history:
+            current_time = time.time()
             return UsageStats(
-                period_start=time.time(),
-                period_end=time.time(),
+                period_start=current_time,
+                period_end=current_time,
                 snapshots_count=0,
                 total_bytes_transferred=0,
                 avg_bytes_per_snapshot=0.0,
                 peak_bytes=0,
             )
 
-        # Filter by period
-        current_time = time.time()
+        # Get snapshots in period
         if period_minutes:
-            cutoff_time = current_time - (period_minutes * 60)
-            snapshots = [s for s in self._history if s.timestamp >= cutoff_time]
+            cutoff_time = time.time() - (period_minutes * 60)
+            snapshots = self.get_snapshots_after(cutoff_time)
         else:
             snapshots = list(self._history)
 
         if not snapshots:
+            current_time = time.time()
             return UsageStats(
                 period_start=current_time,
                 period_end=current_time,
@@ -411,8 +290,7 @@ class MetricsCollector:
         for snapshot in snapshots:
             if snapshot.transfer_metrics:
                 bytes_by_user = snapshot.transfer_metrics.get(
-                    "bytesTransferredByUserId",
-                    {},
+                    "bytesTransferredByUserId", {}
                 )
                 active_keys.update(bytes_by_user.keys())
 
@@ -431,26 +309,11 @@ class MetricsCollector:
         key_id: str,
         period_minutes: int | None = None,
     ) -> dict[str, Any]:
-        """
-        Get usage statistics for specific key.
-
-        Args:
-            key_id: Access key identifier
-            period_minutes: Period in minutes (None = all history)
-
-        Returns:
-            dict: Key usage statistics
-
-        Example:
-            >>> usage = collector.get_key_usage("key1", period_minutes=60)
-            >>> print(f"Total: {usage['total_bytes'] / 1024**2:.2f} MB")
-            >>> print(f"Rate: {usage['bytes_per_second'] / 1024:.2f} KB/s")
-        """
-        # Filter snapshots by period
-        current_time = time.time()
+        """Get usage statistics for specific key."""
+        # Get snapshots
         if period_minutes:
-            cutoff_time = current_time - (period_minutes * 60)
-            snapshots = [s for s in self._history if s.timestamp >= cutoff_time]
+            cutoff_time = time.time() - (period_minutes * 60)
+            snapshots = self.get_snapshots_after(cutoff_time)
         else:
             snapshots = list(self._history)
 
@@ -461,8 +324,7 @@ class MetricsCollector:
         for snapshot in snapshots:
             if snapshot.transfer_metrics:
                 bytes_by_user = snapshot.transfer_metrics.get(
-                    "bytesTransferredByUserId",
-                    {},
+                    "bytesTransferredByUserId", {}
                 )
                 bytes_used = bytes_by_user.get(key_id, 0)
                 total_bytes += bytes_used
@@ -488,18 +350,7 @@ class MetricsCollector:
         }
 
     def export_to_dict(self) -> dict[str, Any]:
-        """
-        Export all collected metrics to dictionary.
-
-        Returns:
-            dict: All metrics and snapshots
-
-        Example:
-            >>> data = collector.export_to_dict()
-            >>> import json
-            >>> with open("metrics.json", "w") as f:
-            ...     json.dump(data, f, indent=2)
-        """
+        """Export all metrics to dictionary."""
         return {
             "collection_start": self._start_time,
             "collection_end": time.time(),
@@ -510,18 +361,7 @@ class MetricsCollector:
         }
 
     def export_prometheus_format(self) -> str:
-        """
-        Export metrics in Prometheus format.
-
-        Returns:
-            str: Prometheus-formatted metrics
-
-        Example:
-            >>> metrics_text = collector.export_prometheus_format()
-            >>> # Save to file for Prometheus scraping
-            >>> with open("/var/metrics/outline.prom", "w") as f:
-            ...     f.write(metrics_text)
-        """
+        """Export metrics in Prometheus format."""
         if not self._history:
             return ""
 
@@ -549,50 +389,27 @@ class MetricsCollector:
         return "\n".join(lines)
 
     def clear_history(self) -> None:
-        """
-        Clear collected metrics history.
-
-        Example:
-            >>> collector.clear_history()
-            >>> print(f"Cleared, now {collector.snapshots_count} snapshots")
-        """
+        """Clear collected metrics history."""
         self._history.clear()
         logger.info("Metrics history cleared")
 
     @property
     def is_running(self) -> bool:
-        """
-        Check if collector is running.
-
-        Returns:
-            bool: True if collection is active
-        """
+        """Check if collector is running."""
         return self._running
 
     @property
     def snapshots_count(self) -> int:
-        """
-        Get number of collected snapshots.
-
-        Returns:
-            int: Number of snapshots in history
-        """
+        """Get number of collected snapshots."""
         return len(self._history)
 
     async def __aenter__(self) -> MetricsCollector:
-        """
-        Context manager entry - start collection.
-
-        Example:
-            >>> async with MetricsCollector(client, interval=60) as collector:
-            ...     await asyncio.sleep(300)  # Collect for 5 minutes
-            ...     stats = collector.get_usage_stats()
-        """
+        """Context manager entry."""
         await self.start()
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Context manager exit - stop collection."""
+        """Context manager exit."""
         await self.stop()
 
 

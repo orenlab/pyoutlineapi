@@ -1,24 +1,21 @@
-"""
-PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+"""PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
 
 Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
 All rights reserved.
 
 This software is licensed under the MIT License.
-Full license text: https://opensource.org/licenses/MIT
-Source repository: https://github.com/orenlab/pyoutlineapi
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
 
-Module: Configuration with pydantic-settings and SecretStr.
-
-Provides flexible configuration loading from environment variables,
-.env files, or direct parameters with security-first design.
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -30,36 +27,14 @@ from .exceptions import ConfigurationError
 logger = logging.getLogger(__name__)
 
 
-# ===== Configuration Models =====
-
-
 class OutlineClientConfig(BaseSettings):
-    """
-    Main configuration with environment variable support.
+    """Main configuration with enhanced security.
 
-    Security features:
-    - SecretStr for sensitive data (cert_sha256)
-    - Input validation for all fields
-    - Safe defaults
-    - HTTP warning for non-localhost connections
-
-    Configuration sources (in priority order):
-    1. Direct parameters
-    2. Environment variables (with OUTLINE_ prefix)
-    3. .env file
-    4. Default values
-
-    Example:
-        >>> # From environment variables
-        >>> config = OutlineClientConfig()
-        >>>
-        >>> # With direct parameters
-        >>> from pydantic import SecretStr
-        >>> config = OutlineClientConfig(
-        ...     api_url="https://server.com:12345/secret",
-        ...     cert_sha256=SecretStr("abc123..."),
-        ...     timeout=60,
-        ... )
+    SECURITY FEATURES:
+    - SecretStr for sensitive data
+    - Immutable copies on property access
+    - Safe __repr__ without secrets
+    - Type enforcement
     """
 
     model_config = SettingsConfigDict(
@@ -74,75 +49,40 @@ class OutlineClientConfig(BaseSettings):
 
     # ===== Core Settings (Required) =====
 
-    api_url: str = Field(
-        ...,
-        description="Outline server API URL with secret path",
-    )
-
-    cert_sha256: SecretStr = Field(
-        ...,
-        description="SHA-256 certificate fingerprint (protected with SecretStr)",
-    )
+    api_url: str = Field(..., description="Outline server API URL with secret path")
+    cert_sha256: SecretStr = Field(..., description="SHA-256 certificate fingerprint")
 
     # ===== Client Settings =====
 
     timeout: int = Field(
-        default=10,  # Reduced from 30s - more reasonable for VPN API
-        ge=1,
-        le=300,
-        description="Request timeout in seconds (default: 10s)",
+        default=10, ge=1, le=300, description="Request timeout (seconds)"
     )
-
-    retry_attempts: int = Field(
-        default=2,  # Reduced from 3 - total 3 attempts (1 initial + 2 retries)
-        ge=0,
-        le=10,
-        description="Number of retry attempts (default: 2, total attempts: 3)",
-    )
-
+    retry_attempts: int = Field(default=2, ge=0, le=10, description="Number of retries")
     max_connections: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Maximum connection pool size",
+        default=10, ge=1, le=100, description="Connection pool size"
     )
-
     rate_limit: int = Field(
-        default=100,
-        ge=1,
-        le=1000,
-        description="Maximum concurrent requests",
+        default=100, ge=1, le=1000, description="Max concurrent requests"
     )
 
     # ===== Optional Features =====
 
     enable_circuit_breaker: bool = Field(
-        default=True,
-        description="Enable circuit breaker protection",
+        default=True, description="Enable circuit breaker"
     )
-
-    enable_logging: bool = Field(
-        default=False,
-        description="Enable debug logging (WARNING: may log sanitized URLs)",
-    )
-
-    json_format: bool = Field(
-        default=False,
-        description="Return raw JSON instead of Pydantic models",
-    )
+    enable_logging: bool = Field(default=False, description="Enable debug logging")
+    json_format: bool = Field(default=False, description="Return raw JSON")
 
     # ===== Circuit Breaker Settings =====
 
     circuit_failure_threshold: int = Field(
-        default=5,
-        ge=1,
-        description="Failures before opening circuit",
+        default=5, ge=1, description="Failures before opening"
     )
-
     circuit_recovery_timeout: float = Field(
-        default=60.0,
-        ge=1.0,
-        description="Seconds before testing recovery",
+        default=60.0, ge=1.0, description="Recovery wait time"
+    )
+    circuit_call_timeout: float = Field(
+        default=10.0, ge=1.0, description="Circuit call timeout"
     )
 
     # ===== Validators =====
@@ -150,87 +90,62 @@ class OutlineClientConfig(BaseSettings):
     @field_validator("api_url")
     @classmethod
     def validate_api_url(cls, v: str) -> str:
-        """
-        Validate and normalize API URL.
-
-        Raises:
-            ValueError: If URL format is invalid
-        """
+        """Validate and normalize API URL."""
         return Validators.validate_url(v)
 
     @field_validator("cert_sha256")
     @classmethod
     def validate_cert(cls, v: SecretStr) -> SecretStr:
-        """
-        Validate certificate fingerprint.
-
-        Security: Certificate value stays in SecretStr and is never
-        exposed in validation error messages.
-
-        Raises:
-            ValueError: If certificate format is invalid
-        """
+        """Validate certificate fingerprint."""
         return Validators.validate_cert_fingerprint(v)
 
     @model_validator(mode="after")
     def validate_config(self) -> OutlineClientConfig:
-        """
-        Additional validation after model creation.
-
-        Security warnings:
-        - HTTP for non-localhost connections
-        """
-        # Warn about insecure settings
+        """Additional validation after model creation."""
+        # Security warning for HTTP
         if "http://" in self.api_url and "localhost" not in self.api_url:
             logger.warning(
                 "Using HTTP for non-localhost connection. "
                 "This is insecure and should only be used for testing."
             )
 
+        # Validate circuit timeout makes sense
+        if self.enable_circuit_breaker:
+            max_request_time = self.timeout * (self.retry_attempts + 1) + 10
+            if self.circuit_call_timeout < max_request_time:
+                logger.warning(
+                    f"Circuit timeout ({self.circuit_call_timeout}s) is less than "
+                    f"max request time ({max_request_time}s). Adjusting."
+                )
+                self.circuit_call_timeout = max_request_time
+
         return self
+
+    # ===== Custom __setattr__ for SecretStr Protection =====
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Prevent accidental string assignment to SecretStr fields."""
+        if name == "cert_sha256" and isinstance(value, str):
+            raise TypeError(
+                "cert_sha256 must be SecretStr, not str. " "Use: SecretStr('your_cert')"
+            )
+        super().__setattr__(name, value)
 
     # ===== Helper Methods =====
 
     def get_cert_sha256(self) -> str:
-        """
-        Safely get certificate fingerprint value.
+        """Safely get certificate fingerprint value.
 
-        Security: Only use this when you actually need the certificate value.
-        Prefer keeping it as SecretStr whenever possible.
-
-        Returns:
-            str: Certificate fingerprint as string
-
-        Example:
-            >>> config = OutlineClientConfig.from_env()
-            >>> cert_value = config.get_cert_sha256()
-            >>> # Use cert_value for SSL validation
+        WARNING: Only use when you actually need the raw value.
+        Prefer keeping it as SecretStr.
         """
         return self.cert_sha256.get_secret_value()
 
     def get_sanitized_config(self) -> dict[str, Any]:
+        """Get configuration with sensitive data masked.
+
+        Safe for logging, debugging, and display.
         """
-        Get configuration with sensitive data masked.
-
-        Safe for logging, debugging, and display purposes.
-
-        Returns:
-            dict: Configuration with masked sensitive values
-
-        Example:
-            >>> config = OutlineClientConfig.from_env()
-            >>> safe_config = config.get_sanitized_config()
-            >>> logger.info(f"Config: {safe_config}")  # ✅ Safe
-            >>> print(safe_config)
-            {
-                'api_url': 'https://server.com:12345/***',
-                'cert_sha256': '***MASKED***',
-                'timeout': 10,
-                ...
-            }
-        """
-        from .common_types import Validators
-
         return {
             "api_url": Validators.sanitize_url_for_logging(self.api_url),
             "cert_sha256": "***MASKED***",
@@ -243,24 +158,26 @@ class OutlineClientConfig(BaseSettings):
             "json_format": self.json_format,
             "circuit_failure_threshold": self.circuit_failure_threshold,
             "circuit_recovery_timeout": self.circuit_recovery_timeout,
+            "circuit_call_timeout": self.circuit_call_timeout,
         }
 
+    def model_copy_immutable(self, **updates: Any) -> OutlineClientConfig:
+        """Create immutable copy of configuration.
+
+        Returns a deep copy that can be safely returned to users.
+        """
+        return self.model_copy(deep=True, update=updates)
+
     def __repr__(self) -> str:
-        """
-        Safe string representation without exposing secrets.
-
-        Returns:
-            str: String representation with masked sensitive data
-        """
-        from .common_types import Validators
-
+        """Safe string representation without secrets."""
         safe_url = Validators.sanitize_url_for_logging(self.api_url)
+        cb_status = "enabled" if self.enable_circuit_breaker else "disabled"
         return (
             f"OutlineClientConfig("
             f"url={safe_url}, "
+            f"cert='***', "
             f"timeout={self.timeout}s, "
-            f"circuit_breaker={'enabled' if self.enable_circuit_breaker else 'disabled'}"
-            f")"
+            f"circuit_breaker={cb_status})"
         )
 
     def __str__(self) -> str:
@@ -269,25 +186,14 @@ class OutlineClientConfig(BaseSettings):
 
     @property
     def circuit_config(self) -> CircuitConfig | None:
-        """
-        Get circuit breaker configuration if enabled.
-
-        Returns:
-            CircuitConfig | None: Circuit config if enabled, None otherwise
-
-        Example:
-            >>> config = OutlineClientConfig.from_env()
-            >>> if config.circuit_config:
-            ...     print(f"Circuit breaker enabled")
-            ...     print(f"Failure threshold: {config.circuit_config.failure_threshold}")
-        """
+        """Get circuit breaker configuration if enabled."""
         if not self.enable_circuit_breaker:
             return None
 
         return CircuitConfig(
             failure_threshold=self.circuit_failure_threshold,
             recovery_timeout=self.circuit_recovery_timeout,
-            call_timeout=self.timeout,  # Will be adjusted by base_client if needed
+            call_timeout=self.circuit_call_timeout,
         )
 
     # ===== Factory Methods =====
@@ -298,34 +204,9 @@ class OutlineClientConfig(BaseSettings):
         env_file: Path | str | None = None,
         **overrides: Any,
     ) -> OutlineClientConfig:
-        """
-        Load configuration from environment variables.
-
-        Environment variables should be prefixed with OUTLINE_:
-        - OUTLINE_API_URL
-        - OUTLINE_CERT_SHA256
-        - OUTLINE_TIMEOUT
-        - etc.
-
-        Args:
-            env_file: Path to .env file (default: .env)
-            **overrides: Override specific values
-
-        Returns:
-            OutlineClientConfig: Configured instance
-
-        Example:
-            >>> # From default .env file
-            >>> config = OutlineClientConfig.from_env()
-            >>>
-            >>> # From custom file
-            >>> config = OutlineClientConfig.from_env(".env.production")
-            >>>
-            >>> # With overrides
-            >>> config = OutlineClientConfig.from_env(timeout=60)
-        """
+        """Load configuration from environment variables."""
         if env_file:
-            # Create temp class with custom env file
+
             class TempConfig(cls):
                 model_config = SettingsConfigDict(
                     env_prefix="OUTLINE_",
@@ -346,61 +227,15 @@ class OutlineClientConfig(BaseSettings):
         cert_sha256: str | SecretStr,
         **kwargs: Any,
     ) -> OutlineClientConfig:
-        """
-        Create minimal configuration with required parameters only.
-
-        Args:
-            api_url: API URL with secret path
-            cert_sha256: Certificate fingerprint (string or SecretStr)
-            **kwargs: Additional optional settings
-
-        Returns:
-            OutlineClientConfig: Configured instance
-
-        Example:
-            >>> config = OutlineClientConfig.create_minimal(
-            ...     api_url="https://server.com:12345/secret",
-            ...     cert_sha256="abc123...",
-            ... )
-            >>>
-            >>> # With additional settings
-            >>> config = OutlineClientConfig.create_minimal(
-            ...     api_url="https://server.com:12345/secret",
-            ...     cert_sha256="abc123...",
-            ...     timeout=60,
-            ...     enable_circuit_breaker=False,
-            ... )
-        """
-        # Convert cert to SecretStr if needed
+        """Create minimal configuration with required parameters only."""
         if isinstance(cert_sha256, str):
             cert_sha256 = SecretStr(cert_sha256)
 
-        return cls(
-            api_url=api_url,
-            cert_sha256=cert_sha256,
-            **kwargs,
-        )
-
-
-# ===== Environment-specific Configs =====
+        return cls(api_url=api_url, cert_sha256=cert_sha256, **kwargs)
 
 
 class DevelopmentConfig(OutlineClientConfig):
-    """
-    Development configuration with relaxed security.
-
-    Use for local development and testing only.
-
-    Features:
-    - Logging enabled by default
-    - Circuit breaker disabled for easier debugging
-    - Uses DEV_OUTLINE_ prefix for environment variables
-
-    Example:
-        >>> config = DevelopmentConfig()
-        >>> # Or from custom env file
-        >>> config = DevelopmentConfig.from_env(".env.dev")
-    """
+    """Development configuration with relaxed security."""
 
     model_config = SettingsConfigDict(
         env_prefix="DEV_OUTLINE_",
@@ -408,23 +243,11 @@ class DevelopmentConfig(OutlineClientConfig):
     )
 
     enable_logging: bool = True
-    enable_circuit_breaker: bool = False  # Easier debugging
+    enable_circuit_breaker: bool = False
 
 
 class ProductionConfig(OutlineClientConfig):
-    """
-    Production configuration with strict security.
-
-    Enforces:
-    - HTTPS only (no HTTP allowed)
-    - Circuit breaker enabled by default
-    - Uses PROD_OUTLINE_ prefix for environment variables
-
-    Example:
-        >>> config = ProductionConfig()
-        >>> # Or from custom env file
-        >>> config = ProductionConfig.from_env(".env.prod")
-    """
+    """Production configuration with strict security."""
 
     model_config = SettingsConfigDict(
         env_prefix="PROD_OUTLINE_",
@@ -433,19 +256,13 @@ class ProductionConfig(OutlineClientConfig):
 
     @model_validator(mode="after")
     def enforce_security(self) -> ProductionConfig:
-        """
-        Enforce production security requirements.
-
-        Raises:
-            ConfigurationError: If security requirements are not met
-        """
+        """Enforce production security requirements."""
         if "http://" in self.api_url:
             raise ConfigurationError(
                 "Production environment must use HTTPS",
                 field="api_url",
                 security_issue=True,
             )
-
         return self
 
 
@@ -453,91 +270,48 @@ class ProductionConfig(OutlineClientConfig):
 
 
 def create_env_template(path: str | Path = ".env.example") -> None:
-    """
-    Create .env template file with all available options.
-
-    Creates a well-documented template file that users can copy
-    and customize for their environment.
-
-    Args:
-        path: Path where to create template file (default: .env.example)
-
-    Example:
-        >>> from pyoutlineapi import create_env_template
-        >>> create_env_template()
-        >>> # Edit .env.example with your values
-        >>> # Copy to .env for production use
-        >>>
-        >>> # Or create custom location
-        >>> create_env_template("config/.env.template")
-    """
+    """Create .env template file with all options."""
     template = """# PyOutlineAPI Configuration
 # Required settings
 OUTLINE_API_URL=https://your-server.com:12345/your-secret-path
 OUTLINE_CERT_SHA256=your-64-character-sha256-fingerprint
 
-# Optional client settings (optimized defaults)
-# OUTLINE_TIMEOUT=10          # Request timeout in seconds (default: 10s)
-# OUTLINE_RETRY_ATTEMPTS=2    # Retry attempts, total 3 attempts (default: 2)
-# OUTLINE_MAX_CONNECTIONS=10  # Connection pool size (default: 10)
-# OUTLINE_RATE_LIMIT=100      # Max concurrent requests (default: 100)
+# Optional client settings
+# OUTLINE_TIMEOUT=10
+# OUTLINE_RETRY_ATTEMPTS=2
+# OUTLINE_MAX_CONNECTIONS=10
+# OUTLINE_RATE_LIMIT=100
 
 # Optional features
-# OUTLINE_ENABLE_CIRCUIT_BREAKER=true  # Circuit breaker protection (default: true)
-# OUTLINE_ENABLE_LOGGING=false         # Debug logging (default: false)
-# OUTLINE_JSON_FORMAT=false            # Return JSON dicts instead of models (default: false)
+# OUTLINE_ENABLE_CIRCUIT_BREAKER=true
+# OUTLINE_ENABLE_LOGGING=false
+# OUTLINE_JSON_FORMAT=false
 
-# Circuit breaker settings (if enabled)
-# OUTLINE_CIRCUIT_FAILURE_THRESHOLD=5     # Failures before opening (default: 5)
-# OUTLINE_CIRCUIT_RECOVERY_TIMEOUT=60.0   # Recovery wait time in seconds (default: 60.0)
-
-# Notes:
-# - Total request time: ~(TIMEOUT * (RETRY_ATTEMPTS + 1) + delays)
-# - With defaults: ~38s max (10s * 3 attempts + 3s delays + buffer)
-# - For slower connections, increase TIMEOUT and/or RETRY_ATTEMPTS
+# Circuit breaker settings
+# OUTLINE_CIRCUIT_FAILURE_THRESHOLD=5
+# OUTLINE_CIRCUIT_RECOVERY_TIMEOUT=60.0
+# OUTLINE_CIRCUIT_CALL_TIMEOUT=10.0
 """
 
     Path(path).write_text(template, encoding="utf-8")
     logger.info(f"Created configuration template: {path}")
 
 
-def load_config(
-    environment: Literal["development", "production", "custom"] = "custom",
-    **overrides: Any,
-) -> OutlineClientConfig:
-    """
-    Load configuration for specific environment.
-
-    Args:
-        environment: Environment type (development, production, or custom)
-        **overrides: Override specific values
-
-    Returns:
-        OutlineClientConfig: Configured instance for the specified environment
-
-    Example:
-        >>> # Production config
-        >>> config = load_config("production")
-        >>>
-        >>> # Development config with overrides
-        >>> config = load_config("development", timeout=120)
-        >>>
-        >>> # Custom config
-        >>> config = load_config("custom", enable_logging=True)
-    """
+def load_config(environment: str = "custom", **overrides: Any) -> OutlineClientConfig:
+    """Load configuration for specific environment."""
     config_map = {
         "development": DevelopmentConfig,
         "production": ProductionConfig,
         "custom": OutlineClientConfig,
     }
 
-    config_class = config_map[environment]
+    config_class = config_map.get(environment, OutlineClientConfig)
     return config_class(**overrides)
 
 
 __all__ = [
-    "OutlineClientConfig",
     "DevelopmentConfig",
+    "OutlineClientConfig",
     "ProductionConfig",
     "create_env_template",
     "load_config",

@@ -1,135 +1,211 @@
-"""
-PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+"""PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
 
 Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
 All rights reserved.
 
 This software is licensed under the MIT License.
-Full license text: https://opensource.org/licenses/MIT
-Source repository: https://github.com/orenlab/pyoutlineapi
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
 
-Module: Common types, validators, and constants.
-
-Provides type aliases, validation functions, and application-wide constants
-with security-first design.
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
 """
 
 from __future__ import annotations
 
-import re
-from typing import Annotated, Any, Final
+import secrets
+import sys
+from typing import Annotated, Any, Final, TypeAlias, TypeGuard
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-# ===== Type Aliases =====
+# ===== Type Aliases - Core Types =====
 
-Port = Annotated[
-    int,
-    Field(gt=1024, lt=65536, description="Port number (1025-65535)"),
+Port: TypeAlias = Annotated[
+    int, Field(ge=1025, le=65535, description="Port number (1025-65535)")
+]
+Bytes: TypeAlias = Annotated[int, Field(ge=0, description="Size in bytes")]
+
+TimestampMs: TypeAlias = Annotated[
+    int, Field(ge=0, description="Unix timestamp in milliseconds")
+]
+TimestampSec: TypeAlias = Annotated[
+    int, Field(ge=0, description="Unix timestamp in seconds")
 ]
 
-Bytes = Annotated[
-    int,
-    Field(ge=0, description="Size in bytes"),
-]
+# Backward compatibility
+Timestamp: TypeAlias = TimestampMs
 
-Timestamp = Annotated[
-    int,
-    Field(ge=0, description="Unix timestamp in milliseconds"),
-]
+# ===== Type Aliases - JSON and API Types =====
+
+# JSON primitive types
+JsonPrimitive: TypeAlias = str | int | float | bool | None
+
+# JSON value (recursive type)
+JsonValue: TypeAlias = JsonPrimitive | dict[str, Any] | list[Any]
+
+# JSON payload for requests
+JsonPayload: TypeAlias = dict[str, JsonValue] | list[JsonValue] | None
+
+# Response data from API
+ResponseData: TypeAlias = dict[str, Any]
+
+# Query parameters
+QueryParams: TypeAlias = dict[str, str | int | float | bool]
+
+# ===== Type Aliases - Common Structures =====
+
+# Checks dictionary for health monitoring
+ChecksDict: TypeAlias = dict[str, dict[str, Any]]
+
+# Bytes per user for metrics
+BytesPerUserDict: TypeAlias = dict[str, int]
+
+# Audit details
+AuditDetails: TypeAlias = dict[str, str | int | float | bool]
+
+# Metrics tags
+MetricsTags: TypeAlias = dict[str, str]
 
 
 # ===== Constants =====
 
 
 class Constants:
-    """
-    Application-wide constants.
+    """Application-wide constants with security limits."""
 
-    Centralized configuration values used throughout the library.
-    Optimized for typical VPN API usage patterns.
-    """
+    # Port ranges - непривилегированные порты для Outline VPN
+    MIN_PORT: Final[int] = 1025
+    MAX_PORT: Final[int] = 65535
 
-    # Port ranges
-    MIN_PORT: Final = 1025
-    MAX_PORT: Final = 65535
+    # String length limits
+    MAX_NAME_LENGTH: Final[int] = 255
+    CERT_FINGERPRINT_LENGTH: Final[int] = 64
+    MAX_KEY_ID_LENGTH: Final[int] = 255
+    MAX_URL_LENGTH: Final[int] = 2048
 
-    # Size limits
-    MAX_NAME_LENGTH: Final = 255
-    CERT_FINGERPRINT_LENGTH: Final = 64
+    # Network and retry settings
+    DEFAULT_TIMEOUT: Final[int] = 10
+    DEFAULT_RETRY_ATTEMPTS: Final[int] = 2
+    DEFAULT_MAX_CONNECTIONS: Final[int] = 10
+    DEFAULT_RETRY_DELAY: Final[float] = 1.0
+    DEFAULT_USER_AGENT: Final[str] = "PyOutlineAPI/0.4.0"
 
-    # Default values - optimized for VPN API operations
-    DEFAULT_TIMEOUT: Final = 10  # 10s is sufficient for most VPN API calls
-    DEFAULT_RETRY_ATTEMPTS: Final = 2  # Total 3 attempts (1 initial + 2 retries)
-    DEFAULT_MAX_CONNECTIONS: Final = 10
-    DEFAULT_RETRY_DELAY: Final = 1.0
-    DEFAULT_USER_AGENT: Final = "PyOutlineAPI/0.4.0"
+    # Memory and recursion limits
+    MAX_RECURSION_DEPTH: Final[int] = 10
+    MAX_SNAPSHOT_SIZE_MB: Final[int] = 10
+
+    # HTTP status codes for retry
+    RETRY_STATUS_CODES: Final[frozenset[int]] = frozenset(
+        {408, 429, 500, 502, 503, 504}
+    )
+
+
+# ===== Enhanced Sensitive Keys =====
+
+DEFAULT_SENSITIVE_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "password",
+        "passwd",
+        "pwd",
+        "pass",
+        "secret",
+        "api_key",
+        "apikey",
+        "api_secret",
+        "token",
+        "access_token",
+        "refresh_token",
+        "bearer",
+        "auth",
+        "authorization",
+        "authenticate",
+        "session",
+        "session_id",
+        "sessionid",
+        "cookie",
+        "cert",
+        "certificate",
+        "cert_sha256",
+        "key",
+        "private_key",
+        "privatekey",
+        "public_key",
+        "publickey",
+        "access_url",
+        "accessurl",
+    }
+)
+
+
+# ===== Type Guards (Python 3.10+) =====
+
+
+def is_valid_port(value: Any) -> TypeGuard[Port]:
+    """Type-safe port validation."""
+    return isinstance(value, int) and Constants.MIN_PORT <= value <= Constants.MAX_PORT
+
+
+def is_valid_bytes(value: Any) -> TypeGuard[Bytes]:
+    """Type-safe bytes validation."""
+    return isinstance(value, int) and value >= 0
+
+
+def is_json_serializable(value: Any) -> bool:
+    """Check if value is JSON serializable."""
+    return isinstance(value, (str, int, float, bool, type(None), dict, list))
+
+
+# ===== Security Utilities =====
+
+
+def secure_compare(a: str, b: str) -> bool:
+    """Constant-time string comparison to prevent timing attacks."""
+    try:
+        return secrets.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+    except Exception:
+        return False
 
 
 # ===== Validators =====
 
 
 class Validators:
-    """
-    Common validation functions with security focus.
-
-    All validators are designed with security in mind:
-    - No sensitive data in exceptions
-    - Input sanitization
-    - Path traversal protection
-    - Injection attack prevention
-    """
+    """Enhanced validators with security focus."""
 
     @staticmethod
     def validate_port(port: int) -> int:
+        """Validate port with type checking.
+
+        Only allows unprivileged ports (1025-65535) for security.
         """
-        Validate port is in allowed range.
-
-        Args:
-            port: Port number to validate
-
-        Returns:
-            int: Validated port number
-
-        Raises:
-            ValueError: If port is out of valid range
-
-        Example:
-            >>> Validators.validate_port(8388)
-            8388
-            >>> Validators.validate_port(80)  # Raises ValueError
-        """
+        if not isinstance(port, int):
+            raise ValueError(f"Port must be int, got {type(port).__name__}")
         if not Constants.MIN_PORT <= port <= Constants.MAX_PORT:
-            raise ValueError(
-                f"Port must be {Constants.MIN_PORT}-{Constants.MAX_PORT}, got {port}"
-            )
+            raise ValueError(f"Port must be {Constants.MIN_PORT}-{Constants.MAX_PORT}")
         return port
 
     @staticmethod
     def validate_url(url: str) -> str:
-        """
-        Validate URL format and structure.
-
-        Args:
-            url: URL string to validate
-
-        Returns:
-            str: Validated and normalized URL
-
-        Raises:
-            ValueError: If URL format is invalid
-
-        Example:
-            >>> Validators.validate_url("https://server.com:12345/path")
-            'https://server.com:12345/path'
-            >>> Validators.validate_url("invalid")  # Raises ValueError
-        """
+        """Validate URL with security checks."""
         if not url or not url.strip():
             raise ValueError("URL cannot be empty")
 
         url = url.strip()
-        parsed = urlparse(url)
+
+        # Length check (DoS protection)
+        if len(url) > Constants.MAX_URL_LENGTH:
+            raise ValueError(f"URL too long (max {Constants.MAX_URL_LENGTH})")
+
+        # Null byte check
+        if "\x00" in url:
+            raise ValueError("URL contains null bytes")
+
+        try:
+            parsed = urlparse(url)
+        except Exception as e:
+            raise ValueError(f"Invalid URL: {e}") from e
 
         if not parsed.scheme:
             raise ValueError("URL must include scheme (http/https)")
@@ -142,281 +218,245 @@ class Validators:
 
     @staticmethod
     def validate_cert_fingerprint(cert: SecretStr) -> SecretStr:
-        """
-        Validate SHA-256 certificate fingerprint.
-
-        Security: Certificate value is kept in SecretStr and never exposed
-        in exception messages.
-
-        Args:
-            cert: Certificate fingerprint as SecretStr
-
-        Returns:
-            SecretStr: Validated certificate fingerprint (still as SecretStr)
-
-        Raises:
-            ValueError: If certificate format is invalid (without exposing value)
-
-        Example:
-            >>> from pydantic import SecretStr
-            >>> cert = SecretStr("a" * 64)  # 64 hex chars
-            >>> Validators.validate_cert_fingerprint(cert)
-            SecretStr('**********')
-        """
+        """Validate cert fingerprint with enhanced security."""
         parsed_cert = cert.get_secret_value()
         if not parsed_cert or not parsed_cert.strip():
             raise ValueError("Certificate fingerprint cannot be empty")
 
         parsed_cert = parsed_cert.strip().lower()
 
+        # Length check BEFORE other checks (ReDoS protection)
         if len(parsed_cert) != Constants.CERT_FINGERPRINT_LENGTH:
             raise ValueError(
-                f"Certificate fingerprint must be exactly "
-                f"{Constants.CERT_FINGERPRINT_LENGTH} hexadecimal characters"
+                f"Certificate must be {Constants.CERT_FINGERPRINT_LENGTH} hex chars"
             )
 
-        if not re.match(r"^[a-f0-9]{64}$", parsed_cert):
-            raise ValueError(
-                "Certificate fingerprint must contain only "
-                "hexadecimal characters (0-9, a-f)"
-            )
+        # Null byte check
+        if "\x00" in parsed_cert:
+            raise ValueError("Certificate contains null bytes")
+
+        # Fast character validation (no regex needed)
+        if not all(c in "0123456789abcdef" for c in parsed_cert):
+            raise ValueError("Certificate must be hexadecimal (0-9, a-f)")
 
         return cert
 
     @staticmethod
     def validate_name(name: str | None) -> str | None:
-        """
-        Validate and normalize name string.
-
-        Args:
-            name: Name string to validate (can be None)
-
-        Returns:
-            str | None: Validated name or None if empty
-
-        Raises:
-            ValueError: If name is too long
-
-        Example:
-            >>> Validators.validate_name("Alice")
-            'Alice'
-            >>> Validators.validate_name("  Bob  ")
-            'Bob'
-            >>> Validators.validate_name("")  # Returns None
-        """
+        """Validate and normalize name."""
         if name is None:
             return None
 
         if isinstance(name, str):
             name = name.strip()
-            if not name:  # Empty after strip
+            if not name:
                 return None
             if len(name) > Constants.MAX_NAME_LENGTH:
-                raise ValueError(
-                    f"Name cannot exceed {Constants.MAX_NAME_LENGTH} characters"
-                )
+                raise ValueError(f"Name max {Constants.MAX_NAME_LENGTH} chars")
             return name
 
         return str(name).strip() or None
 
     @staticmethod
     def validate_non_negative(value: int, name: str = "value") -> int:
-        """
-        Validate value is non-negative.
-
-        Args:
-            value: Value to validate
-            name: Field name for error message
-
-        Returns:
-            int: Validated value
-
-        Raises:
-            ValueError: If value is negative
-
-        Example:
-            >>> Validators.validate_non_negative(100, "bytes_limit")
-            100
-            >>> Validators.validate_non_negative(-1, "bytes_limit")
-            # Raises: ValueError: bytes_limit must be non-negative, got -1
-        """
+        """Validate non-negative integer."""
+        if not isinstance(value, int):
+            raise ValueError(f"{name} must be int, got {type(value).__name__}")
         if value < 0:
             raise ValueError(f"{name} must be non-negative, got {value}")
         return value
 
     @staticmethod
     def validate_key_id(key_id: str) -> str:
-        """
-        Validate key_id to prevent injection attacks.
+        """Enhanced key_id validation with comprehensive security checks.
 
-        Security features:
-        - Prevents path traversal (../)
-        - Allows only safe characters
-        - Enforces length limits
-        - Protects against DoS with length check
-
-        Args:
-            key_id: Access key identifier to validate
-
-        Returns:
-            str: Validated and sanitized key_id
-
-        Raises:
-            ValueError: If key_id is invalid or contains unsafe characters
-
-        Example:
-            >>> Validators.validate_key_id("user-001")
-            'user-001'
-            >>> Validators.validate_key_id("../etc/passwd")
-            # Raises: ValueError: key_id contains invalid characters
+        Protects against:
+        - Path traversal attacks
+        - Null byte injection
+        - ReDoS attacks
+        - DoS via length
         """
         if not key_id or not key_id.strip():
             raise ValueError("key_id cannot be empty")
 
         clean_id = key_id.strip()
 
-        # Maximum length check (prevent DoS)
-        if len(clean_id) > 255:
-            raise ValueError("key_id too long (maximum 255 characters)")
+        # Length check FIRST (DoS protection)
+        if len(clean_id) > Constants.MAX_KEY_ID_LENGTH:
+            raise ValueError(f"key_id too long (max {Constants.MAX_KEY_ID_LENGTH})")
 
-        if ".." in clean_id or "/" in clean_id or "\\" in clean_id:
-            raise ValueError(
-                "key_id contains invalid characters (path traversal detected)"
-            )
+        # Null byte check (injection protection)
+        if "\x00" in clean_id:
+            raise ValueError("key_id contains null bytes")
 
-        if not re.match(r"^[a-zA-Z0-9_-]+$", clean_id):
-            raise ValueError(
-                "key_id must contain only alphanumeric characters, "
-                "dashes, and underscores"
-            )
+        # Path traversal protection
+        if any(c in clean_id for c in (".", "/", "\\")):
+            raise ValueError("key_id contains invalid characters (., /, \\)")
+
+        # Simple character validation (no regex = no ReDoS)
+        allowed_chars = set(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        )
+        if not all(c in allowed_chars for c in clean_id):
+            raise ValueError("key_id must be alphanumeric, dashes, underscores only")
 
         return clean_id
 
     @staticmethod
     def sanitize_url_for_logging(url: str) -> str:
-        """
-        Remove secret path from URL for safe logging.
-
-        Security: Prevents secret path leakage in logs and error tracking.
-
-        Args:
-            url: Full URL with potential secret path
-
-        Returns:
-            str: Sanitized URL with only scheme://netloc/***
-
-        Example:
-            >>> Validators.sanitize_url_for_logging("https://server.com:12345/secret123")
-            'https://server.com:12345/***'
-            >>> Validators.sanitize_url_for_logging("invalid url")
-            '***INVALID_URL***'
-        """
+        """Remove secret path from URL for safe logging."""
         try:
             parsed = urlparse(url)
             return f"{parsed.scheme}://{parsed.netloc}/***"
         except Exception:
             return "***INVALID_URL***"
 
+    @staticmethod
+    def sanitize_endpoint_for_logging(endpoint: str) -> str:
+        """Sanitize endpoint for safe logging."""
+        if not endpoint:
+            return "***EMPTY***"
+
+        parts = endpoint.split("/")
+        sanitized = []
+        for part in parts:
+            # Mask long parts (likely secrets)
+            if len(part) > 20:
+                sanitized.append("***")
+            else:
+                sanitized.append(part)
+
+        return "/".join(sanitized)
+
 
 # ===== Base Models =====
 
 
 class BaseValidatedModel(BaseModel):
-    """
-    Base model with common configuration.
-
-    Provides strict validation and flexible field handling
-    for all Pydantic models in the library.
-    """
+    """Base model with strict validation."""
 
     model_config = ConfigDict(
-        # Strict validation
         validate_assignment=True,
         validate_default=True,
-        # Flexibility
         populate_by_name=True,
         use_enum_values=True,
-        # Cleanliness
         str_strip_whitespace=True,
-        # Performance
         arbitrary_types_allowed=False,
     )
 
 
-# ===== Utility Functions =====
+# ===== Optimized Utility Functions =====
 
 
 def mask_sensitive_data(
     data: dict[str, Any],
     *,
-    sensitive_keys: set[str] | None = None,
+    sensitive_keys: frozenset[str] | None = None,
+    _depth: int = 0,
 ) -> dict[str, Any]:
+    """Optimized sensitive data masking with lazy copying.
+
+    Features:
+    - Lazy copying (only when needed)
+    - Recursion depth protection
+    - Case-insensitive key matching
     """
-    Mask sensitive data for logging.
+    if _depth > Constants.MAX_RECURSION_DEPTH:
+        return {"_error": "Max recursion depth exceeded"}
 
-    Security: Prevents accidental leakage of credentials, tokens, and URLs
-    in logs, error tracking, and debugging output.
+    keys_to_mask = sensitive_keys or DEFAULT_SENSITIVE_KEYS
+    keys_lower = {k.lower() for k in keys_to_mask}
 
-    Args:
-        data: Dictionary to mask
-        sensitive_keys: Keys to mask (default: common sensitive fields)
+    # Lazy copy - only create new dict if we need to modify
+    masked = data
+    needs_copy = False
 
-    Returns:
-        dict: Dictionary with masked values
-
-    Example:
-        >>> data = {"password": "secret123", "name": "user1"}
-        >>> mask_sensitive_data(data)
-        {'password': '***MASKED***', 'name': 'user1'}
-        >>>
-        >>> # With custom sensitive keys
-        >>> mask_sensitive_data(data, sensitive_keys={"name"})
-        {'password': 'secret123', 'name': '***MASKED***'}
-    """
-    if sensitive_keys is None:
-        sensitive_keys = {
-            "password",
-            "cert_sha256",
-            "access_url",
-            "accessUrl",
-            "token",
-            "secret",
-            "key",
-            "api_key",
-            "apiKey",
-            "certificate",
-        }
-
-    masked = {}
     for key, value in data.items():
-        if key.lower() in {k.lower() for k in sensitive_keys}:
+        # Check if this key should be masked
+        if key.lower() in keys_lower:
+            if not needs_copy:
+                masked = data.copy()
+                needs_copy = True
             masked[key] = "***MASKED***"
+
+        # Recursively handle nested structures
         elif isinstance(value, dict):
-            masked[key] = mask_sensitive_data(value, sensitive_keys=sensitive_keys)
+            nested = mask_sensitive_data(
+                value, sensitive_keys=keys_to_mask, _depth=_depth + 1
+            )
+            if nested is not value:  # Changed
+                if not needs_copy:
+                    masked = data.copy()
+                    needs_copy = True
+                masked[key] = nested
+
         elif isinstance(value, list):
-            masked[key] = [
-                mask_sensitive_data(item, sensitive_keys=sensitive_keys)
-                if isinstance(item, dict)
-                else item
-                for item in value
-            ]
-        else:
-            masked[key] = value
+            new_list = []
+            list_changed = False
+            for item in value:
+                if isinstance(item, dict):
+                    masked_item = mask_sensitive_data(
+                        item, sensitive_keys=keys_to_mask, _depth=_depth + 1
+                    )
+                    if masked_item is not item:
+                        list_changed = True
+                    new_list.append(masked_item)
+                else:
+                    new_list.append(item)
+
+            if list_changed:
+                if not needs_copy:
+                    masked = data.copy()
+                    needs_copy = True
+                masked[key] = new_list
 
     return masked
 
 
+def validate_snapshot_size(data: dict[str, Any]) -> None:
+    """Validate that data size is within limits."""
+    size_bytes = sys.getsizeof(data)
+    max_bytes = Constants.MAX_SNAPSHOT_SIZE_MB * 1024 * 1024
+
+    if size_bytes > max_bytes:
+        raise ValueError(
+            f"Data too large: {size_bytes / 1024 / 1024:.2f} MB "
+            f"(max {Constants.MAX_SNAPSHOT_SIZE_MB} MB)"
+        )
+
+
 __all__ = [
-    # Types
+    # Core type aliases
     "Port",
     "Bytes",
     "Timestamp",
+    "TimestampMs",
+    "TimestampSec",
+    # JSON type aliases
+    "JsonPrimitive",
+    "JsonValue",
+    "JsonPayload",
+    "ResponseData",
+    "QueryParams",
+    # Common structures
+    "ChecksDict",
+    "BytesPerUserDict",
+    "AuditDetails",
+    "MetricsTags",
     # Constants
     "Constants",
+    "DEFAULT_SENSITIVE_KEYS",
+    # Type guards
+    "is_valid_port",
+    "is_valid_bytes",
+    "is_json_serializable",
+    # Security
+    "secure_compare",
     # Validators
     "Validators",
-    # Base models
+    # Base model
     "BaseValidatedModel",
     # Utilities
     "mask_sensitive_data",
+    "validate_snapshot_size",
 ]

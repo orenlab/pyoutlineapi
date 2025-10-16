@@ -1,26 +1,14 @@
-"""
-PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+"""PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
 
 Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
 All rights reserved.
 
 This software is licensed under the MIT License.
-Full license text: https://opensource.org/licenses/MIT
-Source repository: https://github.com/orenlab/pyoutlineapi
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
 
-Module: Advanced health monitoring (optional addon).
-
-Provides comprehensive health checking and performance monitoring
-for Outline VPN servers with custom check support.
-
-Usage:
-    >>> from pyoutlineapi import AsyncOutlineClient
-    >>> from pyoutlineapi.health_monitoring import HealthMonitor
-    >>>
-    >>> async with AsyncOutlineClient.from_env() as client:
-    ...     monitor = HealthMonitor(client)
-    ...     health = await monitor.comprehensive_check()
-    ...     print(f"Healthy: {health.healthy}")
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
 """
 
 from __future__ import annotations
@@ -37,19 +25,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(slots=True)
 class HealthStatus:
-    """
-    Health check result with detailed status information.
+    """Health check result with enhanced tracking.
 
-    Contains overall health status, individual check results,
-    and performance metrics.
-
-    Attributes:
-        healthy: Overall health status
-        timestamp: Check timestamp (Unix time)
-        checks: Individual check results by name
-        metrics: Performance metrics by name
+    IMPROVEMENTS:
+    - Slots for memory efficiency
+    - Better categorization
     """
 
     healthy: bool
@@ -59,17 +41,7 @@ class HealthStatus:
 
     @property
     def failed_checks(self) -> list[str]:
-        """
-        Get list of failed check names.
-
-        Returns:
-            list[str]: Names of checks that failed
-
-        Example:
-            >>> health = await monitor.comprehensive_check()
-            >>> if health.failed_checks:
-            ...     print(f"Failed checks: {', '.join(health.failed_checks)}")
-        """
+        """Get list of failed check names."""
         return [
             name
             for name, result in self.checks.items()
@@ -78,35 +50,39 @@ class HealthStatus:
 
     @property
     def is_degraded(self) -> bool:
-        """
-        Check if service is degraded (partially working).
-
-        Returns:
-            bool: True if any checks are degraded
-
-        Example:
-            >>> health = await monitor.comprehensive_check()
-            >>> if health.is_degraded:
-            ...     print("⚠️ Service is degraded but operational")
-        """
+        """Check if service is degraded."""
         return any(
             result.get("status") == "degraded" for result in self.checks.values()
         )
 
+    @property
+    def warning_checks(self) -> list[str]:
+        """Get list of warning check names."""
+        return [
+            name
+            for name, result in self.checks.items()
+            if result.get("status") == "warning"
+        ]
 
-@dataclass
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "healthy": self.healthy,
+            "degraded": self.is_degraded,
+            "timestamp": self.timestamp,
+            "checks": self.checks,
+            "metrics": self.metrics,
+            "failed_checks": self.failed_checks,
+            "warning_checks": self.warning_checks,
+        }
+
+
+@dataclass(slots=True)
 class PerformanceMetrics:
-    """
-    Performance tracking metrics.
+    """Performance tracking metrics.
 
-    Tracks request statistics and uptime for monitoring.
-
-    Attributes:
-        total_requests: Total number of requests made
-        successful_requests: Number of successful requests
-        failed_requests: Number of failed requests
-        avg_response_time: Average response time in seconds
-        start_time: Monitoring start timestamp
+    IMPROVEMENTS:
+    - Slots for memory efficiency
     """
 
     total_requests: int = 0
@@ -117,99 +93,51 @@ class PerformanceMetrics:
 
     @property
     def success_rate(self) -> float:
-        """
-        Calculate success rate.
-
-        Returns:
-            float: Success rate (0.0 to 1.0)
-
-        Example:
-            >>> metrics = monitor.get_metrics()
-            >>> print(f"Success rate: {metrics['success_rate']:.2%}")
-        """
+        """Calculate success rate."""
         if self.total_requests == 0:
             return 1.0
         return self.successful_requests / self.total_requests
 
     @property
     def uptime(self) -> float:
-        """
-        Get uptime in seconds.
-
-        Returns:
-            float: Uptime since monitoring started
-
-        Example:
-            >>> metrics = monitor.get_metrics()
-            >>> print(f"Uptime: {metrics['uptime'] / 3600:.1f} hours")
-        """
+        """Get uptime in seconds."""
         return time.time() - self.start_time
 
 
 class HealthMonitor:
-    """
-    Advanced health monitoring for Outline client.
+    """Enhanced health monitoring.
 
-    Features:
-    - Comprehensive health checks (connectivity, circuit breaker, performance)
-    - Performance tracking and metrics
-    - Circuit breaker awareness
-    - Custom check registration
-    - Result caching for efficiency
-
-    Example:
-        >>> from pyoutlineapi import AsyncOutlineClient
-        >>> from pyoutlineapi.health_monitoring import HealthMonitor
-        >>>
-        >>> async with AsyncOutlineClient.from_env() as client:
-        ...     monitor = HealthMonitor(client)
-        ...
-        ...     # Quick check
-        ...     if await monitor.quick_check():
-        ...         print("✅ Service reachable")
-        ...
-        ...     # Comprehensive check
-        ...     health = await monitor.comprehensive_check()
-        ...     print(f"Healthy: {health.healthy}")
-        ...     print(f"Degraded: {health.is_degraded}")
-        ...     for name in health.failed_checks:
-        ...         print(f"❌ Failed: {name}")
+    IMPROVEMENTS:
+    - Better caching strategy
+    - Enhanced custom checks
+    - Configurable cache TTL
     """
 
-    def __init__(self, client: AsyncOutlineClient) -> None:
-        """
-        Initialize health monitor.
+    __slots__ = (
+        "_cache_ttl",
+        "_cached_result",
+        "_client",
+        "_custom_checks",
+        "_last_check_time",
+        "_metrics",
+    )
 
-        Args:
-            client: Outline client instance
-
-        Example:
-            >>> async with AsyncOutlineClient.from_env() as client:
-            ...     monitor = HealthMonitor(client)
-        """
+    def __init__(
+        self,
+        client: AsyncOutlineClient,
+        *,
+        cache_ttl: float = 30.0,
+    ) -> None:
+        """Initialize health monitor with configurable cache."""
         self._client = client
         self._metrics = PerformanceMetrics()
         self._custom_checks: dict[str, Any] = {}
         self._last_check_time = 0.0
         self._cached_result: HealthStatus | None = None
-        self._cache_ttl = 30.0  # Cache for 30 seconds
+        self._cache_ttl = cache_ttl
 
     async def quick_check(self) -> bool:
-        """
-        Quick health check - connectivity only.
-
-        Tests if the service is reachable by fetching server info.
-
-        Returns:
-            bool: True if service is reachable
-
-        Example:
-            >>> monitor = HealthMonitor(client)
-            >>> if await monitor.quick_check():
-            ...     print("Service is up")
-            ... else:
-            ...     print("Service is down")
-        """
+        """Quick health check - connectivity only."""
         try:
             await self._client.get_server_info()
             return True
@@ -221,37 +149,20 @@ class HealthMonitor:
         self,
         *,
         use_cache: bool = True,
+        force_refresh: bool = False,
     ) -> HealthStatus:
+        """Comprehensive health check with enhanced caching.
+
+        IMPROVEMENTS:
+        - force_refresh option
+        - Better cache invalidation
         """
-        Comprehensive health check with all subsystems.
-
-        Checks:
-        - Connectivity (can reach API)
-        - Circuit breaker status
-        - Performance metrics
-        - Custom checks (if registered)
-
-        Args:
-            use_cache: Use cached result if recent (default: True)
-
-        Returns:
-            HealthStatus: Detailed health status
-
-        Example:
-            >>> health = await monitor.comprehensive_check()
-            >>> if not health.healthy:
-            ...     print("❌ Service unhealthy")
-            ...     for check in health.failed_checks:
-            ...         result = health.checks[check]
-            ...         print(f"  {check}: {result['message']}")
-            ...
-            >>> if health.is_degraded:
-            ...     print("⚠️ Service degraded")
-        """
-        # Check cache
         current_time = time.time()
+
+        # Check cache
         if (
             use_cache
+            and not force_refresh
             and self._cached_result
             and current_time - self._last_check_time < self._cache_ttl
         ):
@@ -262,16 +173,10 @@ class HealthMonitor:
             timestamp=current_time,
         )
 
-        # Check 1: Connectivity
+        # Run all checks
         await self._check_connectivity(status)
-
-        # Check 2: Circuit breaker
         await self._check_circuit_breaker(status)
-
-        # Check 3: Performance
         await self._check_performance(status)
-
-        # Check 4: Custom checks
         await self._run_custom_checks(status)
 
         # Update cache
@@ -287,9 +192,17 @@ class HealthMonitor:
             await self._client.get_server_info()
             duration = time.time() - start
 
+            # Determine health based on response time
+            if duration < 1.0:
+                check_status = "healthy"
+            elif duration < 3.0:
+                check_status = "warning"
+            else:
+                check_status = "degraded"
+
             status.checks["connectivity"] = {
-                "status": "healthy",
-                "message": "API accessible",
+                "status": check_status,
+                "message": f"API accessible ({duration:.2f}s)",
                 "response_time": duration,
             }
             status.metrics["connectivity_time"] = duration
@@ -306,7 +219,6 @@ class HealthMonitor:
         metrics = self._client.get_circuit_metrics()
 
         if metrics is None:
-            # Circuit breaker not enabled
             status.checks["circuit_breaker"] = {
                 "status": "disabled",
                 "message": "Circuit breaker not enabled",
@@ -316,11 +228,16 @@ class HealthMonitor:
         cb_state = metrics["state"]
         success_rate = metrics["success_rate"]
 
+        # Determine health based on state and success rate
         if cb_state == "OPEN":
             status.healthy = False
             cb_status = "unhealthy"
+        elif cb_state == "HALF_OPEN":
+            cb_status = "warning"
         elif success_rate < 0.5:
             cb_status = "degraded"
+        elif success_rate < 0.9:
+            cb_status = "warning"
         else:
             cb_status = "healthy"
 
@@ -328,7 +245,7 @@ class HealthMonitor:
             "status": cb_status,
             "state": cb_state,
             "success_rate": success_rate,
-            "message": f"Circuit {cb_state.lower()}, success rate: {success_rate:.1%}",
+            "message": f"Circuit {cb_state.lower()}, {success_rate:.1%} success",
         }
 
         status.metrics["circuit_success_rate"] = success_rate
@@ -336,10 +253,14 @@ class HealthMonitor:
     async def _check_performance(self, status: HealthStatus) -> None:
         """Check performance metrics."""
         success_rate = self._metrics.success_rate
+        avg_time = self._metrics.avg_response_time
 
-        if success_rate > 0.9:
+        # Determine health
+        if success_rate > 0.95 and avg_time < 1.0:
             perf_status = "healthy"
-        elif success_rate > 0.5:
+        elif success_rate > 0.9 and avg_time < 2.0:
+            perf_status = "warning"
+        elif success_rate > 0.7:
             perf_status = "degraded"
         else:
             perf_status = "unhealthy"
@@ -349,13 +270,13 @@ class HealthMonitor:
             "status": perf_status,
             "success_rate": success_rate,
             "total_requests": self._metrics.total_requests,
-            "avg_response_time": self._metrics.avg_response_time,
+            "avg_response_time": avg_time,
             "uptime": self._metrics.uptime,
-            "message": f"Success rate: {success_rate:.1%}",
+            "message": f"{success_rate:.1%} success, {avg_time:.2f}s avg",
         }
 
         status.metrics["success_rate"] = success_rate
-        status.metrics["avg_response_time"] = self._metrics.avg_response_time
+        status.metrics["avg_response_time"] = avg_time
 
     async def _run_custom_checks(self, status: HealthStatus) -> None:
         """Run registered custom checks."""
@@ -364,74 +285,43 @@ class HealthMonitor:
                 result = await check_func(self._client)
                 status.checks[name] = result
 
-                # Update overall health
                 if result.get("status") == "unhealthy":
                     status.healthy = False
 
             except Exception as e:
+                logger.error(f"Custom check '{name}' failed: {e}")
                 status.checks[name] = {
                     "status": "error",
                     "message": f"Check failed: {e}",
                 }
 
-    def add_custom_check(
-        self,
-        name: str,
-        check_func: Any,
-    ) -> None:
-        """
-        Register custom health check function.
+    def add_custom_check(self, name: str, check_func: Any) -> None:
+        """Register custom health check function.
 
-        Args:
-            name: Unique check name
-            check_func: Async function that takes client and returns check result dict
-
-        Example:
-            >>> async def check_keys_count(client):
-            ...     keys = await client.get_access_keys()
-            ...     count = keys.count
-            ...     return {
-            ...         "status": "healthy" if count > 0 else "warning",
-            ...         "keys_count": count,
-            ...         "message": f"{count} keys configured",
-            ...     }
-            >>>
-            >>> monitor = HealthMonitor(client)
-            >>> monitor.add_custom_check("keys_count", check_keys_count)
-            >>> health = await monitor.comprehensive_check()
-            >>> print(health.checks["keys_count"])
+        IMPROVEMENTS:
+        - Validation of check name
         """
+        if not name or not name.strip():
+            raise ValueError("Check name cannot be empty")
+
+        if not callable(check_func):
+            raise ValueError("Check function must be callable")
+
         self._custom_checks[name] = check_func
+        logger.debug(f"Registered custom check: {name}")
 
     def remove_custom_check(self, name: str) -> None:
-        """
-        Remove custom health check.
-
-        Args:
-            name: Check name to remove
-
-        Example:
-            >>> monitor.remove_custom_check("keys_count")
-        """
+        """Remove custom health check."""
         self._custom_checks.pop(name, None)
+        logger.debug(f"Removed custom check: {name}")
+
+    def clear_custom_checks(self) -> None:
+        """Clear all custom checks."""
+        self._custom_checks.clear()
+        logger.debug("Cleared all custom checks")
 
     def record_request(self, success: bool, duration: float) -> None:
-        """
-        Record request result for performance metrics.
-
-        Args:
-            success: Whether request succeeded
-            duration: Request duration in seconds
-
-        Example:
-            >>> import time
-            >>> start = time.time()
-            >>> try:
-            ...     await client.get_server_info()
-            ...     monitor.record_request(True, time.time() - start)
-            ... except Exception:
-            ...     monitor.record_request(False, time.time() - start)
-        """
+        """Record request result for performance metrics."""
         self._metrics.total_requests += 1
 
         if success:
@@ -449,19 +339,7 @@ class HealthMonitor:
             )
 
     def get_metrics(self) -> dict[str, Any]:
-        """
-        Get performance metrics.
-
-        Returns:
-            dict: Performance metrics dictionary
-
-        Example:
-            >>> metrics = monitor.get_metrics()
-            >>> print(f"Total requests: {metrics['total_requests']}")
-            >>> print(f"Success rate: {metrics['success_rate']:.2%}")
-            >>> print(f"Avg response: {metrics['avg_response_time']:.3f}s")
-            >>> print(f"Uptime: {metrics['uptime'] / 3600:.1f}h")
-        """
+        """Get performance metrics."""
         return {
             "total_requests": self._metrics.total_requests,
             "successful_requests": self._metrics.successful_requests,
@@ -471,30 +349,22 @@ class HealthMonitor:
             "uptime": self._metrics.uptime,
         }
 
+    def reset_metrics(self) -> None:
+        """Reset performance metrics."""
+        self._metrics = PerformanceMetrics()
+        logger.debug("Reset performance metrics")
+
+    def invalidate_cache(self) -> None:
+        """Manually invalidate health check cache."""
+        self._cached_result = None
+        self._last_check_time = 0.0
+
     async def wait_for_healthy(
         self,
         timeout: float = 60.0,
         check_interval: float = 5.0,
     ) -> bool:
-        """
-        Wait for service to become healthy.
-
-        Polls the service until it becomes healthy or timeout is reached.
-
-        Args:
-            timeout: Maximum wait time in seconds (default: 60.0)
-            check_interval: Time between checks in seconds (default: 5.0)
-
-        Returns:
-            bool: True if healthy within timeout, False otherwise
-
-        Example:
-            >>> monitor = HealthMonitor(client)
-            >>> if await monitor.wait_for_healthy(timeout=120):
-            ...     print("✅ Service is healthy!")
-            ... else:
-            ...     print("❌ Timeout waiting for healthy state")
-        """
+        """Wait for service to become healthy."""
         start_time = time.time()
 
         while time.time() - start_time < timeout:

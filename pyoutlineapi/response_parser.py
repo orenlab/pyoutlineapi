@@ -1,17 +1,14 @@
-"""
-PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+"""PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
 
 Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
 All rights reserved.
 
 This software is licensed under the MIT License.
-Full license text: https://opensource.org/licenses/MIT
-Source repository: https://github.com/orenlab/pyoutlineapi
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
 
-Module: Simple response parser with validation.
-
-Provides utilities for parsing and validating API responses,
-converting between raw JSON and Pydantic models.
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
 """
 
 from __future__ import annotations
@@ -31,25 +28,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class ResponseParser:
-    """
-    Utility class for parsing and validating API responses.
-
-    Provides methods to convert raw API responses to validated
-    Pydantic models or JSON dictionaries.
-
-    Example:
-        >>> from pyoutlineapi.response_parser import ResponseParser
-        >>> from pyoutlineapi.models import Server
-        >>>
-        >>> # Parse to model
-        >>> data = {"name": "My Server", "serverId": "abc123", ...}
-        >>> server = ResponseParser.parse(data, Server)
-        >>> print(f"Server: {server.name}")
-        >>>
-        >>> # Parse to JSON dict
-        >>> server_dict = ResponseParser.parse(data, Server, as_json=True)
-        >>> print(f"Server: {server_dict['name']}")
-    """
+    """Utility class for parsing and validating API responses."""
 
     @staticmethod
     @overload
@@ -76,44 +55,13 @@ class ResponseParser:
         *,
         as_json: bool = False,
     ) -> T | JsonDict:
-        """
-        Parse and validate response data.
+        """Parse and validate response data."""
+        if not isinstance(data, dict):
+            raise OutlineValidationError(
+                f"Expected dict, got {type(data).__name__}",
+                model=model.__name__,
+            )
 
-        Validates the response against a Pydantic model and returns
-        either the validated model or a JSON dictionary.
-
-        Args:
-            data: Raw response data dictionary
-            model: Pydantic model class for validation
-            as_json: Return as JSON dict instead of model (default: False)
-
-        Returns:
-            T | JsonDict: Validated model or JSON dict
-
-        Raises:
-            OutlineValidationError: If validation fails
-
-        Example:
-            >>> from pyoutlineapi.models import AccessKey
-            >>>
-            >>> # Response from API
-            >>> response_data = {
-            ...     "id": "1",
-            ...     "name": "Alice",
-            ...     "password": "secret",
-            ...     "port": 8388,
-            ...     "method": "chacha20-ietf-poly1305",
-            ...     "accessUrl": "ss://...",
-            ... }
-            >>>
-            >>> # Parse to model
-            >>> key = ResponseParser.parse(response_data, AccessKey)
-            >>> print(f"Key: {key.name} (ID: {key.id})")
-            >>>
-            >>> # Parse to JSON dict
-            >>> key_dict = ResponseParser.parse(response_data, AccessKey, as_json=True)
-            >>> print(f"Key: {key_dict['name']}")
-        """
         try:
             # Validate with model
             validated = model.model_validate(data)
@@ -124,60 +72,75 @@ class ResponseParser:
             return validated
 
         except ValidationError as e:
-            # Convert to our exception type
+            # Convert to our exception type with enhanced error reporting
             errors = e.errors()
-            if errors:
-                first_error = errors[0]
-                field = ".".join(str(loc) for loc in first_error.get("loc", []))
-                message = first_error.get("msg", "Validation failed")
 
+            if not errors:
                 raise OutlineValidationError(
-                    message,
-                    field=field,
+                    "Validation failed",
                     model=model.__name__,
                 ) from e
 
+            # Get first error for primary message
+            first_error = errors[0]
+            field = ".".join(str(loc) for loc in first_error.get("loc", []))
+            message = first_error.get("msg", "Validation failed")
+
+            # Log all errors for debugging
+            if len(errors) > 1:
+                logger.warning(
+                    f"Multiple validation errors for {model.__name__}: "
+                    f"{len(errors)} errors"
+                )
+                for i, error in enumerate(errors, 1):
+                    error_field = ".".join(str(loc) for loc in error.get("loc", []))
+                    error_msg = error.get("msg", "Unknown error")
+                    logger.debug(f"  {i}. {error_field}: {error_msg}")
+
             raise OutlineValidationError(
-                "Validation failed",
+                message,
+                field=field,
                 model=model.__name__,
             ) from e
 
     @staticmethod
     def parse_simple(data: dict[str, Any]) -> bool:
-        """
-        Parse simple success responses.
+        """Parse simple success responses."""
+        if not isinstance(data, dict):
+            logger.warning(f"Expected dict in parse_simple, got {type(data).__name__}")
+            return False
 
-        Checks for explicit success flag or assumes success
-        if no errors are present.
-
-        Args:
-            data: Response data dictionary
-
-        Returns:
-            bool: True if successful
-
-        Example:
-            >>> # Explicit success
-            >>> ResponseParser.parse_simple({"success": True})
-            True
-            >>>
-            >>> # Implicit success (no errors)
-            >>> ResponseParser.parse_simple({})
-            True
-            >>>
-            >>> # Failed
-            >>> ResponseParser.parse_simple({"success": False})
-            False
-        """
         # Check explicit success field
         if "success" in data:
-            return bool(data["success"])
+            success = data["success"]
+            if not isinstance(success, bool):
+                logger.warning(f"success field is not bool: {type(success).__name__}")
+                return bool(success)
+            return success
+
+        # Check for error indicators
+        if "error" in data or "message" in data:
+            return False
 
         # Empty dict or any dict without errors is success
         return True
 
+    @staticmethod
+    def validate_response_structure(
+        data: dict[str, Any],
+        required_fields: list[str] | None = None,
+    ) -> bool:
+        """Validate response structure without full parsing."""
+        if not isinstance(data, dict):
+            return False
+
+        if required_fields:
+            return all(field in data for field in required_fields)
+
+        return True
+
 
 __all__ = [
-    "ResponseParser",
     "JsonDict",
+    "ResponseParser",
 ]

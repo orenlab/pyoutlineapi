@@ -1,24 +1,26 @@
-"""
-PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+"""PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
 
 Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
 All rights reserved.
 
 This software is licensed under the MIT License.
-Full license text: https://opensource.org/licenses/MIT
-Source repository: https://github.com/orenlab/pyoutlineapi
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
 
-Module: Main async client with clean, intuitive API.
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from .api_mixins import AccessKeyMixin, DataLimitMixin, MetricsMixin, ServerMixin
-from .base_client import BaseHTTPClient
+from .audit import AuditLogger
+from .base_client import BaseHTTPClient, MetricsCollector
 from .common_types import Validators
 from .config import OutlineClientConfig
 from .exceptions import ConfigurationError
@@ -37,32 +39,16 @@ class AsyncOutlineClient(
     DataLimitMixin,
     MetricsMixin,
 ):
-    """
-    Async client for Outline VPN Server API.
+    """Enhanced async client for Outline VPN Server API.
 
-    Features:
-    - Clean, intuitive API for all Outline operations
-    - Optional circuit breaker for resilience
-    - Environment-based configuration
-    - Type-safe responses with Pydantic models
-    - Comprehensive error handling
-    - Rate limiting and connection pooling
-
-    Example:
-        >>> from pyoutlineapi import AsyncOutlineClient
-        >>>
-        >>> # From environment variables
-        >>> async with AsyncOutlineClient.from_env() as client:
-        ...     server = await client.get_server_info()
-        ...     keys = await client.get_access_keys()
-        ...     print(f"Server: {server.name}, Keys: {keys.count}")
-        >>>
-        >>> # With direct parameters
-        >>> async with AsyncOutlineClient.create(
-        ...     api_url="https://server.com:12345/secret",
-        ...     cert_sha256="abc123...",
-        ... ) as client:
-        ...     key = await client.create_access_key(name="Alice")
+    ENTERPRISE FEATURES:
+    - Unified audit logging (sync and async)
+    - Metrics collection
+    - Correlation ID tracking
+    - Graceful shutdown
+    - Circuit breaker
+    - Rate limiting
+    - JSON format preference
     """
 
     def __init__(
@@ -71,77 +57,44 @@ class AsyncOutlineClient(
         *,
         api_url: str | None = None,
         cert_sha256: str | None = None,
+        audit_logger: AuditLogger | None = None,
+        metrics: MetricsCollector | None = None,
         **kwargs: Any,
     ) -> None:
-        """
-        Initialize Outline client.
-
-        Args:
-            config: Pre-configured config object (preferred)
-            api_url: Direct API URL (alternative to config)
-            cert_sha256: Direct certificate (alternative to config)
-            **kwargs: Additional options (timeout, retry_attempts, etc.)
-
-        Raises:
-            ConfigurationError: If neither config nor required parameters provided
-
-        Example:
-            >>> # With config object
-            >>> config = OutlineClientConfig.from_env()
-            >>> client = AsyncOutlineClient(config)
-            >>>
-            >>> # With direct parameters
-            >>> client = AsyncOutlineClient(
-            ...     api_url="https://server.com:12345/secret",
-            ...     cert_sha256="abc123...",
-            ...     timeout=60,
-            ... )
-        """
-        # Handle different initialization methods with structural pattern matching
+        """Initialize Outline client with enterprise features."""
+        # Handle configuration with pattern matching
         match config, api_url, cert_sha256:
-            # Case 1: No config, but both direct parameters provided
-            case None, str() as url, str() as cert if url and cert:
-                config = OutlineClientConfig.create_minimal(
-                    api_url=url,
-                    cert_sha256=cert,
-                    **kwargs,
-                )
+            case None, str(url), str(cert) if url and cert:
+                config = OutlineClientConfig.create_minimal(url, cert, **kwargs)
 
-            # Case 2: Config provided, no direct parameters
-            case OutlineClientConfig(), None, None:
-                # Valid configuration, proceed
-                pass
+            case OutlineClientConfig() as cfg, None, None:
+                config = cfg
 
-            # Case 3: Missing required parameters
             case None, None, _:
-                raise ConfigurationError("Missing required 'api_url' parameter")
+                raise ConfigurationError("Missing required 'api_url'")
             case None, _, None:
-                raise ConfigurationError("Missing required 'cert_sha256' parameter")
+                raise ConfigurationError("Missing required 'cert_sha256'")
             case None, None, None:
                 raise ConfigurationError(
                     "Either provide 'config' or both 'api_url' and 'cert_sha256'"
                 )
 
-            # Case 4: Conflicting parameters
             case OutlineClientConfig(), str() | None, str() | None:
                 raise ConfigurationError(
-                    "Cannot specify both 'config' and direct parameters. "
-                    "Use either config object or api_url/cert_sha256, but not both."
+                    "Cannot specify both 'config' and direct parameters"
                 )
 
-            # Case 5: Unexpected input types
             case _:
-                raise ConfigurationError(
-                    f"Invalid parameter types: "
-                    f"config={type(config).__name__}, "
-                    f"api_url={type(Validators.sanitize_url_for_logging(api_url)).__name__}, "
-                    f"cert_sha256=***MASKED*** [See config instead]"
-                )
+                raise ConfigurationError("Invalid parameter combination")
 
-        # Store config
         self._config = config
 
-        # Initialize base client
+        # Store audit logger instance for mixins
+        self._audit_logger_instance = audit_logger
+
+        # Store JSON format preference for mixins
+        self._default_json_format = config.json_format
+
         super().__init__(
             api_url=config.api_url,
             cert_sha256=config.cert_sha256,
@@ -151,6 +104,8 @@ class AsyncOutlineClient(
             enable_logging=config.enable_logging,
             circuit_config=config.circuit_config,
             rate_limit=config.rate_limit,
+            audit_logger=audit_logger,
+            metrics=metrics,
         )
 
         if config.enable_logging:
@@ -159,78 +114,20 @@ class AsyncOutlineClient(
 
     @property
     def config(self) -> OutlineClientConfig:
+        """Get IMMUTABLE copy of configuration.
+
+        Returns a deep copy to prevent accidental mutation.
+        Safe for display and inspection.
         """
-        Get current configuration.
-
-        ⚠️ SECURITY WARNING:
-        This returns the full config object including sensitive data:
-        - api_url with secret path
-        - cert_sha256 (as SecretStr, but can be extracted)
-
-        For logging or display, use get_sanitized_config() instead.
-
-        Returns:
-            OutlineClientConfig: Full configuration object with sensitive data
-
-        Example:
-            >>> # ❌ UNSAFE - may expose secrets in logs
-            >>> print(client.config)
-            >>> logger.info(f"Config: {client.config}")
-            >>>
-            >>> # ✅ SAFE - use sanitized version
-            >>> print(client.get_sanitized_config())
-            >>> logger.info(f"Config: {client.get_sanitized_config()}")
-        """
-        return self._config
+        return self._config.model_copy_immutable()
 
     def get_sanitized_config(self) -> dict[str, Any]:
-        """
-        Get configuration with sensitive data masked.
-
-        Safe for logging, debugging, error reporting, and display.
-
-        Returns:
-            dict: Configuration with masked sensitive values
-
-        Example:
-            >>> config_safe = client.get_sanitized_config()
-            >>> logger.info(f"Client config: {config_safe}")
-            >>> print(config_safe)
-            {
-                'api_url': 'https://server.com:12345/***',
-                'cert_sha256': '***MASKED***',
-                'timeout': 30,
-                'retry_attempts': 3,
-                ...
-            }
-        """
+        """Get configuration with sensitive data masked."""
         return self._config.get_sanitized_config()
 
     @property
     def json_format(self) -> bool:
-        """
-        Get JSON format preference.
-
-        Returns:
-            bool: True if returning raw JSON dicts instead of models
-        """
-        return self._config.json_format
-
-    def _resolve_json_format(self, as_json: bool | None) -> bool:
-        """
-        Resolve JSON format preference.
-
-        If as_json is explicitly provided, uses that value.
-        Otherwise, uses config.json_format from .env (OUTLINE_JSON_FORMAT).
-
-        Args:
-            as_json: Explicit preference (None = use config default)
-
-        Returns:
-            bool: Final JSON format preference
-        """
-        if as_json is not None:
-            return as_json
+        """Get JSON format preference."""
         return self._config.json_format
 
     # ===== Factory Methods =====
@@ -243,36 +140,21 @@ class AsyncOutlineClient(
         cert_sha256: str | None = None,
         *,
         config: OutlineClientConfig | None = None,
+        audit_logger: AuditLogger | None = None,
+        metrics: MetricsCollector | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[AsyncOutlineClient, None]:
-        """
-        Create and initialize client (context manager).
-
-        This is the preferred way to create a client as it ensures
-        proper resource cleanup.
-
-        Args:
-            api_url: API URL (if not using config)
-            cert_sha256: Certificate (if not using config)
-            config: Pre-configured config object
-            **kwargs: Additional options
-
-        Yields:
-            AsyncOutlineClient: Initialized and connected client
-
-        Example:
-            >>> async with AsyncOutlineClient.create(
-            ...     api_url="https://server.com:12345/secret",
-            ...     cert_sha256="abc123...",
-            ...     timeout=60,
-            ... ) as client:
-            ...     server = await client.get_server_info()
-            ...     print(f"Server: {server.name}")
-        """
+        """Create and initialize client (context manager)."""
         if config is not None:
-            client = cls(config, **kwargs)
+            client = cls(config, audit_logger=audit_logger, metrics=metrics, **kwargs)
         else:
-            client = cls(api_url=api_url, cert_sha256=cert_sha256, **kwargs)
+            client = cls(
+                api_url=api_url,
+                cert_sha256=cert_sha256,
+                audit_logger=audit_logger,
+                metrics=metrics,
+                **kwargs,
+            )
 
         async with client:
             yield client
@@ -281,94 +163,86 @@ class AsyncOutlineClient(
     def from_env(
         cls,
         env_file: Path | str | None = None,
+        *,
+        audit_logger: AuditLogger | None = None,
+        metrics: MetricsCollector | None = None,
         **overrides: Any,
     ) -> AsyncOutlineClient:
-        """
-        Create client from environment variables.
-
-        Reads configuration from environment variables with OUTLINE_ prefix,
-        or from a .env file.
-
-        Args:
-            env_file: Optional .env file path (default: .env)
-            **overrides: Override specific configuration values
-
-        Returns:
-            AsyncOutlineClient: Configured client (not connected - use as context manager)
-
-        Example:
-            >>> # From default .env file
-            >>> async with AsyncOutlineClient.from_env() as client:
-            ...     keys = await client.get_access_keys()
-            >>>
-            >>> # From custom file with overrides
-            >>> async with AsyncOutlineClient.from_env(
-            ...     env_file=".env.production",
-            ...     timeout=60,
-            ... ) as client:
-            ...     server = await client.get_server_info()
-        """
+        """Create client from environment variables."""
         config = OutlineClientConfig.from_env(env_file=env_file, **overrides)
-        return cls(config)
+        return cls(config, audit_logger=audit_logger, metrics=metrics)
+
+    # ===== Lifecycle Management =====
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with proper cleanup.
+
+        Handles cleanup in the correct order:
+        1. Shutdown audit logger (if supported)
+        2. Call parent shutdown (which closes HTTP session)
+
+        This ensures all audit logs are flushed before session closes.
+        """
+        try:
+            # Step 1: Shutdown audit logger if it supports async shutdown
+            if self._audit_logger_instance and hasattr(
+                self._audit_logger_instance, "shutdown"
+            ):
+                try:
+                    await self._audit_logger_instance.shutdown()
+                except Exception as e:
+                    logger.warning(f"Error during audit logger shutdown: {e}")
+
+            # Step 2: Call parent shutdown (closes session, waits for active requests)
+            await self.shutdown()
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error during __aexit__: {e}", exc_info=True)
+
+            # Last resort: try to close session
+            try:
+                if (
+                    hasattr(self, "_session")
+                    and self._session
+                    and not self._session.closed
+                ):
+                    await self._session.close()
+            except Exception:
+                pass
+
+            raise
 
     # ===== Utility Methods =====
 
     async def health_check(self) -> dict[str, Any]:
-        """
-        Perform basic health check.
-
-        Tests connectivity by fetching server info.
-
-        Returns:
-            dict: Health status with healthy flag, connection state, and circuit state
-
-        Example:
-            >>> async with AsyncOutlineClient.from_env() as client:
-            ...     health = await client.health_check()
-            ...     if health["healthy"]:
-            ...         print("✅ Service is healthy")
-            ...     else:
-            ...         print(f"❌ Service unhealthy: {health.get('error')}")
-        """
+        """Perform basic health check."""
         try:
             await self.get_server_info()
             return {
                 "healthy": True,
                 "connected": self.is_connected,
                 "circuit_state": self.circuit_state,
+                "active_requests": self.active_requests,
             }
         except Exception as e:
             return {
                 "healthy": False,
                 "connected": self.is_connected,
                 "error": str(e),
+                "active_requests": self.active_requests,
             }
 
     async def get_server_summary(self) -> dict[str, Any]:
-        """
-        Get comprehensive server overview.
-
-        Collects server info, key count, and metrics (if enabled).
-
-        Returns:
-            dict: Server summary with all available information
-
-        Example:
-            >>> async with AsyncOutlineClient.from_env() as client:
-            ...     summary = await client.get_server_summary()
-            ...     print(f"Server: {summary['server']['name']}")
-            ...     print(f"Keys: {summary['access_keys_count']}")
-            ...     if "transfer_metrics" in summary:
-            ...         total = summary["transfer_metrics"]["bytesTransferredByUserId"]
-            ...         print(f"Total bytes: {sum(total.values())}")
-        """
+        """Get comprehensive server overview."""
         summary: dict[str, Any] = {
             "healthy": True,
-            "timestamp": __import__("time").time(),
+            "timestamp": time.time(),
         }
 
         try:
-            # Server info (force JSON for summary)
+            # Server info (force JSON)
             server = await self.get_server_info(as_json=True)
             summary["server"] = server
 
@@ -392,18 +266,7 @@ class AsyncOutlineClient(
         return summary
 
     def __repr__(self) -> str:
-        """
-        String representation (safe for logging/debugging).
-
-        Returns sanitized representation without exposing secrets.
-
-        Returns:
-            str: Safe string representation
-
-        Example:
-            >>> print(repr(client))
-            AsyncOutlineClient(host=https://server.com:12345, status=connected)
-        """
+        """Safe string representation without secrets."""
         status = "connected" if self.is_connected else "disconnected"
         cb = f", circuit={self.circuit_state}" if self.circuit_state else ""
 
@@ -418,31 +281,19 @@ class AsyncOutlineClient(
 def create_client(
     api_url: str,
     cert_sha256: str,
+    *,
+    audit_logger: AuditLogger | None = None,
+    metrics: MetricsCollector | None = None,
     **kwargs: Any,
 ) -> AsyncOutlineClient:
-    """
-    Create client with minimal parameters.
-
-    Convenience function for quick client creation.
-
-    Args:
-        api_url: API URL with secret path
-        cert_sha256: Certificate fingerprint
-        **kwargs: Additional options (timeout, retry_attempts, etc.)
-
-    Returns:
-        AsyncOutlineClient: Client instance (use as context manager)
-
-    Example:
-        >>> client = create_client(
-        ...     "https://server.com:12345/secret",
-        ...     "abc123...",
-        ...     timeout=60,
-        ... )
-        >>> async with client:
-        ...     keys = await client.get_access_keys()
-    """
-    return AsyncOutlineClient(api_url=api_url, cert_sha256=cert_sha256, **kwargs)
+    """Create client with minimal parameters."""
+    return AsyncOutlineClient(
+        api_url=api_url,
+        cert_sha256=cert_sha256,
+        audit_logger=audit_logger,
+        metrics=metrics,
+        **kwargs,
+    )
 
 
 __all__ = [
