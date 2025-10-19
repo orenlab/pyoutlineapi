@@ -13,9 +13,9 @@ Source code repository:
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from .audit import AuditDecorator, get_default_audit_logger
+from .audit import AuditDecorator, AuditLogger, get_default_audit_logger
 from .common_types import JsonPayload, QueryParams, ResponseData, Validators
 from .models import (
     AccessKey,
@@ -35,24 +35,24 @@ from .models import (
 )
 from .response_parser import JsonDict, ResponseParser
 
+if TYPE_CHECKING:
+    pass
+
+
 # ===== Mixins for Audit Support =====
 
 
 class AuditableMixin:
-    """Mixin providing audit logger access with singleton fallback.
-
-    Classes using this mixin can have an _audit_logger_instance or
-    will use the global default audit logger.
-    """
+    """Mixin providing audit logger access with singleton fallback."""
 
     @property
-    def _audit_logger(self) -> Any:
+    def _audit_logger(self) -> AuditLogger:
         """Get audit logger with singleton fallback.
 
-        Returns instance logger if set, otherwise returns shared default logger.
+        :return: Instance logger if set, otherwise shared default logger
         """
         if hasattr(self, "_audit_logger_instance"):
-            return self._audit_logger_instance
+            return self._audit_logger_instance  # type: ignore[return-value]
         return get_default_audit_logger()
 
 
@@ -60,9 +60,10 @@ class JsonFormattingMixin:
     """Mixin for handling JSON formatting preferences."""
 
     def _resolve_json_format(self, as_json: bool | None) -> bool:
-        """Resolve JSON format preference.
+        """Resolve JSON format preference using priority: parameter > config > default.
 
-        Priority: explicit parameter > instance config > default (False)
+        :param as_json: Explicit format preference
+        :return: Resolved format preference
         """
         if as_json is not None:
             return as_json
@@ -77,7 +78,6 @@ class HTTPClientProtocol(Protocol):
     """Runtime-checkable protocol for HTTP client.
 
     Defines minimal interface needed by mixins.
-    Allows isinstance() checks for duck typing.
     """
 
     async def _request(
@@ -88,9 +88,15 @@ class HTTPClientProtocol(Protocol):
         json: JsonPayload = None,
         params: QueryParams | None = None,
     ) -> ResponseData:
-        """Internal request method."""
-        ...
+        """Internal request method.
 
+        :param method: HTTP method
+        :param endpoint: API endpoint
+        :param json: Request JSON payload
+        :param params: Query parameters
+        :return: Response data
+        """
+        ...
 
 
 # ===== Server Management Mixin =====
@@ -99,11 +105,11 @@ class HTTPClientProtocol(Protocol):
 class ServerMixin(AuditableMixin, JsonFormattingMixin):
     """Server management operations.
 
-    API Endpoints:
-    - GET /server
-    - PUT /name
-    - PUT /server/hostname-for-access-keys
-    - PUT /server/port-for-new-access-keys
+    API Endpoints (based on OpenAPI schema):
+        - GET /server
+        - PUT /name
+        - PUT /server/hostname-for-access-keys
+        - PUT /server/port-for-new-access-keys
     """
 
     async def get_server_info(
@@ -113,7 +119,10 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
     ) -> Server | JsonDict:
         """Get server information and configuration.
 
-        API: GET /server
+        Based on OpenAPI: GET /server
+
+        :param as_json: Return raw JSON instead of model
+        :return: Server information
         """
         data = await self._request("GET", "server")
         return ResponseParser.parse(
@@ -130,7 +139,11 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
     async def rename_server(self: HTTPClientProtocol, name: str) -> bool:
         """Rename the server.
 
-        API: PUT /name
+        Based on OpenAPI: PUT /name
+
+        :param name: New server name
+        :return: True if successful
+        :raises ValueError: If name is empty
         """
         validated_name = Validators.validate_name(name)
         if validated_name is None:
@@ -152,7 +165,11 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
     async def set_hostname(self: HTTPClientProtocol, hostname: str) -> bool:
         """Set hostname for access keys.
 
-        API: PUT /server/hostname-for-access-keys
+        Based on OpenAPI: PUT /server/hostname-for-access-keys
+
+        :param hostname: Hostname to set
+        :return: True if successful
+        :raises ValueError: If hostname is empty
         """
         if not hostname or not hostname.strip():
             raise ValueError("Hostname cannot be empty")
@@ -175,7 +192,11 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
     async def set_default_port(self: HTTPClientProtocol, port: int) -> bool:
         """Set default port for new access keys.
 
-        API: PUT /server/port-for-new-access-keys
+        Based on OpenAPI: PUT /server/port-for-new-access-keys
+
+        :param port: Port number (1025-65535)
+        :return: True if successful
+        :raises ValueError: If port is invalid
         """
         validated_port = Validators.validate_port(port)
         request = PortRequest(port=validated_port)
@@ -193,15 +214,15 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
 class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     """Access key management operations.
 
-    API Endpoints:
-    - POST /access-keys
-    - PUT /access-keys/{id}
-    - GET /access-keys
-    - GET /access-keys/{id}
-    - DELETE /access-keys/{id}
-    - PUT /access-keys/{id}/name
-    - PUT /access-keys/{id}/data-limit
-    - DELETE /access-keys/{id}/data-limit
+    API Endpoints (based on OpenAPI schema):
+        - POST /access-keys
+        - PUT /access-keys/{id}
+        - GET /access-keys
+        - GET /access-keys/{id}
+        - DELETE /access-keys/{id}
+        - PUT /access-keys/{id}/name
+        - PUT /access-keys/{id}/data-limit
+        - DELETE /access-keys/{id}/data-limit
     """
 
     @AuditDecorator.audit_action(
@@ -225,18 +246,23 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     ) -> AccessKey | JsonDict:
         """Create new access key with auto-generated ID.
 
-        API: POST /access-keys
+        Based on OpenAPI: POST /access-keys
+
+        :param name: Key name
+        :param password: Key password
+        :param port: Custom port
+        :param method: Encryption method
+        :param limit: Data transfer limit
+        :param as_json: Return raw JSON instead of model
+        :return: Created access key
         """
-        # Validate inputs
-        if name is not None:
-            name = Validators.validate_name(name)
-        if port is not None:
-            port = Validators.validate_port(port)
+        validated_name = Validators.validate_name(name) if name is not None else None
+        validated_port = Validators.validate_port(port) if port is not None else None
 
         request = AccessKeyCreateRequest(
-            name=name,
+            name=validated_name,
             password=password,
-            port=port,
+            port=validated_port,
             method=method,
             limit=limit,
         )
@@ -272,19 +298,25 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     ) -> AccessKey | JsonDict:
         """Create access key with specific ID.
 
-        API: PUT /access-keys/{id}
+        Based on OpenAPI: PUT /access-keys/{id}
+
+        :param key_id: Desired key ID
+        :param name: Key name
+        :param password: Key password
+        :param port: Custom port
+        :param method: Encryption method
+        :param limit: Data transfer limit
+        :param as_json: Return raw JSON instead of model
+        :return: Created access key
         """
         validated_key_id = Validators.validate_key_id(key_id)
-
-        if name is not None:
-            name = Validators.validate_name(name)
-        if port is not None:
-            port = Validators.validate_port(port)
+        validated_name = Validators.validate_name(name) if name is not None else None
+        validated_port = Validators.validate_port(port) if port is not None else None
 
         request = AccessKeyCreateRequest(
-            name=name,
+            name=validated_name,
             password=password,
-            port=port,
+            port=validated_port,
             method=method,
             limit=limit,
         )
@@ -305,7 +337,10 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     ) -> AccessKeyList | JsonDict:
         """Get all access keys.
 
-        API: GET /access-keys
+        Based on OpenAPI: GET /access-keys
+
+        :param as_json: Return raw JSON instead of model
+        :return: List of access keys
         """
         data = await self._request("GET", "access-keys")
         return ResponseParser.parse(
@@ -320,7 +355,11 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     ) -> AccessKey | JsonDict:
         """Get specific access key by ID.
 
-        API: GET /access-keys/{id}
+        Based on OpenAPI: GET /access-keys/{id}
+
+        :param key_id: Access key ID
+        :param as_json: Return raw JSON instead of model
+        :return: Access key details
         """
         validated_key_id = Validators.validate_key_id(key_id)
 
@@ -337,7 +376,10 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     async def delete_access_key(self: HTTPClientProtocol, key_id: str) -> bool:
         """Delete access key.
 
-        API: DELETE /access-keys/{id}
+        Based on OpenAPI: DELETE /access-keys/{id}
+
+        :param key_id: Access key ID to delete
+        :return: True if successful
         """
         validated_key_id = Validators.validate_key_id(key_id)
 
@@ -358,7 +400,12 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     ) -> bool:
         """Rename access key.
 
-        API: PUT /access-keys/{id}/name
+        Based on OpenAPI: PUT /access-keys/{id}/name
+
+        :param key_id: Access key ID
+        :param name: New name
+        :return: True if successful
+        :raises ValueError: If name is empty
         """
         validated_key_id = Validators.validate_key_id(key_id)
         validated_name = Validators.validate_name(name)
@@ -388,7 +435,11 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     ) -> bool:
         """Set data limit for specific access key.
 
-        API: PUT /access-keys/{id}/data-limit
+        Based on OpenAPI: PUT /access-keys/{id}/data-limit
+
+        :param key_id: Access key ID
+        :param bytes_limit: Limit in bytes
+        :return: True if successful
         """
         validated_key_id = Validators.validate_key_id(key_id)
         validated_bytes = Validators.validate_non_negative(bytes_limit, "bytes_limit")
@@ -412,7 +463,10 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     ) -> bool:
         """Remove data limit from access key.
 
-        API: DELETE /access-keys/{id}/data-limit
+        Based on OpenAPI: DELETE /access-keys/{id}/data-limit
+
+        :param key_id: Access key ID
+        :return: True if successful
         """
         validated_key_id = Validators.validate_key_id(key_id)
 
@@ -428,9 +482,9 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
 class DataLimitMixin(AuditableMixin):
     """Global data limit operations.
 
-    API Endpoints:
-    - PUT /server/access-key-data-limit
-    - DELETE /server/access-key-data-limit
+    API Endpoints (based on OpenAPI schema):
+        - PUT /server/access-key-data-limit
+        - DELETE /server/access-key-data-limit
     """
 
     @AuditDecorator.audit_action(
@@ -446,7 +500,10 @@ class DataLimitMixin(AuditableMixin):
     ) -> bool:
         """Set global data limit for all access keys.
 
-        API: PUT /server/access-key-data-limit
+        Based on OpenAPI: PUT /server/access-key-data-limit
+
+        :param bytes_limit: Limit in bytes
+        :return: True if successful
         """
         validated_bytes = Validators.validate_non_negative(bytes_limit, "bytes_limit")
         request = DataLimitRequest(limit=DataLimit(bytes=validated_bytes))
@@ -464,7 +521,9 @@ class DataLimitMixin(AuditableMixin):
     async def remove_global_data_limit(self: HTTPClientProtocol) -> bool:
         """Remove global data limit.
 
-        API: DELETE /server/access-key-data-limit
+        Based on OpenAPI: DELETE /server/access-key-data-limit
+
+        :return: True if successful
         """
         data = await self._request("DELETE", "server/access-key-data-limit")
         return ResponseParser.parse_simple(data)
@@ -476,11 +535,11 @@ class DataLimitMixin(AuditableMixin):
 class MetricsMixin(AuditableMixin, JsonFormattingMixin):
     """Metrics operations.
 
-    API Endpoints:
-    - GET /metrics/enabled
-    - PUT /metrics/enabled
-    - GET /metrics/transfer
-    - GET /experimental/server/metrics
+    API Endpoints (based on OpenAPI schema):
+        - GET /metrics/enabled
+        - PUT /metrics/enabled
+        - GET /metrics/transfer
+        - GET /experimental/server/metrics
     """
 
     async def get_metrics_status(
@@ -490,7 +549,10 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
     ) -> MetricsStatusResponse | JsonDict:
         """Get metrics collection status.
 
-        API: GET /metrics/enabled
+        Based on OpenAPI: GET /metrics/enabled
+
+        :param as_json: Return raw JSON instead of model
+        :return: Metrics status
         """
         data = await self._request("GET", "metrics/enabled")
         return ResponseParser.parse(
@@ -507,7 +569,11 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
     async def set_metrics_status(self: HTTPClientProtocol, enabled: bool) -> bool:
         """Enable or disable metrics collection.
 
-        API: PUT /metrics/enabled
+        Based on OpenAPI: PUT /metrics/enabled
+
+        :param enabled: True to enable, False to disable
+        :return: True if successful
+        :raises ValueError: If enabled is not boolean
         """
         if not isinstance(enabled, bool):
             raise ValueError(f"enabled must be bool, got {type(enabled).__name__}")
@@ -527,7 +593,10 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
     ) -> ServerMetrics | JsonDict:
         """Get transfer metrics for all access keys.
 
-        API: GET /metrics/transfer
+        Based on OpenAPI: GET /metrics/transfer
+
+        :param as_json: Return raw JSON instead of model
+        :return: Transfer metrics
         """
         data = await self._request("GET", "metrics/transfer")
         return ResponseParser.parse(
@@ -542,14 +611,18 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
     ) -> ExperimentalMetrics | JsonDict:
         """Get experimental server metrics.
 
-        API: GET /experimental/server/metrics?since={since}
+        Based on OpenAPI: GET /experimental/server/metrics
+
+        :param since: Time period (e.g., '24h', '7d')
+        :param as_json: Return raw JSON instead of model
+        :return: Experimental metrics
+        :raises ValueError: If since parameter is invalid
         """
         if not since or not since.strip():
             raise ValueError("'since' parameter cannot be empty")
 
-        # Validate format (basic check)
         since = since.strip()
-        valid_suffixes = ("h", "d", "m", "s")
+        valid_suffixes = {"h", "d", "m", "s"}
         if not any(since.endswith(suffix) for suffix in valid_suffixes):
             raise ValueError(
                 f"'since' must end with h/d/m/s (e.g., '24h', '7d'), got: {since}"

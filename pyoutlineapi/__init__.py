@@ -53,13 +53,8 @@ Advanced Usage - Type Hints:
 
 from __future__ import annotations
 
-import sys
 from importlib import metadata
-from typing import Final
-
-# Version check
-if sys.version_info < (3, 10):
-    raise RuntimeError("PyOutlineAPI requires Python 3.10+")
+from typing import TYPE_CHECKING, Final, NoReturn
 
 # Core imports
 from .audit import (
@@ -72,12 +67,10 @@ from .audit import (
 from .base_client import MetricsCollector, correlation_id
 from .circuit_breaker import CircuitConfig, CircuitState
 from .client import AsyncOutlineClient, create_client
-
-# Security utilities and validators
-# Type aliases for advanced users
 from .common_types import (
     DEFAULT_SENSITIVE_KEYS,
     AuditDetails,
+    ConfigOverrides,
     Constants,
     JsonPayload,
     MetricsTags,
@@ -92,8 +85,6 @@ from .common_types import (
     mask_sensitive_data,
     secure_compare,
 )
-
-# Configuration
 from .config import (
     DevelopmentConfig,
     OutlineClientConfig,
@@ -101,8 +92,6 @@ from .config import (
     create_env_template,
     load_config,
 )
-
-# Exceptions
 from .exceptions import (
     APIError,
     CircuitOpenError,
@@ -115,8 +104,6 @@ from .exceptions import (
     get_safe_error_dict,
     is_retryable,
 )
-
-# Model imports
 from .models import (
     AccessKey,
     AccessKeyCreateRequest,
@@ -131,6 +118,9 @@ from .models import (
     ServerSummary,
 )
 
+if TYPE_CHECKING:
+    import sys
+
 # Package metadata
 try:
     __version__: str = metadata.version("pyoutlineapi")
@@ -143,74 +133,66 @@ __license__: Final[str] = "MIT"
 
 # Public API
 __all__: Final[list[str]] = [
-    # Main client
-    "AsyncOutlineClient",
-    "create_client",
-    # Configuration
-    "OutlineClientConfig",
-    "DevelopmentConfig",
-    "ProductionConfig",
-    "load_config",
-    "create_env_template",
-    # Exceptions
-    "OutlineError",
-    "APIError",
-    "CircuitOpenError",
-    "ConfigurationError",
-    "ValidationError",
-    "ConnectionError",
-    "TimeoutError",
-    "get_retry_delay",
-    "is_retryable",
-    "get_safe_error_dict",
-    # Core models
-    "AccessKey",
-    "AccessKeyList",
-    "Server",
-    "DataLimit",
-    "ServerMetrics",
-    "ExperimentalMetrics",
-    "MetricsStatusResponse",
-    # Request models
-    "AccessKeyCreateRequest",
-    "DataLimitRequest",
-    # Utility models
-    "HealthCheckResult",
-    "ServerSummary",
-    # Circuit breaker
-    "CircuitConfig",
-    "CircuitState",
-    # Security utilities
-    "secure_compare",
-    "mask_sensitive_data",
-    "is_valid_port",
-    "is_valid_bytes",
-    "is_json_serializable",
     "DEFAULT_SENSITIVE_KEYS",
-    # Constants and Validators
-    "Constants",
-    "Validators",
-    # Enterprise features - UPDATED
+    "APIError",
+    "AccessKey",
+    "AccessKeyCreateRequest",
+    "AccessKeyList",
+    "AsyncOutlineClient",
+    "AuditDetails",
     "AuditLogger",
+    "CircuitConfig",
+    "CircuitOpenError",
+    "CircuitState",
+    "ConfigOverrides",
+    "ConfigurationError",
+    "ConnectionError",
+    "Constants",
+    "DataLimit",
+    "DataLimitRequest",
     "DefaultAuditLogger",
-    "NoOpAuditLogger",
-    "get_default_audit_logger",
-    "set_default_audit_logger",
+    "DevelopmentConfig",
+    "ExperimentalMetrics",
+    "HealthCheckResult",
+    "JsonPayload",
     "MetricsCollector",
-    "correlation_id",
-    # Type aliases for advanced usage
+    "MetricsStatusResponse",
+    "MetricsTags",
+    "NoOpAuditLogger",
+    "OutlineClientConfig",
+    "OutlineError",
+    "ProductionConfig",
+    "QueryParams",
+    "ResponseData",
+    "Server",
+    "ServerMetrics",
+    "ServerSummary",
+    "TimeoutError",
     "TimestampMs",
     "TimestampSec",
-    "JsonPayload",
-    "ResponseData",
-    "QueryParams",
-    "AuditDetails",
-    "MetricsTags",
-    # Package info
-    "__version__",
+    "ValidationError",
+    "Validators",
     "__author__",
     "__email__",
     "__license__",
+    "__version__",
+    "correlation_id",
+    "create_client",
+    "create_env_template",
+    "get_default_audit_logger",
+    "get_retry_delay",
+    "get_safe_error_dict",
+    "get_version",
+    "is_json_serializable",
+    "is_retryable",
+    "is_valid_bytes",
+    "is_valid_port",
+    "load_config",
+    "mask_sensitive_data",
+    "print_type_info",
+    "quick_setup",
+    "secure_compare",
+    "set_default_audit_logger",
 ]
 
 
@@ -220,13 +202,7 @@ __all__: Final[list[str]] = [
 def get_version() -> str:
     """Get package version string.
 
-    Returns:
-        str: Package version
-
-    Example:
-        >>> import pyoutlineapi
-        >>> pyoutlineapi.get_version()
-        '0.4.0'
+    :return: Package version
     """
     return __version__
 
@@ -235,32 +211,22 @@ def quick_setup() -> None:
     """Create configuration template file for quick setup.
 
     Creates `.env.example` file with all available configuration options.
-
-    Example:
-        >>> import pyoutlineapi
-        >>> pyoutlineapi.quick_setup()
-        ✅ Created .env.example
-        📝 Edit the file with your server details
-        🚀 Then use: AsyncOutlineClient.from_env()
     """
     create_env_template()
     print("✅ Created .env.example")
     print("📝 Edit the file with your server details")
     print("🚀 Then use: AsyncOutlineClient.from_env()")
 
-def print_type_info() -> None:
-    """Print information about available type aliases for advanced usage.
 
-    Example:
-        >>> pyoutlineapi.print_type_info()
-    """
+def print_type_info() -> None:
+    """Print information about available type aliases for advanced usage."""
     info = """
 🎯 PyOutlineAPI Type Aliases for Advanced Usage
 ===============================================
 
 For creating custom AuditLogger:
     from pyoutlineapi import AuditLogger, AuditDetails
-    
+
     class MyAuditLogger:
         def log_action(
             self,
@@ -270,7 +236,7 @@ For creating custom AuditLogger:
             details: AuditDetails | None = None,
             ...
         ) -> None: ...
-        
+
         async def alog_action(
             self,
             action: str,
@@ -282,7 +248,7 @@ For creating custom AuditLogger:
 
 For creating custom MetricsCollector:
     from pyoutlineapi import MetricsCollector, MetricsTags
-    
+
     class MyMetrics:
         def increment(
             self,
@@ -300,11 +266,11 @@ Available Type Aliases:
 
 Constants and Validators:
     from pyoutlineapi import Constants, Validators
-    
+
     # Access constants
     Constants.RETRY_STATUS_CODES
     Constants.MIN_PORT, Constants.MAX_PORT
-    
+
     # Use validators
     Validators.validate_port(8080)
     Validators.validate_key_id("my-key")
@@ -314,15 +280,15 @@ Constants and Validators:
     print(info)
 
 
-# Add to public API
-__all__.extend(["get_version", "print_type_info", "quick_setup"])
-
-
 # ===== Better Error Messages =====
 
 
-def __getattr__(name: str):
-    """Provide helpful error messages for common mistakes."""
+def __getattr__(name: str) -> NoReturn:
+    """Provide helpful error messages for common mistakes.
+
+    :param name: Attribute name
+    :raises AttributeError: If attribute not found
+    """
     mistakes = {
         "OutlineClient": "Use 'AsyncOutlineClient' instead",
         "OutlineSettings": "Use 'OutlineClientConfig' instead",
@@ -339,10 +305,13 @@ def __getattr__(name: str):
 
 # ===== Interactive Help =====
 
-if hasattr(sys, "ps1"):
-    # Show help in interactive mode
-    print(f"🚀 PyOutlineAPI v{__version__}")
-    print("💡 Quick start: pyoutlineapi.quick_setup()")
-    print("🔒 Security info: pyoutlineapi.print_security_info()")
-    print("🎯 Type hints: pyoutlineapi.print_type_info()")
-    print("📚 Help: help(pyoutlineapi.AsyncOutlineClient)")
+if TYPE_CHECKING:
+    import sys
+
+    if hasattr(sys, "ps1"):
+        # Show help in interactive mode
+        print(f"🚀 PyOutlineAPI v{__version__}")
+        print("💡 Quick start: pyoutlineapi.quick_setup()")
+        print("📍 Security info: pyoutlineapi.print_security_info()")
+        print("🎯 Type hints: pyoutlineapi.print_type_info()")
+        print("📚 Help: help(pyoutlineapi.AsyncOutlineClient)")

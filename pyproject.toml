@@ -1,88 +1,329 @@
 [tool.poetry]
 name = "pyoutlineapi"
-version = "0.4.0-dev"
-description = "A modern, async-first Python client for the Outline VPN Server API with comprehensive data validation through Pydantic models."
+version = "0.4.0"
+description = "Production-ready async Python client for Outline VPN Server API with enterprise features: circuit breaker, health monitoring, audit logging, and comprehensive type safety."
 authors = ["Denis Rozhnovskiy <pytelemonbot@mail.ru>"]
 readme = "README.md"
 license = "MIT"
+homepage = "https://github.com/orenlab/pyoutlineapi"
+repository = "https://github.com/orenlab/pyoutlineapi"
+documentation = "https://orenlab.github.io/pyoutlineapi/"
 packages = [{ include = "pyoutlineapi" }]
-keywords = ["outline", "vpn", "api", "manager", "wrapper", "asyncio"]
+keywords = [
+    "outline",
+    "vpn",
+    "api",
+    "async",
+    "asyncio",
+    "aiohttp",
+    "pydantic",
+    "client",
+    "manager",
+    "enterprise",
+    "production",
+    "circuit-breaker",
+    "health-monitoring",
+    "audit-logging",
+]
 classifiers = [
+    # Development Status
+    "Development Status :: 5 - Production/Stable",
+
+    # Intended Audience
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+
+    # License
+    "License :: OSI Approved :: MIT License",
+
+    # Programming Language
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-    "Intended Audience :: Developers",
-    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
-    "Topic :: Security",
-    "Topic :: Internet :: Proxy Servers",
     "Programming Language :: Python :: 3 :: Only",
-    "Typing :: Typed",
-    "Development Status :: 5 - Production/Stable",
+
+    # Framework
     "Framework :: AsyncIO",
     "Framework :: aiohttp",
     "Framework :: Pydantic",
+    "Framework :: Pydantic :: 2",
+
+    # Topic
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Security",
+    "Topic :: Internet :: Proxy Servers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Networking",
+    "Topic :: System :: Systems Administration",
+
+    # Operating System
+    "Operating System :: OS Independent",
+
+    # Typing
+    "Typing :: Typed",
+
+    # Environment
+    "Environment :: Console",
+    "Environment :: Web Environment",
+
+    # Natural Language
+    "Natural Language :: English",
 ]
+
+[tool.poetry.urls]
+"Homepage" = "https://github.com/orenlab/pyoutlineapi"
+"Repository" = "https://github.com/orenlab/pyoutlineapi"
+"Documentation" = "https://orenlab.github.io/pyoutlineapi/"
+"Changelog" = "https://github.com/orenlab/pyoutlineapi/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/orenlab/pyoutlineapi/issues"
+"Discussions" = "https://github.com/orenlab/pyoutlineapi/discussions"
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
-pydantic = "^2.12.2"
-aiohttp = "^3.13.0"
+# Core dependencies
+aiohttp = "^3.13.1"
+pydantic = "^2.12.3"
 pydantic-settings = "^2.11.0"
+poetry-core = ">=2.1.3"
 
 [tool.poetry.group.dev.dependencies]
-aioresponses = "^0.7.8"
+# Testing
 pytest = "^8.4.2"
 pytest-asyncio = "^0.25.3"
-pytest-cov = "^5.0.0"
+pytest-cov = "^6.0.0"
+pytest-timeout = "^2.3.1"
+pytest-xdist = "^3.6.1"
+aioresponses = "^0.7.8"
+
+# Type checking
+mypy = "^1.13.0"
+types-aiofiles = "^24.1.0"
+
+# Linting and formatting
 ruff = "^0.8.6"
+
+# Documentation
 pdoc = "^15.0.4"
+rich = "^14.2.0"
+
+# Metrics (optional, for development)
+sortedcontainers = "^2.4.0"
+
+# ===== Pytest Configuration =====
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --cov=pyoutlineapi --cov-report=html --cov-report=xml --cov-report=term-missing"
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=pyoutlineapi",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-branch",
+    "--cov-fail-under=80",
+    "--tb=short",
+    "--maxfail=5",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "network: marks tests that require network access",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+timeout = 300
+timeout_method = "thread"
+
+[tool.coverage.run]
+source = ["pyoutlineapi"]
+omit = [
+    "tests/*",
+    "**/__pycache__/*",
+    "**/site-packages/*",
+]
+branch = true
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+    "@abstractmethod",
+    "@abc.abstractmethod",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+# ===== Ruff Configuration =====
 
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "dist",
+    "build",
+]
 
 [tool.ruff.lint]
+# Базовый набор правил для начала
 select = [
-    "E", # pycodestyle errors
-    "W", # pycodestyle warnings
-    "F", # pyflakes
-    "I", # isort
-    "B", # flake8-bugbear
-    "C4", # flake8-comprehensions
-    "UP", # pyupgrade
-    "ARG", # flake8-unused-arguments
-    "SIM", # flake8-simplify
-    "TCH", # flake8-type-checking
-    "PTH", # flake8-use-pathlib
-    "ASYNC", # flake8-async
+    # Pyflakes - критические ошибки
+    "F",
+    # pycodestyle - стиль кода
+    "E",
+    "W",
+    # isort - импорты
+    "I",
+    # pep8-naming - именование
+    "N",
+    # pyupgrade - современный Python
+    "UP",
+    # flake8-bugbear - частые ошибки
+    "B",
+    # flake8-comprehensions - списковые выражения
+    "C4",
+    # flake8-simplify - упрощение кода
+    "SIM",
+    # Ruff-specific rules
+    "RUF",
+    "D",      # pydocstyle - после написания документации
+    "ANN", # flake8-annotations - когда типизируете весь код
+    "S", # flake8-bandit - для security audit
+    "ASYNC", # async правила
+    "PT", # pytest-style
 ]
+
+# Более мягкий ignore список
 ignore = [
-    "E501", # line too long, handled by black
+    # Line too long (handled by formatter)
+    "E501",
+    # Too many arguments (часто нужно в API)
+    "PLR0913",
+    # Too many branches
+    "PLR0912",
+    # Too many statements
+    "PLR0915",
+    # Magic value comparison
+    "PLR2004",
+    # Module level import not at top (иногда нужно)
+    "E402",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ARG", "S101"]  # Allow unused arguments and assert statements in tests
+"tests/*" = [
+    "S101",    # Assert allowed in tests
+    "ARG",     # Unused arguments OK in tests
+    "PLR2004", # Magic values OK in tests
+    "ANN",     # Type annotations not required in tests
+    "D",       # Docstrings not required in tests
+    "E501",    # Long lines OK in tests
+]
+"__init__.py" = [
+    "F401",    # Imported but unused (re-exports)
+    "D104",    # Missing docstring in __init__
+    "E402",    # Module level import not at top
+]
+"demo.py" = [
+    "T201",    # Print statements OK in demo
+    "INP001",  # Not a package
+]
+"examples/*" = [
+    "T201",    # Print statements OK in examples
+    "INP001",  # Not a package
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyoutlineapi"]
+combine-as-imports = true
+split-on-trailing-comma = true
 
-[tool.poetry.urls]
-homepage = "https://github.com/orenlab/pyoutlineapi"
-repository = "https://github.com/orenlab/pyoutlineapi"
-documentation = "https://orenlab.github.io/pyoutlineapi/"
-changelog = "https://github.com/orenlab/pyoutlineapi/blob/main/CHANGELOG.md"
-"Bug Tracker" = "https://github.com/orenlab/pyoutlineapi/issues"
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "double"
+multiline-quotes = "double"
+docstring-quotes = "double"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# ===== MyPy Configuration =====
+
+[tool.mypy]
+python_version = "3.10"
+# Базовые проверки
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+show_error_codes = true
+show_column_numbers = true
+pretty = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_decorators = false
+disallow_any_generics = false
+disallow_untyped_calls = false
+disallow_subclassing_any = false
+warn_unreachable = true
+implicit_reexport = true
+strict_optional = true
+strict_concatenate = false
+
+[[tool.mypy.overrides]]
+module = [
+    "aiohttp.*",
+    "aioresponses.*",
+    "sortedcontainers.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = false
+
+# ===== Build System =====
 
 [build-system]
-requires = ["poetry-core>=1.9.1"]
+requires = ["poetry-core>=2.1.3"]
 build-backend = "poetry.core.masonry.api"

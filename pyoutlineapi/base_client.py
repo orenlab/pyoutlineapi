@@ -16,18 +16,14 @@ from __future__ import annotations
 import asyncio
 import binascii
 import logging
-import time
+import secrets
 import uuid
 from asyncio import Semaphore
 from contextvars import ContextVar
-from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
-    NoReturn,
-    ParamSpec,
     Protocol,
-    TypeVar,
 )
 from urllib.parse import urlparse
 
@@ -59,11 +55,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-P = ParamSpec("P")
-T = TypeVar("T")
-
-# Context variable for correlation ID
+# Context variable for correlation ID with secure random default
 correlation_id: ContextVar[str] = ContextVar("correlation_id", default="")
+
+
+def _log_if_enabled(level: int, message: str, **kwargs: Any) -> None:
+    """Centralized logging with level check (DRY).
+
+    :param level: Logging level
+    :param message: Log message
+    :param kwargs: Additional logging kwargs
+    """
+    if logger.isEnabledFor(level):
+        logger.log(level, message, **kwargs)
 
 
 # ===== Metrics Collector Protocol =====
@@ -73,100 +77,220 @@ class MetricsCollector(Protocol):
     """Protocol for metrics collection."""
 
     def increment(self, metric: str, *, tags: MetricsTags | None = None) -> None:
-        """Increment counter metric."""
+        """Increment counter metric.
+
+        :param metric: Metric name
+        :param tags: Optional metric tags
+        """
         ...
 
     def timing(
         self, metric: str, value: float, *, tags: MetricsTags | None = None
     ) -> None:
-        """Record timing metric."""
+        """Record timing metric.
+
+        :param metric: Metric name
+        :param value: Timing value in seconds
+        :param tags: Optional metric tags
+        """
         ...
 
     def gauge(
         self, metric: str, value: float, *, tags: MetricsTags | None = None
     ) -> None:
-        """Set gauge metric."""
+        """Set gauge metric.
+
+        :param metric: Metric name
+        :param value: Gauge value
+        :param tags: Optional metric tags
+        """
         ...
 
 
 class NoOpMetrics:
     """No-op metrics collector (default)."""
 
+    __slots__ = ()
+
     def increment(self, metric: str, *, tags: MetricsTags | None = None) -> None:
-        pass
+        """No-op increment."""
 
     def timing(
         self, metric: str, value: float, *, tags: MetricsTags | None = None
     ) -> None:
-        pass
+        """No-op timing."""
 
     def gauge(
         self, metric: str, value: float, *, tags: MetricsTags | None = None
     ) -> None:
-        pass
+        """No-op gauge."""
 
 
 # ===== Rate Limiter =====
 
 
 class RateLimiter:
-    """Rate limiter with dynamic limit adjustment."""
+    """Rate limiter with dynamic limit adjustment and thread-safety."""
 
     __slots__ = ("_limit", "_lock", "_semaphore")
 
     def __init__(self, limit: int) -> None:
+        """Initialize rate limiter.
+
+        :param limit: Maximum concurrent operations
+        :raises ValueError: If limit is less than 1
+        """
+        if limit < 1:
+            raise ValueError("Rate limit must be at least 1")
+
         self._limit = limit
         self._semaphore = Semaphore(limit)
         self._lock = asyncio.Lock()
 
     async def __aenter__(self) -> RateLimiter:
+        """Enter rate limiter context."""
         await self._semaphore.acquire()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object | None,
+    ) -> None:
+        """Exit rate limiter context."""
         self._semaphore.release()
 
     @property
     def limit(self) -> int:
+        """Get current rate limit.
+
+        :return: Maximum concurrent operations
+        """
         return self._limit
 
     @property
     def available(self) -> int:
-        """Get available slots (safe access to internal state)."""
+        """Get available slots.
+
+        :return: Number of available slots
+        """
         try:
-            return getattr(self._semaphore, "_value", 0)
-        except AttributeError:
-            logger.warning("Cannot access semaphore value")
+            value = getattr(self._semaphore, "_value", None)
+            return value if isinstance(value, int) else 0
+        except (AttributeError, TypeError):
+            _log_if_enabled(
+                logging.WARNING,
+                "Cannot access semaphore value",
+                exc_info=True,
+            )
             return 0
 
     @property
     def active(self) -> int:
-        return self._limit - self.available
+        """Get active operations count.
+
+        :return: Number of active operations
+        """
+        return max(0, self._limit - self.available)
 
     async def set_limit(self, new_limit: int) -> None:
+        """Change rate limit dynamically.
+
+        :param new_limit: New rate limit value
+        :raises ValueError: If new_limit is less than 1
+        """
         if new_limit < 1:
             raise ValueError("Rate limit must be at least 1")
 
         async with self._lock:
+            if new_limit == self._limit:
+                return
+
+            old_limit = self._limit
             self._limit = new_limit
             self._semaphore = Semaphore(new_limit)
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Rate limit changed to {new_limit}")
+            _log_if_enabled(
+                logging.DEBUG,
+                f"Rate limit changed from {old_limit} to {new_limit}",
+            )
 
 
-def _ensure_session(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
-    """Ensure session is initialized before operation."""
+# ===== Retry Helper =====
 
-    @wraps(func)
-    async def wrapper(self: BaseHTTPClient, *args: P.args, **kwargs: P.kwargs) -> T:
-        if not self._session or self._session.closed:
-            raise RuntimeError("Client session not initialized")
-        if self._shutdown_event.is_set():
-            raise RuntimeError("Client is shutting down")
-        return await func(self, *args, **kwargs)
 
-    return wrapper
+class RetryHelper:
+    """Helper class for retry logic with exponential backoff (DRY)."""
+
+    __slots__ = ()
+
+    @staticmethod
+    async def execute_with_retry(
+        func: Callable[[], Awaitable[ResponseData]],
+        endpoint: str,
+        retry_attempts: int,
+        metrics: MetricsCollector,
+    ) -> ResponseData:
+        """Execute request with retry logic.
+
+        :param func: Request function to execute
+        :param endpoint: API endpoint
+        :param retry_attempts: Number of retry attempts
+        :param metrics: Metrics collector
+        :return: Response data
+        :raises APIError: If all retry attempts fail
+        """
+        last_error: Exception | None = None
+
+        for attempt in range(retry_attempts + 1):
+            try:
+                return await func()
+
+            except (OutlineTimeoutError, OutlineConnectionError, APIError) as error:
+                last_error = error
+
+                _log_if_enabled(
+                    logging.WARNING,
+                    f"Request to {endpoint} failed "
+                    f"(attempt {attempt + 1}/{retry_attempts + 1}): {error}",
+                )
+
+                # Don't retry non-retryable errors
+                if (
+                    isinstance(error, APIError)
+                    and error.status_code
+                    and error.status_code not in Constants.RETRY_STATUS_CODES
+                ):
+                    raise
+
+                # Exponential backoff with jitter
+                if attempt < retry_attempts:
+                    delay = RetryHelper._calculate_delay(attempt)
+                    metrics.increment(
+                        "outline.request.retry",
+                        tags={"endpoint": endpoint, "attempt": str(attempt + 1)},
+                    )
+                    await asyncio.sleep(delay)
+
+        metrics.increment("outline.request.exhausted", tags={"endpoint": endpoint})
+
+        raise APIError(
+            f"Request failed after {retry_attempts + 1} attempts",
+            endpoint=endpoint,
+        ) from last_error
+
+    @staticmethod
+    def _calculate_delay(attempt: int) -> float:
+        """Calculate retry delay with exponential backoff and jitter.
+
+        :param attempt: Current attempt number
+        :return: Delay in seconds
+        """
+        base_delay = Constants.DEFAULT_RETRY_DELAY * (attempt + 1)
+        # Add jitter: ±20% randomization
+        jitter = base_delay * 0.2 * (secrets.randbelow(40) - 20) / 100
+        return max(0.1, base_delay + jitter)
 
 
 # ===== Base HTTP Client =====
@@ -175,17 +299,19 @@ def _ensure_session(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]
 class BaseHTTPClient:
     """Enhanced base HTTP client with enterprise features.
 
-    FEATURES:
-    - Unified audit logging (via audit module)
-    - Correlation ID tracking
-    - Metrics collection
-    - Graceful shutdown
-    - Circuit breaker (optional)
-    - Rate limiting
+    Provides unified audit logging, correlation ID tracking, metrics collection,
+    graceful shutdown, circuit breaker support, and rate limiting.
+
+    Security features:
+    - Certificate pinning via SHA-256 fingerprint
+    - Secure random correlation IDs
+    - Request tracking and timeout enforcement
+    - Graceful shutdown to prevent data loss
     """
 
     __slots__ = (
         "_active_requests",
+        "_active_requests_lock",
         "_api_url",
         "_audit_logger",
         "_cert_sha256",
@@ -195,7 +321,9 @@ class BaseHTTPClient:
         "_metrics",
         "_rate_limiter",
         "_retry_attempts",
+        "_retry_helper",
         "_session",
+        "_session_lock",
         "_shutdown_event",
         "_timeout",
         "_user_agent",
@@ -216,44 +344,91 @@ class BaseHTTPClient:
         audit_logger: AuditLogger | None = None,
         metrics: MetricsCollector | None = None,
     ) -> None:
-        """Initialize base HTTP client with enterprise features."""
+        """Initialize base HTTP client.
+
+        :param api_url: Outline server API URL
+        :param cert_sha256: SHA-256 certificate fingerprint
+        :param timeout: Request timeout in seconds
+        :param retry_attempts: Number of retry attempts
+        :param max_connections: Connection pool size
+        :param user_agent: Custom user agent string
+        :param enable_logging: Enable debug logging
+        :param circuit_config: Circuit breaker configuration
+        :param rate_limit: Maximum concurrent requests
+        :param audit_logger: Custom audit logger
+        :param metrics: Custom metrics collector
+        :raises ValueError: If parameters are invalid
+        """
+        # Validate and sanitize inputs
         self._api_url = Validators.validate_url(api_url).rstrip("/")
         self._cert_sha256 = Validators.validate_cert_fingerprint(cert_sha256)
 
-        self._timeout = aiohttp.ClientTimeout(total=timeout)
+        # Validate numeric parameters
+        self._validate_numeric_params(timeout, retry_attempts, max_connections)
+
+        self._timeout = aiohttp.ClientTimeout(total=float(timeout))
         self._retry_attempts = retry_attempts
         self._max_connections = max_connections
         self._user_agent = user_agent or Constants.DEFAULT_USER_AGENT
         self._enable_logging = enable_logging
 
+        # Session management with thread-safety
         self._session: aiohttp.ClientSession | None = None
+        self._session_lock = asyncio.Lock()
         self._circuit_breaker: CircuitBreaker | None = None
 
         if circuit_config is not None:
             self._init_circuit_breaker(circuit_config)
 
+        # Security and performance features
         self._rate_limiter = RateLimiter(rate_limit)
         self._audit_logger = audit_logger or NoOpAuditLogger()
         self._metrics = metrics or NoOpMetrics()
+        self._retry_helper = RetryHelper()
 
-        # Graceful shutdown support
+        # Request tracking with thread-safety
         self._active_requests: set[asyncio.Task[Any]] = set()
+        self._active_requests_lock = asyncio.Lock()
         self._shutdown_event = asyncio.Event()
 
+    @staticmethod
+    def _validate_numeric_params(
+        timeout: int, retry_attempts: int, max_connections: int
+    ) -> None:
+        """Validate numeric parameters (DRY).
+
+        :param timeout: Timeout value
+        :param retry_attempts: Retry attempts value
+        :param max_connections: Max connections value
+        :raises ValueError: If any parameter is invalid
+        """
+        if timeout < 1:
+            raise ValueError("Timeout must be at least 1 second")
+        if retry_attempts < 0:
+            raise ValueError("Retry attempts cannot be negative")
+        if max_connections < 1:
+            raise ValueError("Max connections must be at least 1")
+
     def _init_circuit_breaker(self, config: CircuitConfig) -> None:
-        """Initialize circuit breaker with adjusted timeout."""
+        """Initialize circuit breaker with adjusted timeout.
+
+        :param config: Circuit breaker configuration
+        """
         from .circuit_breaker import CircuitBreaker, CircuitConfig
 
+        # Calculate worst-case timeout considering retries
         max_retry_time = self._timeout.total * (self._retry_attempts + 1)
         max_delays = sum(
-            Constants.DEFAULT_RETRY_DELAY * i
-            for i in range(1, self._retry_attempts + 1)
+            Constants.DEFAULT_RETRY_DELAY * (i + 1) for i in range(self._retry_attempts)
         )
         cb_timeout = max_retry_time + max_delays + 5.0
 
         if config.call_timeout < cb_timeout:
-            if self._enable_logging:
-                logger.info(f"Adjusting circuit timeout to {cb_timeout}s")
+            _log_if_enabled(
+                logging.INFO,
+                f"Adjusting circuit timeout from {config.call_timeout}s "
+                f"to {cb_timeout}s for safety",
+            )
             config = CircuitConfig(
                 failure_threshold=config.failure_threshold,
                 recovery_timeout=config.recovery_timeout,
@@ -261,45 +436,78 @@ class BaseHTTPClient:
                 call_timeout=cb_timeout,
             )
 
+        # Use hostname from URL for circuit breaker name
+        hostname = urlparse(self._api_url).netloc or "unknown"
         self._circuit_breaker = CircuitBreaker(
-            name=f"outline-{urlparse(self._api_url).netloc}",
+            name=f"outline-{hostname}",
             config=config,
         )
 
     async def __aenter__(self) -> BaseHTTPClient:
+        """Enter async context manager.
+
+        :return: Self
+        """
         await self._init_session()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object | None,
+    ) -> None:
+        """Exit async context manager."""
         await self.shutdown()
 
     async def _init_session(self) -> None:
-        """Initialize HTTP session."""
-        connector = aiohttp.TCPConnector(
-            ssl=self._create_ssl_context(),
-            limit=self._max_connections,
-            enable_cleanup_closed=True,
-        )
+        """Initialize HTTP session with SSL context and thread-safety."""
+        async with self._session_lock:
+            if self._session is not None:
+                return
 
-        self._session = aiohttp.ClientSession(
-            timeout=self._timeout,
-            connector=connector,
-            headers={"User-Agent": self._user_agent},
-            raise_for_status=False,
-        )
+            connector = aiohttp.TCPConnector(
+                ssl=self._create_ssl_context(),
+                limit=self._max_connections,
+                enable_cleanup_closed=True,
+                force_close=False,
+                ttl_dns_cache=300,
+            )
 
-        if self._enable_logging:
-            safe_url = Validators.sanitize_url_for_logging(self.api_url)
-            logger.info(f"Session initialized for {safe_url}")
+            self._session = aiohttp.ClientSession(
+                timeout=self._timeout,
+                connector=connector,
+                headers={"User-Agent": self._user_agent},
+                raise_for_status=False,
+                trust_env=False,
+            )
+
+            if self._enable_logging:
+                safe_url = Validators.sanitize_url_for_logging(self.api_url)
+                _log_if_enabled(logging.INFO, f"Session initialized for {safe_url}")
 
     def _create_ssl_context(self) -> Fingerprint:
-        """Create SSL fingerprint for certificate validation."""
+        """Create SSL fingerprint for certificate validation.
+
+        :return: SSL fingerprint
+        :raises ValueError: If certificate fingerprint is invalid
+        """
         try:
-            return Fingerprint(binascii.unhexlify(self._cert_sha256.get_secret_value()))
-        except binascii.Error as e:
+            fingerprint_bytes = binascii.unhexlify(self._cert_sha256.get_secret_value())
+            return Fingerprint(fingerprint_bytes)
+        except (binascii.Error, TypeError, ValueError) as e:
             raise ValueError("Invalid certificate fingerprint format") from e
 
-    @_ensure_session
+    async def _ensure_session(self) -> None:
+        """Ensure session is initialized.
+
+        :raises RuntimeError: If session not initialized or shutting down
+        """
+        if not self._session or self._session.closed:
+            raise RuntimeError("Client session not initialized")
+        if self._shutdown_event.is_set():
+            raise RuntimeError("Client is shutting down")
+
     async def _request(
         self,
         method: str,
@@ -310,26 +518,25 @@ class BaseHTTPClient:
     ) -> ResponseData:
         """Make HTTP request with enterprise features.
 
-        Features:
-        - Correlation ID tracking
-        - Metrics collection
-        - Rate limiting
-        - Circuit breaker
-        - Audit logging (if needed at HTTP level)
+        :param method: HTTP method
+        :param endpoint: API endpoint
+        :param json: Request JSON payload
+        :param params: Query parameters
+        :return: Response data
         """
-        # Generate/get correlation ID
-        cid = correlation_id.get() or str(uuid.uuid4())
+        await self._ensure_session()
+
+        # Generate secure correlation ID
+        cid = correlation_id.get() or self._generate_correlation_id()
         correlation_id.set(cid)
 
-        # Rate limiting
         async with self._rate_limiter:
-            # Track active request
             task = asyncio.current_task()
             if task:
-                self._active_requests.add(task)
+                async with self._active_requests_lock:
+                    self._active_requests.add(task)
 
             try:
-                # Use circuit breaker if available
                 if self._circuit_breaker:
                     try:
                         return await self._circuit_breaker.call(
@@ -346,14 +553,22 @@ class BaseHTTPClient:
                         )
                         raise
 
-                # Direct call
                 return await self._do_request(
                     method, endpoint, json=json, params=params, correlation_id=cid
                 )
 
             finally:
                 if task:
-                    self._active_requests.discard(task)
+                    async with self._active_requests_lock:
+                        self._active_requests.discard(task)
+
+    @staticmethod
+    def _generate_correlation_id() -> str:
+        """Generate cryptographically secure correlation ID.
+
+        :return: Secure random correlation ID
+        """
+        return secrets.token_bytes(8).hex()
 
     async def _do_request(
         self,
@@ -364,13 +579,20 @@ class BaseHTTPClient:
         params: QueryParams | None = None,
         correlation_id: str,
     ) -> ResponseData:
-        """Execute HTTP request with metrics and tracing."""
+        """Execute HTTP request with metrics and tracing.
+
+        :param method: HTTP method
+        :param endpoint: API endpoint
+        :param json: Request JSON payload
+        :param params: Query parameters
+        :param correlation_id: Request correlation ID
+        :return: Response data
+        """
         url = self._build_url(endpoint)
-        start_time = time.time()
+        start_time = asyncio.get_event_loop().time()
 
         async def _make_request() -> ResponseData:
             try:
-                # Add correlation ID to headers
                 headers = {
                     "X-Correlation-ID": correlation_id,
                     "X-Request-ID": str(uuid.uuid4()),
@@ -379,18 +601,18 @@ class BaseHTTPClient:
                 async with self._session.request(  # type: ignore[union-attr]
                     method, url, json=json, params=params, headers=headers
                 ) as response:
-                    duration = time.time() - start_time
+                    duration = asyncio.get_event_loop().time() - start_time
 
                     if self._enable_logging:
                         safe_endpoint = Validators.sanitize_endpoint_for_logging(
                             endpoint
                         )
-                        logger.debug(
+                        _log_if_enabled(
+                            logging.DEBUG,
                             f"[{correlation_id}] {method} {safe_endpoint} -> {response.status}",
                             extra={"correlation_id": correlation_id},
                         )
 
-                    # Metrics
                     self._metrics.timing(
                         "outline.request.duration",
                         duration,
@@ -413,16 +635,24 @@ class BaseHTTPClient:
                         tags={"method": method, "endpoint": endpoint},
                     )
 
+                    # Handle no-content responses
                     if response.status == 204:
                         return {"success": True}
 
+                    # Parse JSON response safely
                     try:
                         return await response.json()
-                    except aiohttp.ContentTypeError:
-                        return {"success": True}
+                    except (aiohttp.ContentTypeError, ValueError):
+                        if 200 <= response.status < 300:
+                            return {"success": True}
+                        raise APIError(
+                            f"Invalid JSON response from {endpoint}",
+                            status_code=response.status,
+                            endpoint=endpoint,
+                        ) from None
 
             except asyncio.TimeoutError as e:
-                duration = time.time() - start_time
+                duration = asyncio.get_event_loop().time() - start_time
                 self._metrics.timing(
                     "outline.request.timeout",
                     duration,
@@ -437,9 +667,10 @@ class BaseHTTPClient:
                 self._metrics.increment(
                     "outline.connection.error", tags={"endpoint": endpoint}
                 )
+                hostname = urlparse(url).netloc or "unknown"
                 raise OutlineConnectionError(
                     f"Failed to connect: {e}",
-                    host=urlparse(url).netloc,
+                    host=hostname,
                 ) from e
 
             except aiohttp.ClientError as e:
@@ -449,62 +680,31 @@ class BaseHTTPClient:
                 )
                 raise APIError(f"Request failed: {e}", endpoint=endpoint) from e
 
-        return await self._retry_request(_make_request, endpoint)
-
-    async def _retry_request(
-        self,
-        request_func: Callable[[], Awaitable[ResponseData]],
-        endpoint: str,
-    ) -> ResponseData:
-        """Execute request with retry logic and metrics."""
-        last_error: Exception | None = None
-
-        for attempt in range(self._retry_attempts + 1):
-            try:
-                return await request_func()
-
-            except (OutlineTimeoutError, OutlineConnectionError, APIError) as error:
-                last_error = error
-
-                if self._enable_logging:
-                    logger.warning(
-                        f"Request to {endpoint} failed "
-                        f"(attempt {attempt + 1}/{self._retry_attempts + 1}): {error}"
-                    )
-
-                if (
-                    isinstance(error, APIError)
-                    and error.status_code not in Constants.RETRY_STATUS_CODES
-                ):
-                    raise
-
-                if attempt < self._retry_attempts:
-                    delay = Constants.DEFAULT_RETRY_DELAY * (attempt + 1)
-                    self._metrics.increment(
-                        "outline.request.retry",
-                        tags={"endpoint": endpoint, "attempt": str(attempt + 1)},
-                    )
-                    await asyncio.sleep(delay)
-
-        self._metrics.increment(
-            "outline.request.exhausted", tags={"endpoint": endpoint}
+        return await self._retry_helper.execute_with_retry(
+            _make_request, endpoint, self._retry_attempts, self._metrics
         )
 
-        raise APIError(
-            f"Request failed after {self._retry_attempts + 1} attempts",
-            endpoint=endpoint,
-        ) from last_error
-
     def _build_url(self, endpoint: str) -> str:
-        return f"{self._api_url}/{endpoint.lstrip('/')}"
+        """Build full URL from endpoint.
+
+        :param endpoint: API endpoint
+        :return: Full URL
+        """
+        clean_endpoint = endpoint.lstrip("/")
+        return f"{self._api_url}/{clean_endpoint}"
 
     @staticmethod
-    async def _handle_error(response: ClientResponse, endpoint: str) -> NoReturn:
-        """Handle error response and raise appropriate exception."""
+    async def _handle_error(response: ClientResponse, endpoint: str) -> None:
+        """Handle error response and raise appropriate exception.
+
+        :param response: HTTP response
+        :param endpoint: API endpoint
+        :raises APIError: Always raises with error details
+        """
         try:
             error_data = await response.json()
-            message = error_data.get("message", response.reason)
-        except (ValueError, aiohttp.ContentTypeError):
+            message = error_data.get("message", response.reason or "Unknown error")
+        except (ValueError, aiohttp.ContentTypeError, TypeError):
             message = response.reason or "Unknown error"
 
         raise APIError(message, status_code=response.status, endpoint=endpoint)
@@ -515,63 +715,114 @@ class BaseHTTPClient:
         """Graceful shutdown with timeout.
 
         Waits for active requests to complete before closing.
+
+        :param timeout: Maximum time to wait for active requests (seconds)
         """
+        if self._shutdown_event.is_set():
+            return
+
         self._shutdown_event.set()
 
-        if self._active_requests:
-            logger.info(f"Waiting for {len(self._active_requests)} active requests...")
+        # Get snapshot of active requests
+        async with self._active_requests_lock:
+            active_requests = list(self._active_requests)
+
+        if active_requests:
+            _log_if_enabled(
+                logging.INFO,
+                f"Waiting for {len(active_requests)} active requests...",
+            )
 
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*self._active_requests, return_exceptions=True),
+                    asyncio.gather(*active_requests, return_exceptions=True),
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
-                logger.warning(
-                    f"Shutdown timeout, cancelling {len(self._active_requests)} requests"
+                _log_if_enabled(
+                    logging.WARNING,
+                    f"Shutdown timeout, cancelling {len(active_requests)} requests",
                 )
-                for task in self._active_requests:
-                    task.cancel()
+                for task in active_requests:
+                    if not task.done():
+                        task.cancel()
 
-        if self._session and not self._session.closed:
-            await self._session.close()
-            self._session = None
+        # Close session
+        async with self._session_lock:
+            if self._session and not self._session.closed:
+                await self._session.close()
+                self._session = None
+
+        _log_if_enabled(logging.DEBUG, "HTTP client shutdown complete")
 
     # ===== Properties =====
 
     @property
     def api_url(self) -> str:
+        """Get sanitized API URL without secret path.
+
+        :return: Sanitized API URL
+        """
         parsed = urlparse(self._api_url)
         return f"{parsed.scheme}://{parsed.netloc}"
 
     @property
     def is_connected(self) -> bool:
+        """Check if session is connected.
+
+        :return: True if connected
+        """
         return self._session is not None and not self._session.closed
 
     @property
     def circuit_state(self) -> str | None:
+        """Get circuit breaker state.
+
+        :return: Circuit state name or None if not enabled
+        """
         if self._circuit_breaker:
             return self._circuit_breaker.state.name
         return None
 
     @property
     def rate_limit(self) -> int:
+        """Get current rate limit.
+
+        :return: Maximum concurrent requests
+        """
         return self._rate_limiter.limit
 
     @property
     def active_requests(self) -> int:
+        """Get number of active requests.
+
+        :return: Active request count
+        """
         return len(self._active_requests)
 
     @property
     def available_slots(self) -> int:
+        """Get number of available rate limit slots.
+
+        :return: Available slots count
+        """
         return self._rate_limiter.available
 
     # ===== Management Methods =====
 
     async def set_rate_limit(self, new_limit: int) -> None:
+        """Change rate limit dynamically.
+
+        :param new_limit: New rate limit value
+        :raises ValueError: If new_limit is invalid
+        """
         await self._rate_limiter.set_limit(new_limit)
 
     def get_rate_limiter_stats(self) -> dict[str, int]:
+        """Get rate limiter statistics.
+
+        :return: Statistics dictionary
+        """
         return {
             "limit": self._rate_limiter.limit,
             "active": len(self._active_requests),
@@ -579,12 +830,20 @@ class BaseHTTPClient:
         }
 
     async def reset_circuit_breaker(self) -> bool:
+        """Reset circuit breaker to closed state.
+
+        :return: True if reset successful, False if not enabled
+        """
         if self._circuit_breaker:
             await self._circuit_breaker.reset()
             return True
         return False
 
     def get_circuit_metrics(self) -> dict[str, Any] | None:
+        """Get circuit breaker metrics.
+
+        :return: Metrics dictionary or None if not enabled
+        """
         if not self._circuit_breaker:
             return None
 
@@ -598,4 +857,8 @@ class BaseHTTPClient:
         }
 
 
-__all__ = ["BaseHTTPClient", "MetricsCollector", "correlation_id"]
+__all__ = [
+    "BaseHTTPClient",
+    "MetricsCollector",
+    "correlation_id",
+]
