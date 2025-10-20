@@ -1778,7 +1778,7 @@ Incident ID: INC-{datetime.now().strftime('%Y%m%d-%H%M%S')}
 
 | Version | Date       | Changes                            |
 |---------|------------|------------------------------------|
-| 1.0.0   | 2025-01-XX | Initial security policy for v0.4.0 |
+| 1.0.0   | 2025-10-20 | Initial security policy for v0.4.0 |
 
 ---
 
