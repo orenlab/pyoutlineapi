@@ -7,425 +7,512 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.4.0] - 2025-10-XX
 
-### 🎉 Major Release - Complete Rewrite
+### 🎯 Major Release - Enterprise-Grade Refactoring
 
-Version 0.4.0 represents a complete architectural overhaul focused on production readiness, security, and developer
-experience. This release introduces **circuit breaker pattern**, **rate limiting**, **health monitoring**, and **batch
-operations** while maintaining full backward compatibility with the Outline API.
+Version 0.4.0 represents a complete architectural overhaul of PyOutlineAPI, transforming it from a basic API client into
+a production-ready, enterprise-grade library with advanced resilience patterns, comprehensive monitoring, and
+professional-grade code quality.
+
+---
 
 ### ✨ Added
 
-#### Core Features
+#### **Enterprise Features**
 
 - **Circuit Breaker Pattern** (`circuit_breaker.py`)
-    - Automatic failure detection and recovery
-    - Configurable thresholds and timeouts
-    - Three states: CLOSED, OPEN, HALF_OPEN
-    - Metrics tracking (success rate, total calls, state changes)
-    - Manual reset capability
-    - Example:
-      ```python
-      config = OutlineClientConfig(
-          api_url="...",
-          cert_sha256="...",
-          enable_circuit_breaker=True,
-          circuit_failure_threshold=5,
-          circuit_recovery_timeout=60.0,
-      )
-      ```
+    - Automatic failure detection and recovery with configurable thresholds
+    - Three-state circuit (CLOSED, OPEN, HALF_OPEN) with smart transitions
+    - Comprehensive metrics tracking (success rate, failure rate, state changes)
+    - Timeout enforcement with exponential backoff
+    - Thread-safe implementation with asyncio.Lock protection
+    - Configurable via `CircuitConfig` with validation
+    - Example: Protects against cascading failures in distributed systems
 
-- **Rate Limiting**
-    - Dynamic rate limit adjustment during runtime
-    - Configurable maximum concurrent requests (default: 100)
-    - Protection against API overload
-    - Real-time statistics (active, available, limit)
-    - Methods: `set_rate_limit()`, `get_rate_limiter_stats()`
-
-- **Advanced Configuration System** (`config.py`)
-    - `OutlineClientConfig` with pydantic-settings integration
-    - Environment variable support with `OUTLINE_` prefix
-    - `DevelopmentConfig` and `ProductionConfig` presets
-    - `create_env_template()` helper for quick setup
-    - `get_sanitized_config()` for safe logging
-    - Support for `.env` files
-
-- **Security Enhancements** (`common_types.py`)
-    - `SecretStr` for sensitive data (cert_sha256, passwords)
-    - Input validation with `Validators` class
-    - Path traversal protection in key_id validation
-    - URL sanitization for logs: `sanitize_url_for_logging()`
-    - `mask_sensitive_data()` utility function
-    - Certificate fingerprint validation
-
-#### Optional Addons
+- **Audit Logging System** (`audit.py`)
+    - Production-ready audit logger with async queue processing
+    - Singleton pattern for global audit logger management
+    - `@AuditDecorator` for automatic action logging
+    - Sensitive data sanitization (passwords, tokens, secrets)
+    - Structured logging with correlation IDs for request tracing
+    - Support for both sync and async logging operations
+    - Graceful shutdown with queue draining
+    - `NoOpAuditLogger` for disabling audit without code changes
 
 - **Health Monitoring** (`health_monitoring.py`)
-    - `HealthMonitor` class for production systems
-    - Comprehensive health checks (connectivity, circuit breaker, performance)
-    - Custom health check registration
-    - Performance metrics tracking
-    - `wait_for_healthy()` method for startup checks
-    - Result caching for efficiency
-
-- **Batch Operations** (`batch_operations.py`)
-    - `BatchOperations` class for bulk operations
-    - Configurable concurrency control
-    - Methods:
-        - `create_multiple_keys()` - Create keys in parallel
-        - `delete_multiple_keys()` - Bulk deletion
-        - `rename_multiple_keys()` - Bulk renaming
-        - `set_multiple_data_limits()` - Bulk limit setting
-        - `fetch_multiple_keys()` - Parallel fetching
-        - `execute_custom_operations()` - Custom batch ops
-    - Detailed result tracking with `BatchResult`
-    - Fail-fast or continue-on-error modes
+    - `HealthMonitor` class with configurable caching (1-300 seconds TTL)
+    - Quick health checks for fast connectivity testing
+    - Comprehensive health checks with multiple dimensions
+    - Custom health check registration support
+    - Performance metrics tracking with EMA (Exponential Moving Average) smoothing
+    - `wait_for_healthy()` method for graceful startup coordination
+    - Immutable `HealthStatus` results for thread safety
 
 - **Metrics Collection** (`metrics_collector.py`)
-    - `MetricsCollector` for automated metrics gathering
-    - Configurable collection interval
-    - Historical data storage with size limits
-    - Usage statistics calculation
-    - Per-key usage tracking
-    - Export formats:
-        - JSON: `export_to_dict()`
-        - Prometheus: `export_prometheus_format()`
-    - Context manager support
+    - Advanced `MetricsCollector` with automatic periodic collection
+    - Memory-efficient storage using SortedList (binary search optimized)
+    - Prometheus export format with extensive metrics:
+        - Traffic metrics (bytes, megabytes, gigabytes transferred)
+        - Rate metrics (bytes/second, megabytes/second)
+        - Peak metrics and active key tracking
+        - Location-based metrics from experimental API
+        - Bandwidth metrics (current, peak with timestamps)
+        - Collection metadata (uptime, interval, snapshot count)
+    - Per-key usage statistics with temporal queries
+    - Configurable history limits (1-100,000 snapshots)
+    - Size validation to prevent memory exhaustion (max 10MB per snapshot)
+    - Context manager support for automatic lifecycle management
 
-#### API & Models
+- **Batch Operations** (`batch_operations.py`)
+    - Generic `BatchProcessor` with concurrency control
+    - Type-safe batch operations for multiple operations:
+        - `create_multiple_keys()` - Bulk key creation
+        - `delete_multiple_keys()` - Bulk key deletion
+        - `rename_multiple_keys()` - Bulk key renaming
+        - `set_multiple_data_limits()` - Bulk limit configuration
+        - `fetch_multiple_keys()` - Parallel key retrieval
+        - `execute_custom_operations()` - Generic batch executor
+    - Comprehensive validation with detailed error reporting
+    - `fail_fast` mode for error handling strategy
+    - Immutable `BatchResult` with rich statistics:
+        - Success/failure counts and rates
+        - Validation error tracking
+        - Type-safe result extraction methods
+    - Dynamic concurrency adjustment during runtime
+
+#### **Configuration System**
+
+- **Enhanced Configuration** (`config.py`)
+    - `OutlineClientConfig` with Pydantic validation
+    - Environment-based configuration with `.env` file support
+    - Preset configurations:
+        - `DevelopmentConfig` - Relaxed security for local development
+        - `ProductionConfig` - Strict security enforcement
+    - `SecretStr` type for sensitive data protection
+    - Automatic circuit breaker timeout adjustment
+    - Immutable configuration snapshots with `model_copy_immutable()`
+    - `get_sanitized_config()` for safe logging
+    - `create_env_template()` utility for quick setup
+    - Factory methods: `from_env()`, `create_minimal()`
+
+#### **Type System & Validation**
+
+- **Common Types Module** (`common_types.py`)
+    - Extensive type aliases for better IDE support:
+        - `Port`, `Bytes`, `TimestampMs`, `TimestampSec`
+        - `JsonDict`, `JsonList`, `JsonPayload`, `ResponseData`
+        - `AuditDetails`, `MetricsTags`, `QueryParams`
+    - `Constants` class with security limits and defaults
+    - Enhanced `Validators` utility class with DRY optimizations
+    - Security utilities: `secure_compare()`, `mask_sensitive_data()`
+    - `ConfigOverrides` and `ClientDependencies` TypedDict for type safety
+    - Comprehensive sensitive key detection (32+ patterns)
+
+- **Enhanced Exception Hierarchy** (`exceptions.py`)
+    - Rich error context with separate internal/safe details
+    - Message length limits to prevent DoS attacks
+    - Retry guidance with `is_retryable` and `get_retry_delay()`
+    - Specific exception types:
+        - `CircuitOpenError` - With retry_after information
+        - `ConfigurationError` - With field and security_issue flags
+        - `ValidationError` - With field and model context
+        - `ConnectionError` - With host and port details
+        - `TimeoutError` - With timeout value and operation name
+    - Helper functions: `get_safe_error_dict()`, `format_error_chain()`
+
+#### **API Client Enhancements**
+
+- **Modular Architecture** (`api_mixins.py`)
+    - `ServerMixin` - Server management operations
+    - `AccessKeyMixin` - Access key CRUD operations
+    - `DataLimitMixin` - Global data limit management
+    - `MetricsMixin` - Metrics collection operations
+    - `HTTPClientProtocol` - Runtime-checkable protocol
+    - `AuditableMixin` - Automatic audit logger access
+    - `JsonFormattingMixin` - JSON format preference resolution
 
 - **Response Parser** (`response_parser.py`)
-    - `ResponseParser` utility class
-    - Type-safe parsing with overloads
-    - Better error messages with field tracking
-    - `parse_simple()` for boolean responses
+    - Type-safe response parsing with overloads
+    - Comprehensive validation error logging (max 10 errors)
+    - `parse_simple()` for boolean success responses
+    - `validate_response_structure()` for lightweight pre-validation
+    - `extract_error_message()` with fallback strategies
+    - `is_error_response()` for error detection
 
 - **Base HTTP Client** (`base_client.py`)
-    - `BaseHTTPClient` with lazy feature loading
-    - Separate concern: HTTP vs business logic
-    - Rate limiter integration
-    - SSL fingerprint validation
-    - Properties: `api_url`, `is_connected`, `circuit_state`, `rate_limit`
+    - Enhanced `BaseHTTPClient` with enterprise features:
+        - Correlation ID tracking with `ContextVar`
+        - Cryptographically secure ID generation
+        - Rate limiting with dynamic adjustment
+        - Graceful shutdown with active request tracking
+        - Metrics collection integration
+        - Certificate pinning via SHA-256 fingerprint
+        - Connection pooling with configurable limits
+        - Request/response logging with sanitization
+    - `RateLimiter` class with thread-safe operations
+    - `RetryHelper` for DRY retry logic with jitter
+    - `NoOpMetrics` for optional metrics collection
 
-- **API Mixins** (`api_mixins.py`)
-    - `ServerMixin` - Server management operations
-    - `AccessKeyMixin` - Access key operations
-    - `DataLimitMixin` - Data limit operations
-    - `MetricsMixin` - Metrics operations
-    - Clean separation of concerns
-    - Better testability
+#### **Model Enhancements**
 
-- **Enhanced Models** (`models.py`)
-    - All models updated with comprehensive docstrings
-    - Better field descriptions
-    - Improved validation
-    - Type-safe request/response models
+- **Extended Models** (`models.py`)
+    - DRY mixins: `ByteConversionMixin`, `TimeConversionMixin`
+    - Factory methods: `DataLimit.from_kilobytes/megabytes/gigabytes()`
+    - Utility methods:
+        - `AccessKey.has_data_limit`, `display_name`
+        - `AccessKeyList.get_by_id()`, `get_by_name()`, filtering methods
+        - `Server.has_global_limit`, `created_timestamp_seconds`
+        - `ServerMetrics.get_top_consumers()`, `get_usage_for_key()`
+    - Enhanced experimental metrics models with proper validation
+    - `HealthCheckResult` and `ServerSummary` for monitoring
 
-#### Developer Experience
+#### **Developer Experience**
 
-- **Convenience Functions** (`__init__.py`)
-    - `get_version()` - Get package version
-    - `quick_setup()` - Create configuration template
-    - `create_client()` - Factory function for quick client creation
+- **Enhanced Package Interface** (`__init__.py`)
+    - `quick_setup()` - Interactive configuration wizard
+    - `print_type_info()` - Type alias documentation
+    - `get_version()` - Version information
     - Better error messages for common mistakes
-
-- **Factory Methods**
-    - `AsyncOutlineClient.create()` - Context manager factory
-    - `AsyncOutlineClient.from_env()` - Load from environment
-    - `OutlineClientConfig.create_minimal()` - Minimal config
-    - `load_config()` - Environment-specific configs
-
-- **Comprehensive Examples**
-    - All public methods have usage examples
-    - Real-world scenarios in docstrings
-    - Complete application example in README
-    - Docker example
-
-### 🔧 Changed
-
-#### Breaking Changes
-
-- **Python Version**: Now **enforces** Python 3.10+ at import time
-- **Configuration System**: Replaced ad-hoc parameters with `OutlineClientConfig`
-    - Old: `AsyncOutlineClient(api_url, cert_sha256, json_format=True, ...)`
-    - New: `AsyncOutlineClient(config)` or `AsyncOutlineClient.from_env()`
-    - Migration: Use `OutlineClientConfig.create_minimal()` for old behavior
-
-- **Logging Configuration**: Removed `configure_logging()` method
-    - Old: `client.configure_logging("DEBUG")`
-    - New: Use standard Python logging:
-      ```python
-      import logging
-      logging.basicConfig(level=logging.DEBUG)
-      ```
-
-- **Certificate Handling**: Now uses `SecretStr` for certificate fingerprint
-    - Old: `cert_sha256: str`
-    - New: `cert_sha256: SecretStr` (automatically handled in config)
-
-- **Default Behavior**:
-    - `json_format` default remains `False` (returns Pydantic models)
-    - `enable_circuit_breaker` default is `True` (was not available)
-    - `rate_limit` default is `100` concurrent requests
-
-#### Architecture Changes
-
-- **Modular Design**: Split monolithic client into focused modules
-    - `base_client.py` - HTTP operations
-    - `api_mixins.py` - API endpoints
-    - `config.py` - Configuration
-    - `common_types.py` - Shared types and validators
-    - `response_parser.py` - Response handling
-
-- **Lazy Loading**: Optional features only imported when needed
-
-- **Type Safety**: Comprehensive type hints throughout
-    - Full mypy compatibility in strict mode
-    - Better IDE support and autocomplete
-    - `overload` decorators for conditional returns
-
-#### Enhanced Error Handling
-
-- **Exception Hierarchy** (`exceptions.py`)
-    - `OutlineError` - Base exception with details dict
-    - `APIError` - Enhanced with `is_client_error`, `is_server_error`, `is_retryable`
-    - `CircuitOpenError` - Circuit breaker specific
-    - `ConfigurationError` - Configuration validation
-    - `ValidationError` - Data validation errors
-    - `ConnectionError` - Connection failures
-    - `TimeoutError` - Operation timeouts
-    - All exceptions include context and retry guidance
-
-- **Retry Logic**:
-    - Smarter retry decisions based on error type
-    - Class-level retry configuration per exception
-    - `get_retry_delay()` utility function
-
-#### Documentation
-
-- **Comprehensive Docstrings**: All modules, classes, and methods documented
-    - Module-level docstrings with examples
-    - Class docstrings with usage examples
-    - Method docstrings with Args, Returns, Raises, Examples
-    - Property docstrings
-
-- **Type Annotations**: 100% type coverage
-    - All parameters and returns typed
-    - Generic types where appropriate
-    - TypeAlias for complex types
-
-### 🛡️ Security
-
-- **Credential Protection**:
-    - `SecretStr` prevents accidental exposure in logs/errors
-    - `sanitize_url_for_logging()` removes secret paths
-    - `mask_sensitive_data()` for safe logging
-    - `get_sanitized_config()` for debugging
-
-- **Input Validation**:
-    - `validate_key_id()` prevents path traversal (../, /, \\)
-    - `validate_port()` enforces safe port range (1025-65535)
-    - `validate_cert_fingerprint()` ensures correct format
-    - `validate_url()` checks URL structure
-    - Length limits to prevent DoS
-
-- **Production Config**:
-    - `ProductionConfig` enforces HTTPS
-    - Security warnings for insecure configurations
-    - Certificate validation required
-
-### 🚀 Performance
-
-- **Import Time**: 5x faster (~20ms vs ~100ms)
-- **Memory Usage**: 60% reduction (~0.9 MB vs ~2.4 MB)
-- **Client Creation**: 50x faster (~1ms vs ~50ms)
-- **Request Overhead**: 50% reduction (~1ms vs ~2ms)
-- **Batch Operations**: Up to 7.5x faster for bulk operations
-
-### 📦 Dependencies
-
-- **Updated**: all deps
-- **Added**: `pydantic-settings` for configuration management
-
-
-### 🔄 Migration Guide
-
-#### From v0.3.0 to v0.4.0
-
-**1. Update Python Version** (if needed)
-
-```bash
-# Ensure Python 3.10+
-python --version
-```
-
-**2. Install Updated Package**
-
-```bash
-pip install --upgrade pyoutlineapi
-```
-
-**3. Update Configuration**
-
-Old way:
-
-```python
-from pyoutlineapi import AsyncOutlineClient
-
-async with AsyncOutlineClient(
-        api_url="https://server.com:12345/secret",
-        cert_sha256="abc123...",
-        json_format=False,
-        timeout=30,
-) as client:
-    pass
-```
-
-New way (Option 1 - Environment variables):
-
-```python
-from pyoutlineapi import AsyncOutlineClient
-
-# Create .env file:
-# OUTLINE_API_URL=https://server.com:12345/secret
-# OUTLINE_CERT_SHA256=abc123...
-
-async with AsyncOutlineClient.from_env() as client:
-    pass
-```
-
-New way (Option 2 - Config object):
-
-```python
-from pyoutlineapi import OutlineClientConfig, AsyncOutlineClient
-from pydantic import SecretStr
-
-config = OutlineClientConfig(
-    api_url="https://server.com:12345/secret",
-    cert_sha256=SecretStr("abc123..."),
-    timeout=30,
-)
-
-async with AsyncOutlineClient(config) as client:
-    pass
-```
-
-New way (Option 3 - Minimal):
-
-```python
-from pyoutlineapi import AsyncOutlineClient
-
-async with AsyncOutlineClient.create(
-        api_url="https://server.com:12345/secret",
-        cert_sha256="abc123...",
-) as client:
-    pass
-```
-
-**4. Update Logging**
-
-Old way:
-
-```python
-client.configure_logging("DEBUG")
-```
-
-New way:
-
-```python
-import logging
-
-logging.basicConfig(level=logging.DEBUG)
-
-# Or in config
-config = OutlineClientConfig(
-    api_url="...",
-    cert_sha256="...",
-    enable_logging=True,
-)
-```
-
-**5. Update Error Handling**
-
-Old way:
-
-```python
-from pyoutlineapi import APIError
-
-try:
-    await client.get_server_info()
-except APIError as e:
-    print(f"Error: {e.status_code}")
-```
-
-New way (more detailed):
-
-```python
-from pyoutlineapi.exceptions import (
-    APIError,
-    CircuitOpenError,
-    ConfigurationError,
-)
-
-try:
-    await client.get_server_info()
-except CircuitOpenError as e:
-    print(f"Circuit open, retry after {e.retry_after}s")
-except APIError as e:
-    if e.is_client_error:
-        print("Client error (4xx)")
-    elif e.is_server_error:
-        print("Server error (5xx)")
-    if e.is_retryable:
-        print("Can retry")
-```
-
-**6. Optional: Use New Features**
-
-```python
-from pyoutlineapi import AsyncOutlineClient
-from pyoutlineapi.health_monitoring import HealthMonitor
-from pyoutlineapi.batch_operations import BatchOperations
-
-async with AsyncOutlineClient.from_env() as client:
-    # Health monitoring
-    monitor = HealthMonitor(client)
-    health = await monitor.comprehensive_check()
-
-    # Batch operations
-    batch = BatchOperations(client, max_concurrent=10)
-    result = await batch.create_multiple_keys(configs)
-```
-
-### 📝 Deprecations
-
-- **Method**: `configure_logging()` - Use standard Python logging
-- **Pattern**: Direct instantiation without config - Use `from_env()` or config objects
+    - Interactive help in REPL mode
+    - Comprehensive `__all__` export list (60+ symbols)
+
+---
+
+### 🔄 Changed
+
+#### **Breaking Changes**
+
+- **Client Constructor Signature**:
+  ```python
+  # Old (v0.3.0)
+  client = AsyncOutlineClient(api_url, cert_sha256, json_format=True)
+  
+  # New (v0.4.0)
+  client = AsyncOutlineClient(
+      api_url=api_url,
+      cert_sha256=cert_sha256,
+      timeout=10,
+      enable_logging=True
+  )
+  # Or use configuration object
+  config = OutlineClientConfig.from_env()
+  client = AsyncOutlineClient(config)
+  ```
+
+- **Default Values**:
+    - `timeout`: Changed from 30s to 10s for better responsiveness
+    - `retry_attempts`: Changed from 3 to 2 for faster failure detection
+    - `json_format`: Remains `False` (returns Pydantic models by default)
+
+- **Parameter Names**:
+    - `cert_sha256` now expects `SecretStr` in config (automatic in constructor)
+    - `user_agent` default changed to include version number
+
+#### **API Improvements**
+
+- **Method Enhancements**:
+    - All methods now support `as_json` parameter for runtime format selection
+    - Better type hints with overloads for precise return types
+    - Consistent error handling across all operations
+    - Improved parameter validation with descriptive error messages
+
+- **Client Architecture**:
+    - Split into mixin-based architecture for better code organization
+    - Separated concerns: HTTP client, API mixins, configuration
+    - Protocol-based design for better testability
+    - Enhanced session management with proper cleanup
+
+#### **Internal Optimizations**
+
+- **Performance**:
+    - Lazy initialization of expensive resources
+    - Connection pooling with keep-alive
+    - Efficient retry logic with exponential backoff + jitter
+    - Memory-optimized data structures (SortedList, __slots__)
+
+- **Code Quality**:
+    - DRY principles applied throughout (extracted 20+ helper methods)
+    - Type safety with runtime_checkable protocols
+    - Immutable data structures where appropriate
+    - Comprehensive docstrings with examples
+
+---
 
 ### 🐛 Fixed
 
-- **SSL Certificate Validation**: More robust fingerprint handling with SecretStr
-- **Retry Logic**: Smarter retry decisions based on status codes
-- **Memory Leaks**: Proper cleanup of resources in all code paths
-- **Type Safety**: Fixed all mypy warnings in strict mode
-- **URL Building**: Better handling of trailing slashes and special characters
-- **Error Messages**: More descriptive with proper context
-- **Rate Limiting**: Fixed edge cases in concurrent request handling
+- **Validation Issues**:
+    - Fixed empty name handling in `AccessKey` validation
+    - Improved port validation with clear error messages
+    - Better certificate fingerprint format validation
+    - Fixed URL validation edge cases
+
+- **Connection Stability**:
+    - Proper session cleanup on errors
+    - Fixed race conditions in session initialization
+    - Better handling of connection timeouts
+    - Improved SSL context creation error handling
+
+- **Error Handling**:
+    - More descriptive error messages with context
+    - Proper error chain preservation
+    - Better handling of API error responses
+    - Fixed validation error logging
+
+- **Memory Management**:
+    - Fixed potential memory leaks in metrics collection
+    - Proper cleanup of background tasks
+    - Limited history size with automatic trimming
+    - Snapshot size validation
+
+---
+
+### 🗑️ Removed
+
+- **Deprecated Features**:
+    - Removed direct dictionary usage in internal methods
+    - Removed redundant validation code (now in Validators class)
+    - Removed hardcoded retry values (now configurable)
+
+- **Simplified API**:
+    - Removed internal helper methods now covered by mixins
+    - Consolidated duplicate code into DRY utilities
+
+---
+
+### 📦 Dependencies
+
+- **New Dependencies**:
+    - `sortedcontainers` - For efficient metrics storage
+    - `pydantic-settings` - For configuration management
+
+- **Updated Dependencies**:
+    - `pydantic` - Now requires v2.0+
+    - `aiohttp` - Updated for better async support
+
+---
+
+### 🔧 Technical Improvements
+
+#### **Code Organization**
+
+- Modular architecture with clear separation of concerns
+- 14 specialized modules vs. 3 in v0.3.0
+- Over 5,000 lines of production-ready code
+- Comprehensive inline documentation
+
+#### **Testing & Quality**
+
+- Type hints coverage: ~100%
+- Docstring coverage: ~95%
+- Protocol-based design for easy mocking
+- Immutable data structures for thread safety
+
+#### **Security**
+
+- Automatic sensitive data masking
+- Secure comparison for certificates
+- Rate limiting to prevent abuse
+- Certificate pinning for TLS connections
+- No secrets in logs or string representations
+
+#### **Observability**
+
+- Structured logging with correlation IDs
+- Comprehensive metrics collection
+- Health check framework
+- Audit trail for all operations
+- Prometheus export format
+
+---
 
 ### 📚 Documentation
 
-- **README**: Complete rewrite with comprehensive examples
-- **Docstrings**: All modules, classes, and methods documented
-- **Examples**: Real-world usage patterns
-- **Migration Guide**: Detailed instructions for upgrading
-- **Best Practices**: Security, performance, and usage recommendations
-- **API Reference**: Full type signatures and descriptions
+- Enhanced docstrings with type information
+- Comprehensive examples in each method
+- Updated README with new features
+- Configuration guide with best practices
+- Migration guide from v0.3.0
 
-### 🧪 Testing
+---
 
-- Added comprehensive test coverage (not included in this release)
-- Mock client examples for testing user applications
-- Type checking with mypy in strict mode
-- All examples are tested and verified
+### 🚀 Migration Guide (v0.3.0 → v0.4.0)
+
+#### **1. Python Version**
+
+```bash
+# Ensure Python 3.10+
+python --version  # Should be 3.10 or higher
+```
+
+#### **2. Installation**
+
+```bash
+# Install new version
+pip install --upgrade pyoutlineapi
+
+# Or with optional dependencies
+pip install pyoutlineapi[dev]
+```
+
+#### **3. Basic Client Usage**
+
+```python
+# Old way (v0.3.0)
+from pyoutlineapi import AsyncOutlineClient
+
+client = AsyncOutlineClient(
+    "https://server.com/path",
+    "abc123...",
+    json_format=False,
+    timeout=30
+)
+
+# New way (v0.4.0) - Option 1: Direct instantiation
+client = AsyncOutlineClient(
+    api_url="https://server.com/path",
+    cert_sha256="abc123...",
+    timeout=10,
+    enable_logging=True,
+    rate_limit=50
+)
+
+# New way (v0.4.0) - Option 2: Configuration object
+from pyoutlineapi import OutlineClientConfig
+
+config = OutlineClientConfig.create_minimal(
+    api_url="https://server.com/path",
+    cert_sha256="abc123...",
+    timeout=10,
+    enable_logging=True
+)
+client = AsyncOutlineClient(config)
+
+# New way (v0.4.0) - Option 3: Environment variables
+# Create .env file first
+client = AsyncOutlineClient.from_env()
+```
+
+#### **4. Using New Features**
+
+```python
+# Circuit breaker (automatic protection)
+async with AsyncOutlineClient.create(
+        api_url=url,
+        cert_sha256=cert,
+        enable_circuit_breaker=True,
+        circuit_failure_threshold=5
+) as client:
+    # Automatically protected against cascading failures
+    await client.get_server_info()
+
+# Health monitoring
+from pyoutlineapi.health_monitoring import HealthMonitor
+
+monitor = HealthMonitor(client, cache_ttl=30)
+health = await monitor.comprehensive_check()
+print(f"Healthy: {health.healthy}")
+print(f"Failed checks: {health.failed_checks}")
+
+# Metrics collection
+from pyoutlineapi.metrics_collector import MetricsCollector
+
+async with MetricsCollector(client, interval=60) as collector:
+    await collector.start()
+    # ... your code ...
+    stats = collector.get_usage_stats(period_minutes=60)
+    print(f"Total GB: {stats.gigabytes_transferred:.2f}")
+
+# Batch operations
+from pyoutlineapi.batch_operations import BatchOperations
+
+batch = BatchOperations(client, max_concurrent=5)
+configs = [
+    {"name": "User1", "port": 8388},
+    {"name": "User2", "port": 8389},
+]
+result = await batch.create_multiple_keys(configs)
+print(f"Success rate: {result.success_rate:.1%}")
+
+# Audit logging
+from pyoutlineapi import DefaultAuditLogger
+
+audit = DefaultAuditLogger(enable_async=True)
+client = AsyncOutlineClient(config, audit_logger=audit)
+# All operations are now automatically audited
+```
+
+#### **5. Configuration Migration**
+
+```python
+# Old: Hardcoded values
+client = AsyncOutlineClient(url, cert, timeout=30)
+
+# New: Configuration object with validation
+from pyoutlineapi import DevelopmentConfig, ProductionConfig
+
+# Development
+dev_config = DevelopmentConfig(
+    api_url=url,
+    cert_sha256=cert,
+    enable_logging=True
+)
+
+# Production
+prod_config = ProductionConfig.from_env(".env.prod")
+```
+
+---
+
+### 🎯 Use Cases
+
+#### **Enterprise Production Deployment**
+
+```python
+from pyoutlineapi import (
+    AsyncOutlineClient,
+    ProductionConfig,
+    DefaultAuditLogger,
+)
+
+# Load production config with strict validation
+config = ProductionConfig.from_env(
+    ".env.prod",
+    enable_circuit_breaker=True,
+    circuit_failure_threshold=3,
+    rate_limit=50
+)
+
+# Initialize with audit logging
+audit_logger = DefaultAuditLogger(
+    enable_async=True,
+    queue_size=1000
+)
+
+async with AsyncOutlineClient(
+        config,
+        audit_logger=audit_logger
+) as client:
+    # All operations are protected and audited
+    health = await client.health_check()
+    if health:
+        keys = await client.get_access_keys()
+```
+
+#### **Development & Testing**
+
+```python
+from pyoutlineapi import DevelopmentConfig
+
+config = DevelopmentConfig(
+    api_url="http://localhost:8080/secret",
+    cert_sha256="0" * 64,  # Dev cert
+    enable_logging=True,
+    enable_circuit_breaker=False
+)
+
+async with AsyncOutlineClient(config) as client:
+    # Development with detailed logging
+    pass
+```
 
 ---
 
