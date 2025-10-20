@@ -28,15 +28,12 @@ keywords = [
 classifiers = [
     # Development Status
     "Development Status :: 5 - Production/Stable",
-
     # Intended Audience
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "Intended Audience :: Information Technology",
-
     # License
     "License :: OSI Approved :: MIT License",
-
     # Programming Language
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -44,13 +41,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3 :: Only",
-
     # Framework
     "Framework :: AsyncIO",
     "Framework :: aiohttp",
     "Framework :: Pydantic",
     "Framework :: Pydantic :: 2",
-
     # Topic
     "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
     "Topic :: Security",
@@ -58,17 +53,13 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Networking",
     "Topic :: System :: Systems Administration",
-
     # Operating System
     "Operating System :: OS Independent",
-
     # Typing
     "Typing :: Typed",
-
     # Environment
     "Environment :: Console",
     "Environment :: Web Environment",
-
     # Natural Language
     "Natural Language :: English",
 ]
@@ -111,6 +102,21 @@ rich = "^14.2.0"
 
 # Metrics (optional, for development)
 sortedcontainers = "^2.4.0"
+
+# ===== Pdoc Configuration =====
+
+[tool.pdoc]
+output_directory = "docs"
+math = true
+search = true
+show_source = true
+
+# Настройки для модулей
+[tool.pdoc.pdoc]
+docformat = "google"
+include_undocumented = false
+show_inherited_members = true
+members_order = "alphabetical"
 
 # ===== Pytest Configuration =====
 
@@ -217,7 +223,7 @@ select = [
     "SIM",
     # Ruff-specific rules
     "RUF",
-    "D",      # pydocstyle - после написания документации
+    "D", # pydocstyle - после написания документации
     "ANN", # flake8-annotations - когда типизируете весь код
     "S", # flake8-bandit - для security audit
     "ASYNC", # async правила
@@ -242,25 +248,25 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
-    "S101",    # Assert allowed in tests
-    "ARG",     # Unused arguments OK in tests
+    "S101", # Assert allowed in tests
+    "ARG", # Unused arguments OK in tests
     "PLR2004", # Magic values OK in tests
-    "ANN",     # Type annotations not required in tests
-    "D",       # Docstrings not required in tests
-    "E501",    # Long lines OK in tests
+    "ANN", # Type annotations not required in tests
+    "D", # Docstrings not required in tests
+    "E501", # Long lines OK in tests
 ]
 "__init__.py" = [
-    "F401",    # Imported but unused (re-exports)
-    "D104",    # Missing docstring in __init__
-    "E402",    # Module level import not at top
+    "F401", # Imported but unused (re-exports)
+    "D104", # Missing docstring in __init__
+    "E402", # Module level import not at top
 ]
 "demo.py" = [
-    "T201",    # Print statements OK in demo
-    "INP001",  # Not a package
+    "T201", # Print statements OK in demo
+    "INP001", # Not a package
 ]
 "examples/*" = [
-    "T201",    # Print statements OK in examples
-    "INP001",  # Not a package
+    "T201", # Print statements OK in examples
+    "INP001", # Not a package
 ]
 
 [tool.ruff.lint.isort]

@@ -349,7 +349,7 @@ class OutlineClientConfig(BaseSettings):
                 )
 
             # Create temporary config class with custom env_file
-            class TempConfig(cls):  # type: ignore[valid-type,misc]
+            class TempConfig(cls):
                 model_config = SettingsConfigDict(
                     env_prefix="OUTLINE_",
                     env_file=str(env_path),

@@ -52,7 +52,7 @@ class AuditableMixin:
         :return: Instance logger if set, otherwise shared default logger
         """
         if hasattr(self, "_audit_logger_instance"):
-            return self._audit_logger_instance  # type: ignore[return-value]
+            return self._audit_logger_instance
         return get_default_audit_logger()
 
 

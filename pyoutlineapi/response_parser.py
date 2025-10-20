@@ -14,7 +14,7 @@ Source code repository:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Final, TypeVar, overload
+from typing import TYPE_CHECKING, Final, TypeVar, overload
 
 from pydantic import BaseModel, ValidationError
 
@@ -26,14 +26,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Type aliases
-JsonDict = dict[str, Any]
+JsonDict = dict[str, object]
 T = TypeVar("T", bound=BaseModel)
 
 # Maximum number of validation errors to log
 _MAX_LOGGED_ERRORS: Final[int] = 10
 
 
-def _log_if_enabled(level: int, message: str, **kwargs: Any) -> None:
+def _log_if_enabled(level: int, message: str, **kwargs: object) -> None:
     """Centralized logging with level check (DRY).
 
     :param level: Logging level
@@ -56,7 +56,7 @@ class ResponseParser:
     @staticmethod
     @overload
     def parse(
-        data: dict[str, Any],
+        data: dict[str, object],
         model: type[T],
         *,
         as_json: bool = True,
@@ -65,7 +65,7 @@ class ResponseParser:
     @staticmethod
     @overload
     def parse(
-        data: dict[str, Any],
+        data: dict[str, object],
         model: type[T],
         *,
         as_json: bool = False,
@@ -73,7 +73,7 @@ class ResponseParser:
 
     @staticmethod
     def parse(
-        data: dict[str, Any],
+        data: dict[str, object],
         model: type[T],
         *,
         as_json: bool = False,
@@ -162,7 +162,7 @@ class ResponseParser:
             ) from e
 
     @staticmethod
-    def parse_simple(data: dict[str, Any]) -> bool:
+    def parse_simple(data: dict[str, object]) -> bool:
         """Parse simple success responses.
 
         Handles various response formats:
@@ -194,16 +194,12 @@ class ResponseParser:
                 return bool(success)
             return success
 
-        # Check for error indicators
-        if "error" in data or "message" in data:
-            return False
-
-        # Empty or minimal response = success
-        return True
+        # Check for error indicators - return opposite of error presence
+        return not ("error" in data or "message" in data)
 
     @staticmethod
     def validate_response_structure(
-        data: dict[str, Any],
+        data: dict[str, object],
         required_fields: Sequence[str] | None = None,
     ) -> bool:
         """Validate response structure without full parsing.
@@ -230,7 +226,7 @@ class ResponseParser:
         return True
 
     @staticmethod
-    def extract_error_message(data: dict[str, Any]) -> str | None:
+    def extract_error_message(data: dict[str, object]) -> str | None:
         """Extract error message from response data.
 
         Checks common error field names in order of preference.
@@ -255,7 +251,7 @@ class ResponseParser:
         return None
 
     @staticmethod
-    def is_error_response(data: dict[str, Any]) -> bool:
+    def is_error_response(data: dict[str, object]) -> bool:
         """Check if response indicates an error.
 
         :param data: Response data

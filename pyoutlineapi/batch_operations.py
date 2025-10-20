@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from .common_types import Validators
 
@@ -96,7 +96,7 @@ class BatchResult(Generic[R]):
         """
         return [r for r in self.results if isinstance(r, Exception)]
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Convert to dictionary for serialization.
 
         :return: Dictionary representation
@@ -172,7 +172,6 @@ class BatchProcessor(Generic[T, R]):
             results = await asyncio.gather(*tasks, return_exceptions=not fail_fast)
             return list(results) if isinstance(results, tuple) else results
         except Exception:
-            # Cancel remaining tasks on fail_fast error
             for task in tasks:
                 if isinstance(task, asyncio.Task) and not task.done():
                     task.cancel()
@@ -207,8 +206,8 @@ class ValidationHelper:
 
     @staticmethod
     def validate_config_dict(
-        config: Any, index: int, fail_fast: bool
-    ) -> dict[str, Any] | None:
+        config: object, index: int, fail_fast: bool
+    ) -> dict[str, object] | None:
         """Validate and process config dictionary.
 
         :param config: Configuration to validate
@@ -228,7 +227,6 @@ class ValidationHelper:
         try:
             validated_config = config.copy()
 
-            # Validate name if present
             if config.get("name"):
                 validated_name = Validators.validate_name(config["name"])
                 if validated_name is None:
@@ -237,7 +235,6 @@ class ValidationHelper:
                     return None
                 validated_config["name"] = validated_name
 
-            # Validate port if present
             if "port" in config and config["port"] is not None:
                 validated_config["port"] = Validators.validate_port(config["port"])
 
@@ -249,7 +246,7 @@ class ValidationHelper:
             return None
 
     @staticmethod
-    def validate_key_id(key_id: Any, index: int, fail_fast: bool) -> str | None:
+    def validate_key_id(key_id: object, index: int, fail_fast: bool) -> str | None:
         """Validate key ID.
 
         :param key_id: Key ID to validate
@@ -273,8 +270,8 @@ class ValidationHelper:
 
     @staticmethod
     def validate_tuple_pair(
-        pair: Any, index: int, expected_types: tuple[type, ...], fail_fast: bool
-    ) -> tuple[Any, ...] | None:
+        pair: object, index: int, expected_types: tuple[type, ...], fail_fast: bool
+    ) -> tuple[object, ...] | None:
         """Validate tuple pair.
 
         :param pair: Pair to validate
@@ -293,7 +290,6 @@ class ValidationHelper:
                 raise ValueError(error_msg)
             return None
 
-        # Check types
         for i, (element, expected_type) in enumerate(
             zip(pair, expected_types, strict=False)
         ):
@@ -331,12 +327,14 @@ class BatchOperations:
 
         self._client = client
         self._max_concurrent = max_concurrent
-        self._processor: BatchProcessor[Any, Any] = BatchProcessor(max_concurrent)
+        self._processor: BatchProcessor[dict[str, object], AccessKey] = BatchProcessor(
+            max_concurrent
+        )
         self._validation_helper = ValidationHelper()
 
     async def create_multiple_keys(
         self,
-        configs: list[dict[str, Any]],
+        configs: list[dict[str, object]],
         *,
         fail_fast: bool = False,
     ) -> BatchResult[AccessKey]:
@@ -350,7 +348,7 @@ class BatchOperations:
             return self._build_empty_result()
 
         validation_errors: list[str] = []
-        valid_configs: list[dict[str, Any]] = []
+        valid_configs: list[dict[str, object]] = []
 
         for i, config in enumerate(configs):
             validated = self._validation_helper.validate_config_dict(
@@ -361,13 +359,16 @@ class BatchOperations:
             else:
                 valid_configs.append(validated)
 
-        async def create_key(config: dict[str, Any]) -> AccessKey:
-            return await self._client.create_access_key(**config)
+        async def create_key(config: dict[str, object]) -> AccessKey:
+            result = await self._client.create_access_key(**config)
+            if TYPE_CHECKING:
+                assert isinstance(result, AccessKey)
+            return result
 
-        processor: BatchProcessor[dict[str, Any], AccessKey] = self._processor
-        results = await processor.process(
-            valid_configs, create_key, fail_fast=fail_fast
+        processor: BatchProcessor[dict[str, object], AccessKey] = BatchProcessor(
+            self._max_concurrent
         )
+        results = await processor.process(valid_configs, create_key, fail_fast=fail_fast)
 
         return self._build_result(results, validation_errors)
 
@@ -399,7 +400,7 @@ class BatchOperations:
         async def delete_key(key_id: str) -> bool:
             return await self._client.delete_access_key(key_id)
 
-        processor: BatchProcessor[str, bool] = self._processor
+        processor: BatchProcessor[str, bool] = BatchProcessor(self._max_concurrent)
         process_results = await processor.process(
             validated_ids, delete_key, fail_fast=fail_fast
         )
@@ -432,7 +433,11 @@ class BatchOperations:
                 validation_errors.append(f"Pair {i}: validation failed")
                 continue
 
-            key_id, name = validated
+            key_id, name = validated[0], validated[1]
+            if not isinstance(key_id, str) or not isinstance(name, str):
+                validation_errors.append(f"Pair {i}: invalid types")
+                continue
+
             try:
                 validated_id = Validators.validate_key_id(key_id)
                 validated_name = Validators.validate_name(name)
@@ -454,10 +459,10 @@ class BatchOperations:
             key_id, name = pair
             return await self._client.rename_access_key(key_id, name)
 
-        processor: BatchProcessor[tuple[str, str], bool] = self._processor
-        results = await processor.process(
-            validated_pairs, rename_key, fail_fast=fail_fast
+        processor: BatchProcessor[tuple[str, str], bool] = BatchProcessor(
+            self._max_concurrent
         )
+        results = await processor.process(validated_pairs, rename_key, fail_fast=fail_fast)
 
         return self._build_result(results, validation_errors)
 
@@ -487,7 +492,11 @@ class BatchOperations:
                 validation_errors.append(f"Pair {i}: validation failed")
                 continue
 
-            key_id, bytes_limit = validated
+            key_id, bytes_limit = validated[0], validated[1]
+            if not isinstance(key_id, str) or not isinstance(bytes_limit, int):
+                validation_errors.append(f"Pair {i}: invalid types")
+                continue
+
             try:
                 validated_id = Validators.validate_key_id(key_id)
                 validated_bytes = Validators.validate_non_negative(
@@ -504,10 +513,10 @@ class BatchOperations:
             key_id, bytes_limit = pair
             return await self._client.set_access_key_data_limit(key_id, bytes_limit)
 
-        processor: BatchProcessor[tuple[str, int], bool] = self._processor
-        results = await processor.process(
-            validated_pairs, set_limit, fail_fast=fail_fast
+        processor: BatchProcessor[tuple[str, int], bool] = BatchProcessor(
+            self._max_concurrent
         )
+        results = await processor.process(validated_pairs, set_limit, fail_fast=fail_fast)
 
         return self._build_result(results, validation_errors)
 
@@ -537,19 +546,22 @@ class BatchOperations:
                 validated_ids.append(validated)
 
         async def fetch_key(key_id: str) -> AccessKey:
-            return await self._client.get_access_key(key_id)
+            result = await self._client.get_access_key(key_id)
+            if TYPE_CHECKING:
+                assert isinstance(result, AccessKey)
+            return result
 
-        processor: BatchProcessor[str, AccessKey] = self._processor
+        processor: BatchProcessor[str, AccessKey] = BatchProcessor(self._max_concurrent)
         results = await processor.process(validated_ids, fetch_key, fail_fast=fail_fast)
 
         return self._build_result(results, validation_errors)
 
     async def execute_custom_operations(
         self,
-        operations: list[Callable[[], Awaitable[Any]]],
+        operations: list[Callable[[], Awaitable[object]]],
         *,
         fail_fast: bool = False,
-    ) -> BatchResult[Any]:
+    ) -> BatchResult[object]:
         """Execute custom batch operations.
 
         :param operations: List of async callables
@@ -560,7 +572,7 @@ class BatchOperations:
             return self._build_empty_result()
 
         validation_errors: list[str] = []
-        valid_operations: list[Callable[[], Awaitable[Any]]] = []
+        valid_operations: list[Callable[[], Awaitable[object]]] = []
 
         for i, op in enumerate(operations):
             if not callable(op):
@@ -571,13 +583,13 @@ class BatchOperations:
                 continue
             valid_operations.append(op)
 
-        async def execute_op(op: Callable[[], Awaitable[Any]]) -> Any:
+        async def execute_op(op: Callable[[], Awaitable[object]]) -> object:
             return await op()
 
-        processor: BatchProcessor[Callable[[], Awaitable[Any]], Any] = self._processor
-        results = await processor.process(
-            valid_operations, execute_op, fail_fast=fail_fast
+        processor: BatchProcessor[Callable[[], Awaitable[object]], object] = (
+            BatchProcessor(self._max_concurrent)
         )
+        results = await processor.process(valid_operations, execute_op, fail_fast=fail_fast)
 
         return self._build_result(results, validation_errors)
 
@@ -616,7 +628,7 @@ class BatchOperations:
         )
 
     @staticmethod
-    def _build_empty_result() -> BatchResult[Any]:
+    def _build_empty_result() -> BatchResult[object]:
         """Build empty BatchResult for empty input.
 
         :return: Empty batch result

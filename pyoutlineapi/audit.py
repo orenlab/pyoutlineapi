@@ -20,8 +20,6 @@ import time
 from collections.abc import Callable
 from functools import wraps
 from typing import (
-    TYPE_CHECKING,
-    Any,
     ParamSpec,
     Protocol,
     TypeVar,
@@ -31,21 +29,18 @@ from typing import (
 
 from .common_types import DEFAULT_SENSITIVE_KEYS
 
-if TYPE_CHECKING:
-    pass
-
 logger = logging.getLogger(__name__)
 
 # Type variables
 P = ParamSpec("P")
 T = TypeVar("T")
-F = TypeVar("F", bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., object])
 
 
 # ===== Logging Utility =====
 
 
-def _log_if_enabled(level: int, message: str, **kwargs: Any) -> None:
+def _log_if_enabled(level: int, message: str, **kwargs: object) -> None:
     """Centralized logging with level check (DRY).
 
     :param level: Logging level
@@ -67,25 +62,25 @@ class AuditLogger(Protocol):
     """
 
     def log_action(
-        self,
-        action: str,
-        resource: str,
-        *,
-        user: str | None = None,
-        details: dict[str, Any] | None = None,
-        correlation_id: str | None = None,
+            self,
+            action: str,
+            resource: str,
+            *,
+            user: str | None = None,
+            details: dict[str, object] | None = None,
+            correlation_id: str | None = None,
     ) -> None:
         """Log auditable action synchronously."""
         ...
 
     async def alog_action(
-        self,
-        action: str,
-        resource: str,
-        *,
-        user: str | None = None,
-        details: dict[str, Any] | None = None,
-        correlation_id: str | None = None,
+            self,
+            action: str,
+            resource: str,
+            *,
+            user: str | None = None,
+            details: dict[str, object] | None = None,
+            correlation_id: str | None = None,
     ) -> None:
         """Log auditable action asynchronously."""
         ...
@@ -113,20 +108,20 @@ class DefaultAuditLogger:
         :param queue_size: Maximum size of async logging queue (default: 1000)
         """
         self._enable_async = enable_async
-        self._queue: asyncio.Queue[dict[str, Any]] | None = None
+        self._queue: asyncio.Queue[dict[str, object]] | None = None
         self._task: asyncio.Task[None] | None = None
         self._queue_size = queue_size
         self._shutdown = False
         self._shutdown_lock = asyncio.Lock()
 
     def log_action(
-        self,
-        action: str,
-        resource: str,
-        *,
-        user: str | None = None,
-        details: dict[str, Any] | None = None,
-        correlation_id: str | None = None,
+            self,
+            action: str,
+            resource: str,
+            *,
+            user: str | None = None,
+            details: dict[str, object] | None = None,
+            correlation_id: str | None = None,
     ) -> None:
         """Log auditable action synchronously.
 
@@ -141,13 +136,13 @@ class DefaultAuditLogger:
         logger.info(message, extra=extra)
 
     async def alog_action(
-        self,
-        action: str,
-        resource: str,
-        *,
-        user: str | None = None,
-        details: dict[str, Any] | None = None,
-        correlation_id: str | None = None,
+            self,
+            action: str,
+            resource: str,
+            *,
+            user: str | None = None,
+            details: dict[str, object] | None = None,
+            correlation_id: str | None = None,
     ) -> None:
         """Log auditable action asynchronously (non-blocking).
 
@@ -231,7 +226,7 @@ class DefaultAuditLogger:
         finally:
             _log_if_enabled(logging.DEBUG, "[AUDIT] Queue processing stopped")
 
-    async def _get_queue_item(self) -> dict[str, Any] | None:
+    async def _get_queue_item(self) -> dict[str, object] | None:
         """Get item from queue with timeout.
 
         :return: Queue item or None on timeout/error
@@ -252,13 +247,13 @@ class DefaultAuditLogger:
             )
             return None
 
-    def _log_from_extra(self, extra: dict[str, Any]) -> None:
+    def _log_from_extra(self, extra: dict[str, object]) -> None:
         """Log audit message from extra dict.
 
         :param extra: Extra data with audit info
         """
-        action = extra.get("action", "unknown")
-        resource = extra.get("resource", "unknown")
+        action = str(extra.get("action", "unknown"))
+        resource = str(extra.get("resource", "unknown"))
         user = extra.get("user")
         correlation_id = extra.get("correlation_id")
         details = extra.get("details")
@@ -268,11 +263,11 @@ class DefaultAuditLogger:
 
     @staticmethod
     def _build_message(
-        action: str,
-        resource: str,
-        user: str | None,
-        correlation_id: str | None,
-        details: dict[str, Any] | None,
+            action: str,
+            resource: str,
+            user: str | None,
+            correlation_id: str | None,
+            details: dict[str, object] | None,
     ) -> str:
         """Build audit log message efficiently.
 
@@ -342,12 +337,12 @@ class DefaultAuditLogger:
 
     @staticmethod
     def _prepare_extra(
-        action: str,
-        resource: str,
-        user: str | None,
-        details: dict[str, Any] | None,
-        correlation_id: str | None,
-    ) -> dict[str, Any]:
+            action: str,
+            resource: str,
+            user: str | None,
+            details: dict[str, object] | None,
+            correlation_id: str | None,
+    ) -> dict[str, object]:
         """Prepare structured logging context with sanitization.
 
         :param action: Action being performed
@@ -357,7 +352,7 @@ class DefaultAuditLogger:
         :param correlation_id: Request correlation ID (optional)
         :return: Structured extra data for logger with is_audit flag
         """
-        extra: dict[str, Any] = {
+        extra: dict[str, object] = {
             "action": action,
             "resource": resource,
             "timestamp": time.time(),
@@ -386,10 +381,10 @@ class NoOpAuditLogger:
 
     __slots__ = ()
 
-    def log_action(self, action: str, resource: str, **_kwargs: Any) -> None:
+    def log_action(self, action: str, resource: str, **_kwargs: object) -> None:
         """Do nothing - audit logging disabled."""
 
-    async def alog_action(self, action: str, resource: str, **_kwargs: Any) -> None:
+    async def alog_action(self, action: str, resource: str, **_kwargs: object) -> None:
         """Do nothing - audit logging disabled."""
 
     async def shutdown(self, *, timeout: float = 5.0) -> None:
@@ -406,12 +401,12 @@ class AuditDecorator:
 
     @staticmethod
     def audit_action(
-        action: str,
-        *,
-        resource_from: str | Callable[..., str] | None = None,
-        log_success: bool = True,
-        log_failure: bool = True,
-        extract_details: Callable[..., dict[str, Any] | None] | None = None,
+            action: str,
+            *,
+            resource_from: str | Callable[..., str] | None = None,
+            log_success: bool = True,
+            log_failure: bool = True,
+            extract_details: Callable[..., dict[str, object] | None] | None = None,
     ) -> Callable[[Callable[P, T]], Callable[P, T]]:
         """Decorator for automatic audit logging.
 
@@ -425,25 +420,21 @@ class AuditDecorator:
                 ...
 
         :param action: Action name to log (e.g., 'create_key', 'delete_key')
-        :param resource_from: How to extract resource identifier:
-            - str: attribute/dict key name or literal value
-            - Callable: function that extracts resource from (result, *args, **kwargs)
-            - None: defaults to 'unknown'
+        :param resource_from: How to extract resource identifier
         :param log_success: Whether to log successful operations (default: True)
         :param log_failure: Whether to log failed operations (default: True)
         :param extract_details: Optional function to extract additional details
-            from (result, *args, **kwargs) -> dict[str, Any] | None
         :return: Decorated function with automatic audit logging
         """
 
         def decorator(func: Callable[P, T]) -> Callable[P, T]:
             def _audit_log(
-                self: object,
-                result: object,
-                args: tuple[object, ...],
-                kwargs: dict[str, object],
-                success: bool,
-                exception: Exception | None,
+                    self: object,
+                    result: object,
+                    args: tuple[object, ...],
+                    kwargs: dict[str, object],
+                    success: bool,
+                    exception: Exception | None,
             ) -> None:
                 """Shared audit logging logic."""
                 # Guard clauses for early exit
@@ -464,7 +455,7 @@ class AuditDecorator:
 
                 correlation_id = getattr(self, "_correlation_id", None)
 
-                self._audit_logger.log_action(  # type: ignore[attr-defined]
+                self._audit_logger.log_action(
                     action=action,
                     resource=resource,
                     details=details_dict,
@@ -473,14 +464,14 @@ class AuditDecorator:
 
             @wraps(func)
             async def async_wrapper(
-                self: object, *args: P.args, **kwargs: P.kwargs
+                    self: object, *args: P.args, **kwargs: P.kwargs
             ) -> T:
                 result: T | None = None
                 success = False
                 exception: Exception | None = None
 
                 try:
-                    result = await func(self, *args, **kwargs)  # type: ignore[misc]
+                    result = await func(self, *args, **kwargs)
                     success = True
                     return result
                 except Exception as e:
@@ -496,7 +487,7 @@ class AuditDecorator:
                 exception: Exception | None = None
 
                 try:
-                    result = func(self, *args, **kwargs)  # type: ignore[misc]
+                    result = func(self, *args, **kwargs)
                     success = True
                     return result
                 except Exception as e:
@@ -514,13 +505,13 @@ class AuditDecorator:
 
     @staticmethod
     def _build_details(
-        extract_details: Callable[..., dict[str, Any] | None] | None,
-        result: object,
-        args: tuple[object, ...],
-        kwargs: dict[str, object],
-        success: bool,
-        exception: Exception | None,
-    ) -> dict[str, Any]:
+            extract_details: Callable[..., dict[str, object] | None] | None,
+            result: object,
+            args: tuple[object, ...],
+            kwargs: dict[str, object],
+            success: bool,
+            exception: Exception | None,
+    ) -> dict[str, object]:
         """Build details dict with success/failure info.
 
         :param extract_details: Optional function to extract custom details
@@ -531,7 +522,7 @@ class AuditDecorator:
         :param exception: Exception if operation failed (None if success)
         :return: Details dictionary with at least 'success' key
         """
-        details: dict[str, Any] = {"success": success}
+        details: dict[str, object] = {"success": success}
 
         # Add extracted details if available
         if extract_details:
@@ -550,12 +541,12 @@ class AuditDecorator:
 
     @staticmethod
     def _extract_resource(
-        resource_from: str | Callable[..., str] | None,
-        result: object,
-        args: tuple[object, ...],
-        kwargs: dict[str, object],
-        success: bool,
-        exception: Exception | None,
+            resource_from: str | Callable[..., str] | None,
+            result: object,
+            args: tuple[object, ...],
+            kwargs: dict[str, object],
+            success: bool,
+            exception: Exception | None,
     ) -> str:
         """Extract resource identifier using pattern matching.
 
@@ -577,9 +568,9 @@ class AuditDecorator:
                     return str(resource_from(result, *args, **kwargs))
                 case str(attr_name):
                     return (
-                        AuditDecorator._extract_from_result(result, attr_name, success)
-                        or AuditDecorator._extract_from_args(args, kwargs, attr_name)
-                        or attr_name  # Fallback: use as literal
+                            AuditDecorator._extract_from_result(result, attr_name, success)
+                            or AuditDecorator._extract_from_args(args, kwargs, attr_name)
+                            or attr_name  # Fallback: use as literal
                     )
                 case _:
                     return "unknown"
@@ -594,9 +585,9 @@ class AuditDecorator:
 
     @staticmethod
     def _extract_from_result(
-        result: object,
-        attr_name: str,
-        success: bool,
+            result: object,
+            attr_name: str,
+            success: bool,
     ) -> str | None:
         """Extract resource from result object.
 
@@ -622,9 +613,9 @@ class AuditDecorator:
 
     @staticmethod
     def _extract_from_args(
-        args: tuple[object, ...],
-        kwargs: dict[str, object],
-        attr_name: str,
+            args: tuple[object, ...],
+            kwargs: dict[str, object],
+            attr_name: str,
     ) -> str | None:
         """Extract resource from function arguments.
 
@@ -647,13 +638,13 @@ class AuditDecorator:
 
     @staticmethod
     def _extract_details(
-        extract_details: Callable[..., dict[str, Any] | None],
-        result: object,
-        args: tuple[object, ...],
-        kwargs: dict[str, object],
-        success: bool,
-        exception: Exception | None,
-    ) -> dict[str, Any] | None:
+            extract_details: Callable[..., dict[str, object] | None],
+            result: object,
+            args: tuple[object, ...],
+            kwargs: dict[str, object],
+            success: bool,
+            exception: Exception | None,
+    ) -> dict[str, object] | None:
         """Extract additional details for audit log.
 
         :param extract_details: User-provided extraction function
@@ -675,7 +666,7 @@ class AuditDecorator:
             return None
 
     @staticmethod
-    def sanitize_details(details: dict[str, Any]) -> dict[str, Any]:
+    def sanitize_details(details: dict[str, object]) -> dict[str, object]:
         """Remove sensitive data from audit logs using lazy copying.
 
         Recursively sanitizes nested dictionaries. Uses lazy copying for
@@ -691,7 +682,7 @@ class AuditDecorator:
             return details
 
         keys_lower = {k.lower() for k in DEFAULT_SENSITIVE_KEYS}
-        sanitized: dict[str, Any] | None = None
+        sanitized: dict[str, object] | None = None
 
         for key, value in details.items():
             # Check for sensitive key
