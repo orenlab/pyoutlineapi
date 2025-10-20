@@ -3,16 +3,20 @@
 ## Table of Contents
 
 - [Reporting Security Vulnerabilities](#reporting-security-vulnerabilities)
-- [Security Best Practices](#security-best-practices)
+- [Security Architecture](#security-architecture)
 - [Secure Configuration](#secure-configuration)
-- [Certificate Verification](#certificate-verification)
-- [API Key Management](#api-key-management)
+- [Certificate Pinning](#certificate-pinning)
+- [Credential Management](#credential-management)
 - [Network Security](#network-security)
 - [Data Protection](#data-protection)
-- [Logging and Monitoring](#logging-and-monitoring)
+- [Audit Logging](#audit-logging)
+- [Circuit Breaker Security](#circuit-breaker-security)
 - [Deployment Security](#deployment-security)
 - [Dependencies and Updates](#dependencies-and-updates)
 - [Security Checklist](#security-checklist)
+- [Incident Response](#incident-response)
+
+---
 
 ## Reporting Security Vulnerabilities
 
@@ -24,939 +28,1767 @@ We take security seriously. If you discover a security vulnerability in PyOutlin
 
 Instead, please:
 
-1. **Email us directly**: Send details to `pytelemonbot@mail.ru` with the subject line "SECURITY: PyOutlineAPI
-   Vulnerability Report"
+1. **Email us directly**: `pytelemonbot@mail.ru`
+    - Subject: `[SECURITY] PyOutlineAPI Vulnerability Report`
+    - Include: Description, reproduction steps, impact assessment, suggested fix
 
-2. **Include the following information**:
-    - Description of the vulnerability
-    - Steps to reproduce the issue
-    - Potential impact assessment
-    - Suggested fix (if you have one)
-    - Your contact information
+2. **Response Timeline**:
+    - ✅ **24 hours**: Initial acknowledgment
+    - ⚡ **72 hours**: Preliminary assessment and severity classification
+    - 📋 **7 days**: Detailed response with remediation timeline
+    - 🔧 **30 days**: Target resolution (varies by complexity and severity)
 
-3. **Response timeline**:
-    - **24 hours**: Initial acknowledgment
-    - **72 hours**: Preliminary assessment
-    - **7 days**: Detailed response with timeline
-    - **30 days**: Target resolution (may vary based on complexity)
+3. **Responsible Disclosure**:
+    - Allow reasonable time to investigate and fix (minimum 90 days)
+    - Do not publicly disclose until patch is released
+    - We will credit you in security advisory (unless you prefer anonymity)
+    - Coordinated disclosure with CVE assignment for critical issues
 
-### Responsible Disclosure
+### Security Advisory Process
 
-- Allow us reasonable time to investigate and fix the issue
-- Do not publicly disclose the vulnerability until we've released a fix
-- We will credit you in the security advisory (unless you prefer to remain anonymous)
+When a vulnerability is confirmed:
 
-## Security Best Practices
+1. **Assessment**: Severity classification (Critical/High/Medium/Low)
+2. **Patch Development**: Fix created and tested
+3. **Security Advisory**: Published on GitHub Security Advisories
+4. **CVE Assignment**: For vulnerabilities with CVSS score ≥ 4.0
+5. **Release**: Patched version published to PyPI
+6. **Notification**: Security advisory sent to users
 
-### 1. Certificate Verification
+---
 
-**Always verify TLS certificates** to prevent man-in-the-middle attacks:
+## Security Architecture
 
-```python
-from pyoutlineapi import AsyncOutlineClient
+### Defense in Depth
 
-# ✅ SECURE: Always provide certificate fingerprint
-async with AsyncOutlineClient(
-        api_url="https://your-server:port/path",
-        cert_sha256="your-certificate-fingerprint",  # Required!
-) as client:
-    server = await client.get_server_info()
+PyOutlineAPI v0.4.0 implements multiple security layers:
 
-# ❌ INSECURE: Never skip certificate verification
-# This would be vulnerable to MITM attacks
+```
+┌─────────────────────────────────────────┐
+│  Application Layer                      │
+│  • Input Validation (Pydantic v2)       │
+│  • Output Sanitization                  │
+│  • Audit Logging                        │
+└─────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────┐
+│  Client Layer                           │
+│  • Circuit Breaker (Failure Protection) │
+│  • Rate Limiting (DoS Protection)       │
+│  • Request Timeout Enforcement          │
+│  • Correlation ID Tracking              │
+└─────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────┐
+│  Transport Layer                        │
+│  • TLS 1.2+ Enforcement                 │
+│  • Certificate Pinning (SHA-256)        │
+│  • Connection Pool Management           │
+│  • Secure Headers                       │
+└─────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────┐
+│  Data Layer                             │
+│  • SecretStr for Credentials            │
+│  • Sensitive Data Masking               │
+│  • Memory Security (gc clearing)        │
+│  • No Secrets in Logs                   │
+└─────────────────────────────────────────┘
 ```
 
-#### How to Get Certificate Fingerprint
+### Security Features Summary
 
-```bash
-# Method 1: Using OpenSSL
-echo | openssl s_client -connect your-server:port 2>/dev/null | \
-    openssl x509 -fingerprint -sha256 -noout | \
-    cut -d'=' -f2 | tr -d ':'
+| Feature                 | Protection Against      | Implementation                              |
+|-------------------------|-------------------------|---------------------------------------------|
+| **Certificate Pinning** | MITM attacks            | SHA-256 fingerprint verification            |
+| **SecretStr**           | Credential exposure     | Pydantic SecretStr type                     |
+| **Audit Logging**       | Unauthorized actions    | Async queue with sanitization               |
+| **Circuit Breaker**     | Service degradation     | 3-state circuit with metrics                |
+| **Rate Limiting**       | DoS/resource exhaustion | Semaphore-based concurrency control         |
+| **Input Validation**    | Injection attacks       | Pydantic models with strict validation      |
+| **Output Sanitization** | Information disclosure  | Automatic masking of 32+ sensitive patterns |
+| **Correlation IDs**     | Request tracking/replay | Cryptographically secure tokens             |
 
-# Method 2: Using curl and OpenSSL
-curl -k https://your-server:port 2>/dev/null | \
-    openssl x509 -fingerprint -sha256 -noout
-
-# Method 3: From Outline Manager
-# The certificate fingerprint is displayed in Outline Manager
-# when you set up your server
-```
-
-### 2. Secure URL Handling
-
-**Protect API URLs** as they contain sensitive authentication information:
-
-```python
-import os
-from urllib.parse import urlparse
-
-# ✅ SECURE: Store in environment variables
-api_url = os.getenv("OUTLINE_API_URL")
-cert_fingerprint = os.getenv("OUTLINE_CERT_SHA256")
-
-if not api_url or not cert_fingerprint:
-    raise ValueError("Missing required security credentials")
-
-# ✅ SECURE: Validate URL format
-parsed_url = urlparse(api_url)
-if parsed_url.scheme != 'https':
-    raise ValueError("API URL must use HTTPS")
-
-async with AsyncOutlineClient(
-        api_url=api_url,
-        cert_sha256=cert_fingerprint
-) as client:
-    # Your code here
-    pass
-```
-
-**Never hardcode credentials**:
-
-```python
-# ❌ INSECURE: Hardcoded credentials
-client = AsyncOutlineClient(
-    api_url="https://server:8080/secret-key-here",  # Don't do this!
-    cert_sha256="abc123..."
-)
-
-# ❌ INSECURE: Credentials in version control
-API_URL = "https://production-server/secret"  # Don't commit this!
-```
-
-### 3. Environment Variables
-
-Use secure environment variable practices:
-
-```python
-import os
-from pathlib import Path
-
-
-# ✅ SECURE: Load from .env file (not in version control)
-def load_secure_config():
-    """Load configuration from secure sources."""
-
-    # Check for required environment variables
-    required_vars = ['OUTLINE_API_URL', 'OUTLINE_CERT_SHA256']
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
-
-    if missing_vars:
-        raise ValueError(f"Missing required environment variables: {missing_vars}")
-
-    return {
-        'api_url': os.getenv('OUTLINE_API_URL'),
-        'cert_sha256': os.getenv('OUTLINE_CERT_SHA256'),
-    }
-
-
-# Example .env file (add to .gitignore!)
-"""
-OUTLINE_API_URL=https://your-server:port/secret-path
-OUTLINE_CERT_SHA256=your-certificate-fingerprint
-"""
-```
+---
 
 ## Secure Configuration
 
-### Connection Security
+### Configuration Security Hierarchy (Best to Worst)
 
 ```python
-from pyoutlineapi import AsyncOutlineClient
+from pyoutlineapi import AsyncOutlineClient, ProductionConfig
+from pydantic import SecretStr
 
-# ✅ SECURE: Recommended secure configuration
-async with AsyncOutlineClient(
-        api_url=os.getenv("OUTLINE_API_URL"),
-        cert_sha256=os.getenv("OUTLINE_CERT_SHA256"),
+# ✅ BEST: Production config with environment variables
+config = ProductionConfig.from_env()
+# - Enforces HTTPS
+# - Enables circuit breaker
+# - Validates all settings
+# - Secrets never in code
 
-        # Security settings
-        timeout=30,  # Reasonable timeout
-        retry_attempts=3,  # Limited retry attempts
-        rate_limit_delay=0.1,  # Prevent rate limiting issues
+async with AsyncOutlineClient(config) as client:
+    await client.get_server_info()
 
-        # Disable logging in production (avoid credential leaks)
-        enable_logging=False,
-
-        # Custom user agent (optional, for monitoring)
-        user_agent="MySecureApp/1.0"
+# ✅ GOOD: Environment variables with overrides
+async with AsyncOutlineClient.from_env(
+        enable_circuit_breaker=True,
+        circuit_failure_threshold=5,
+        enable_logging=False  # Disable in production
 ) as client:
-    # Your secure operations
-    pass
+    await client.get_server_info()
+
+# ⚠️ ACCEPTABLE: Direct config with SecretStr
+config = OutlineClientConfig(
+    api_url="https://server.com/path",
+    cert_sha256=SecretStr("abc123..."),  # SecretStr protects from accidental exposure
+    enable_circuit_breaker=True
+)
+
+# ❌ DANGEROUS: Hardcoded credentials
+client = AsyncOutlineClient(
+    api_url="https://server.com/secret",  # Secret visible in code!
+    cert_sha256="abc123...",  # String instead of SecretStr
+    enable_circuit_breaker=False  # No protection
+)
 ```
 
-### Production vs Development
+### Environment Variable Configuration
+
+**Recommended `.env` structure:**
+
+```bash
+# === Required Security Settings ===
+OUTLINE_API_URL=https://your-server.com:12345/your-secret-path
+OUTLINE_CERT_SHA256=your-64-character-sha256-fingerprint
+
+# === Security Features (Production Defaults) ===
+OUTLINE_ENABLE_CIRCUIT_BREAKER=true
+OUTLINE_CIRCUIT_FAILURE_THRESHOLD=5
+OUTLINE_CIRCUIT_RECOVERY_TIMEOUT=60.0
+OUTLINE_ENABLE_LOGGING=false  # CRITICAL: Disable in production
+
+# === Connection Security ===
+OUTLINE_TIMEOUT=10
+OUTLINE_RETRY_ATTEMPTS=2
+OUTLINE_MAX_CONNECTIONS=10
+OUTLINE_RATE_LIMIT=50
+
+# === Optional Security Hardening ===
+OUTLINE_USER_AGENT=MySecureApp/1.0
+OUTLINE_JSON_FORMAT=false
+```
+
+**Critical Security Rules:**
+
+1. ✅ **Always add `.env` to `.gitignore`**
+2. ✅ **Use different credentials per environment**
+3. ✅ **Rotate credentials regularly (every 90 days)**
+4. ✅ **Use read-only environment variables in production**
+5. ❌ **Never commit `.env` files to version control**
+
+### Configuration Validation
 
 ```python
-import os
+from pyoutlineapi import OutlineClientConfig, ConfigurationError
 
 
-def create_secure_client():
-    """Create client with environment-appropriate security settings."""
+def validate_production_config():
+    """Validate configuration meets security requirements."""
+    try:
+        config = OutlineClientConfig.from_env()
 
-    is_production = os.getenv('ENVIRONMENT') == 'production'
+        # Security checks
+        checks = {
+            "HTTPS Enforced": config.api_url.startswith("https://"),
+            "Circuit Breaker Enabled": config.enable_circuit_breaker,
+            "Logging Disabled": not config.enable_logging,
+            "Reasonable Timeout": 5 <= config.timeout <= 30,
+            "Rate Limited": config.rate_limit <= 100,
+        }
 
-    return AsyncOutlineClient(
-        api_url=os.getenv("OUTLINE_API_URL"),
-        cert_sha256=os.getenv("OUTLINE_CERT_SHA256"),
+        failed = [name for name, passed in checks.items() if not passed]
 
-        # More restrictive settings in production
-        timeout=30 if is_production else 60,
-        retry_attempts=2 if is_production else 5,
-        enable_logging=not is_production,  # No logging in production
+        if failed:
+            raise ConfigurationError(
+                f"Security validation failed: {', '.join(failed)}"
+            )
 
-        # Production-specific settings
-        max_connections=5 if is_production else 10,
-        rate_limit_delay=0.2 if is_production else 0.1,
-    )
+        return config
+
+    except ConfigurationError as e:
+        print(f"❌ Configuration error: {e}")
+        raise
 ```
 
-## Certificate Verification
+---
+
+## Certificate Pinning
 
 ### Understanding Certificate Pinning
 
-PyOutlineAPI uses certificate pinning to prevent MITM attacks:
+PyOutlineAPI uses **SHA-256 certificate pinning** to prevent man-in-the-middle (MITM) attacks:
 
 ```python
-# Certificate fingerprint verification process:
-# 1. Client connects to server
-# 2. Server presents TLS certificate
-# 3. Client calculates SHA-256 fingerprint
-# 4. Client compares with provided fingerprint
-# 5. Connection proceeds only if fingerprints match
+# How it works:
+# 1. Client extracts server's TLS certificate
+# 2. Calculates SHA-256 fingerprint
+# 3. Compares with configured fingerprint
+# 4. Connection ONLY proceeds if they match
+# 5. Any mismatch = immediate connection failure
 
-async def secure_connection_example():
-    try:
-        async with AsyncOutlineClient(
-                api_url="https://your-server:port/path",
-                cert_sha256="expected-fingerprint"
-        ) as client:
-            # Connection successful - certificate verified
-            server = await client.get_server_info()
-            return server
+from pyoutlineapi import AsyncOutlineClient
 
-    except Exception as e:
-        # Certificate mismatch or other security error
-        print(f"Security error: {e}")
-        raise
+async with AsyncOutlineClient.from_env() as client:
+    # Certificate automatically verified on every request
+    server = await client.get_server_info()
+```
+
+### Obtaining Certificate Fingerprint
+
+**Method 1: OpenSSL (Recommended)**
+
+```bash
+# Extract SHA-256 fingerprint
+echo | openssl s_client -connect your-server.com:12345 2>/dev/null | \
+    openssl x509 -fingerprint -sha256 -noout | \
+    cut -d'=' -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]'
+
+# Output: abc123def456... (64 characters)
+```
+
+**Method 2: Outline Manager**
+
+The certificate fingerprint is displayed in Outline Manager when you add a server.
+
+**Method 3: Python Script**
+
+```python
+import ssl
+import hashlib
+import socket
+
+
+def get_certificate_fingerprint(hostname: str, port: int) -> str:
+    """Extract SHA-256 fingerprint from server certificate."""
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
+    with socket.create_connection((hostname, port)) as sock:
+        with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+            cert_der = ssock.getpeercert(binary_form=True)
+            fingerprint = hashlib.sha256(cert_der).hexdigest()
+            return fingerprint
+
+
+# Usage
+fingerprint = get_certificate_fingerprint("your-server.com", 12345)
+print(f"Certificate SHA-256: {fingerprint}")
 ```
 
 ### Certificate Rotation
 
-When your Outline server certificate changes:
+**When server certificate changes:**
 
 ```python
+from pyoutlineapi import AsyncOutlineClient, ConnectionError
 import asyncio
-from pyoutlineapi import AsyncOutlineClient, APIError
 
 
 async def handle_certificate_rotation():
-    """Handle certificate changes gracefully."""
+    """Gracefully handle certificate updates."""
 
-    primary_cert = os.getenv("OUTLINE_CERT_PRIMARY")
-    backup_cert = os.getenv("OUTLINE_CERT_BACKUP")  # New certificate
+    # Strategy 1: Dual certificate support (recommended)
+    certificates = [
+        os.getenv("OUTLINE_CERT_PRIMARY"),  # Current cert
+        os.getenv("OUTLINE_CERT_BACKUP"),  # New cert (during rotation)
+    ]
 
-    # Try primary certificate first
-    try:
-        async with AsyncOutlineClient(
-                api_url=os.getenv("OUTLINE_API_URL"),
-                cert_sha256=primary_cert
-        ) as client:
-            return await client.get_server_info()
-
-    except APIError as e:
-        if "certificate" in str(e).lower():
-            # Certificate might have changed, try backup
-            async with AsyncOutlineClient(
-                    api_url=os.getenv("OUTLINE_API_URL"),
-                    cert_sha256=backup_cert
+    for cert in certificates:
+        try:
+            async with AsyncOutlineClient.from_env(
+                    cert_sha256=cert
             ) as client:
-                return await client.get_server_info()
-        else:
+                await client.get_server_info()
+                print(f"✅ Connected with certificate: {cert[:16]}...")
+                return client
+
+        except ConnectionError as e:
+            if "certificate" in str(e).lower():
+                print(f"⚠️ Certificate mismatch: {cert[:16]}...")
+                continue
             raise
+
+    raise ConnectionError("All certificates failed validation")
+
+
+# Strategy 2: Automated certificate monitoring
+async def monitor_certificate_expiry():
+    """Monitor certificate expiration and alert."""
+    import ssl
+    import datetime
+
+    # This would be implemented based on your certificate source
+    # Alert 30 days before expiration
+    pass
 ```
 
-## API Key Management
+**Certificate Rotation Best Practices:**
+
+1. ✅ Test new certificate in staging first
+2. ✅ Deploy new certificate to client before server rotation
+3. ✅ Maintain both old and new certificates during transition (24-48h)
+4. ✅ Monitor connection failures during rotation window
+5. ✅ Document rotation procedure and schedule
+
+---
+
+## Credential Management
+
+### Secure Credential Storage
+
+```python
+from pyoutlineapi import AsyncOutlineClient
+from pydantic import SecretStr
+import os
+from pathlib import Path
+
+
+# ✅ BEST: Docker Secrets (Orchestrated environments)
+def load_from_docker_secret(secret_name: str) -> str:
+    """Load credential from Docker secret."""
+    secret_path = Path(f"/run/secrets/{secret_name}")
+    if not secret_path.exists():
+        raise ValueError(f"Secret not found: {secret_name}")
+
+    # Secrets are read-only, owned by root
+    return secret_path.read_text().strip()
+
+
+async with AsyncOutlineClient(
+        api_url=load_from_docker_secret("outline_api_url"),
+        cert_sha256=load_from_docker_secret("outline_cert_sha256")
+) as client:
+    pass
+
+
+# ✅ GOOD: Environment Variables with Validation
+def load_from_env_secure() -> dict:
+    """Load and validate credentials from environment."""
+    api_url = os.getenv("OUTLINE_API_URL")
+    cert = os.getenv("OUTLINE_CERT_SHA256")
+
+    if not api_url or not cert:
+        raise ValueError("Missing required credentials")
+
+    # Validate format
+    if not api_url.startswith("https://"):
+        raise ValueError("API URL must use HTTPS")
+
+    if len(cert) != 64 or not all(c in "0123456789abcdef" for c in cert.lower()):
+        raise ValueError("Invalid certificate fingerprint format")
+
+    return {"api_url": api_url, "cert_sha256": cert}
+
+
+# ✅ ACCEPTABLE: Vault/KMS Integration
+async def load_from_vault():
+    """Load credentials from HashiCorp Vault or AWS Secrets Manager."""
+    # Example with hvac (HashiCorp Vault client)
+    import hvac
+
+    client = hvac.Client(url=os.getenv("VAULT_ADDR"))
+    client.auth.approle.login(
+        role_id=os.getenv("VAULT_ROLE_ID"),
+        secret_id=os.getenv("VAULT_SECRET_ID")
+    )
+
+    secret = client.secrets.kv.v2.read_secret_version(
+        path="outline/production"
+    )
+
+    return {
+        "api_url": secret["data"]["data"]["api_url"],
+        "cert_sha256": secret["data"]["data"]["cert_sha256"]
+    }
+
+
+# ❌ NEVER: Hardcoded Credentials
+API_URL = "https://prod.example.com/secret123"  # NEVER DO THIS!
+CERT = "abc123..."  # NEVER DO THIS!
+```
+
+### Credential Rotation
+
+```python
+import asyncio
+from datetime import datetime, timedelta
+
+
+class CredentialRotator:
+    """Automated credential rotation handler."""
+
+    def __init__(self, rotation_interval_days: int = 90):
+        self.rotation_interval = timedelta(days=rotation_interval_days)
+        self.last_rotation = datetime.now()
+
+    async def check_rotation_needed(self) -> bool:
+        """Check if credentials need rotation."""
+        time_since_rotation = datetime.now() - self.last_rotation
+        return time_since_rotation >= self.rotation_interval
+
+    async def rotate_credentials(self):
+        """Rotate credentials with zero downtime."""
+        # 1. Generate new credentials
+        new_creds = await self.generate_new_credentials()
+
+        # 2. Update service with new credentials
+        await self.update_service_credentials(new_creds)
+
+        # 3. Wait for propagation (grace period)
+        await asyncio.sleep(60)
+
+        # 4. Test new credentials
+        if await self.test_credentials(new_creds):
+            # 5. Update environment/secrets manager
+            await self.update_stored_credentials(new_creds)
+
+            # 6. Mark rotation complete
+            self.last_rotation = datetime.now()
+            return True
+
+        # Rollback if test fails
+        await self.rollback_credentials()
+        return False
+```
 
 ### Access Key Security
 
 ```python
-from pyoutlineapi import AsyncOutlineClient, DataLimit
+from pyoutlineapi import AsyncOutlineClient
+from pyoutlineapi.models import DataLimit
 import secrets
-import string
+import hashlib
 
 
-async def secure_key_management():
-    """Demonstrate secure access key management practices."""
+async def create_secure_access_key():
+    """Create access key with security best practices."""
 
-    async with AsyncOutlineClient(...) as client:
-        # ✅ SECURE: Use strong, unique names
-        def generate_secure_key_name():
-            """Generate secure, unique key identifier."""
-            return f"user_{secrets.token_hex(8)}"
+    async with AsyncOutlineClient.from_env() as client:
+        # ✅ SECURE: Generate cryptographically secure key name
+        key_name = hashlib.sha256(
+            secrets.token_bytes(32)
+        ).hexdigest()[:16]
 
-        # ✅ SECURE: Set appropriate data limits
+        # ✅ SECURE: Set appropriate data limit
         key = await client.create_access_key(
-            name=generate_secure_key_name(),
-            limit=DataLimit(bytes=10 * 1024 ** 3),  # 10 GB limit
-        )
-
-        # ✅ SECURE: Use custom encryption methods when needed
-        secure_key = await client.create_access_key(
-            name=generate_secure_key_name(),
+            name=f"user_{key_name}",
             method="chacha20-ietf-poly1305",  # Strong encryption
-            limit=DataLimit(bytes=5 * 1024 ** 3)
+            limit=DataLimit.from_gigabytes(10)  # Enforce limits
         )
 
-        return [key, secure_key]
+        # ✅ SECURE: Log creation without sensitive data
+        from pyoutlineapi import get_default_audit_logger
+        logger = get_default_audit_logger()
+        logger.log_action(
+            action="create_key",
+            resource=key.id,
+            details={"name": key.name, "has_limit": True}
+        )
+
+        return key
 
 
-# ❌ INSECURE: Predictable key names
-await client.create_access_key(name="user1")  # Too predictable
+# ❌ INSECURE: Predictable patterns
+await client.create_access_key(name="user1")  # Sequential
 await client.create_access_key(name="admin")  # Reveals purpose
+await client.create_access_key(name="test123")  # Predictable
 
-# ❌ INSECURE: No data limits
-await client.create_access_key(name="unlimited")  # No usage control
+# ❌ INSECURE: No limits
+await client.create_access_key(name="unlimited")  # Can exhaust resources
 ```
 
-### Key Lifecycle Management
-
-```python
-async def secure_key_lifecycle():
-    """Manage access keys securely throughout their lifecycle."""
-
-    async with AsyncOutlineClient(...) as client:
-
-        # Create key with appropriate limits
-        key = await client.create_access_key(
-            name=f"temp_user_{secrets.token_hex(4)}",
-            limit=DataLimit(bytes=1024 ** 3)  # 1 GB
-        )
-
-        try:
-            # Use the key...
-            yield key.access_url
-
-        finally:
-            # ✅ SECURE: Always clean up temporary keys
-            await client.delete_access_key(key.id)
-            print(f"Key {key.id} securely deleted")
-
-
-# ✅ SECURE: Monitor key usage
-async def monitor_key_usage():
-    """Monitor access key usage for security purposes."""
-
-    async with AsyncOutlineClient(...) as client:
-        metrics = await client.get_transfer_metrics()
-
-        # Check for unusual usage patterns
-        for key_id, bytes_used in metrics.bytes_transferred_by_user_id.items():
-            gb_used = bytes_used / 1024 ** 3
-
-            if gb_used > 50:  # Threshold for investigation
-                print(f"WARNING: Key {key_id} used {gb_used:.2f} GB")
-
-                # Consider implementing automated responses:
-                # - Reduce data limit
-                # - Temporarily disable key
-                # - Send alert to administrators
-```
+---
 
 ## Network Security
 
-### Secure Connection Practices
+### TLS Configuration
 
 ```python
-import ssl
-import aiohttp
+from pyoutlineapi import OutlineClientConfig, AsyncOutlineClient
+from pydantic import SecretStr
+
+# ✅ SECURE: Enforce TLS 1.2+ (automatic in PyOutlineAPI)
+config = OutlineClientConfig(
+    api_url="https://server.com/path",  # HTTPS enforced
+    cert_sha256=SecretStr("abc123..."),
+    timeout=10,  # Prevent slowloris attacks
+    max_connections=10,  # Limit resource usage
+    rate_limit=50,  # Prevent DoS
+)
+
+# Production config automatically enforces HTTPS
+from pyoutlineapi import ProductionConfig
+
+prod_config = ProductionConfig.from_env()
+# - Raises error if HTTP is used
+# - Enforces certificate pinning
+# - Enables circuit breaker
+```
+
+### Rate Limiting (DoS Protection)
+
+```python
 from pyoutlineapi import AsyncOutlineClient
 
+async with AsyncOutlineClient.from_env(
+        rate_limit=50,  # Max 50 concurrent requests
+        max_connections=20,  # Connection pool limit
+) as client:
+    # Check rate limiter status
+    stats = client.get_rate_limiter_stats()
+    print(f"Active: {stats['active']}/{stats['limit']}")
+    print(f"Available: {stats['available']}")
 
-async def network_security_example():
-    """Demonstrate network security best practices."""
+    # Dynamic adjustment based on load
+    if stats['available'] < 5:
+        await client.set_rate_limit(100)  # Increase temporarily
 
-    # ✅ SECURE: Use proper SSL context if needed for custom configurations
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = True
-    ssl_context.verify_mode = ssl.CERT_REQUIRED
-
-    connector = aiohttp.TCPConnector(
-        ssl=ssl_context,
-        limit=10,  # Connection pool limit
-        limit_per_host=5,  # Per-host connection limit
-        ttl_dns_cache=300,  # DNS cache TTL
-        use_dns_cache=True,
-    )
-
-    # Note: PyOutlineAPI handles SSL verification internally
-    # This is just an example of additional security measures
-
-    async with AsyncOutlineClient(
-            api_url=os.getenv("OUTLINE_API_URL"),
-            cert_sha256=os.getenv("OUTLINE_CERT_SHA256"),
-            timeout=30,  # Reasonable timeout
-            max_connections=5,  # Limit concurrent connections
-    ) as client:
-        # Verify server health before operations
-        if not await client.health_check():
-            raise ConnectionError("Server health check failed")
-
-        return await client.get_server_info()
+    # Monitor for abuse
+    if client.active_requests > stats['limit'] * 0.9:
+        print("⚠️ WARNING: High request rate detected")
 ```
 
-### Firewall and Network Configuration
+### Request Timeout Protection
 
 ```python
-async def network_hardening_checks():
-    """Check network security configuration."""
+from pyoutlineapi import AsyncOutlineClient, TimeoutError
 
-    async with AsyncOutlineClient(...) as client:
-        # Get server info to check configuration
-        server = await client.get_server_info()
 
-        # ✅ SECURE: Verify server configuration
-        security_checks = {
-            'has_name': bool(server.name),
-            'version_recent': server.version >= "1.8.0",
-            'port_configured': server.port_for_new_access_keys is not None,
-        }
+async def timeout_protected_operation():
+    """Demonstrate timeout protection."""
 
-        # Check metrics status (disable in high-security environments)
-        metrics_status = await client.get_metrics_status()
-        security_checks['metrics_disabled'] = not metrics_status.metrics_enabled
+    async with AsyncOutlineClient.from_env(timeout=10) as client:
+        try:
+            # Operation automatically times out after 10s
+            server = await client.get_server_info()
 
-        # Report security status
-        for check, status in security_checks.items():
-            print(f"Security check {check}: {'✅' if status else '❌'}")
-
-        return all(security_checks.values())
+        except TimeoutError as e:
+            print(f"Operation timed out after {e.timeout}s")
+            print(f"Operation: {e.operation}")
+            # Implement retry or fallback logic
 ```
+
+### Network Isolation
+
+```yaml
+# docker-compose.yml with network security
+version: '3.8'
+
+services:
+  outline-manager:
+    image: myapp:latest
+    networks:
+      - internal
+      - outline_net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+networks:
+  internal:
+    driver: bridge
+    internal: true  # No external access
+
+  outline_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+```
+
+---
 
 ## Data Protection
 
 ### Sensitive Data Handling
 
 ```python
-import json
-from typing import Any, Dict
+from pyoutlineapi.common_types import mask_sensitive_data, DEFAULT_SENSITIVE_KEYS
 
+# Automatic sensitive data masking
+sensitive_data = {
+    "name": "Alice",
+    "password": "secret123",
+    "api_url": "https://server.com/secret",
+    "cert_sha256": "abc123...",
+    "user_id": "12345"
+}
 
-class SecureDataHandler:
-    """Handle sensitive data securely."""
+# ✅ SECURE: Mask before logging
+safe_data = mask_sensitive_data(sensitive_data)
+print(safe_data)
+# {
+#     "name": "Alice",
+#     "password": "***MASKED***",
+#     "api_url": "***MASKED***",
+#     "cert_sha256": "***MASKED***",
+#     "user_id": "12345"
+# }
 
-    @staticmethod
-    def sanitize_for_logging(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Remove sensitive information from data before logging."""
-
-        sensitive_keys = {
-            'access_url', 'password', 'secret', 'key', 'token',
-            'cert', 'fingerprint', 'api_url'
-        }
-
-        sanitized = {}
-        for key, value in data.items():
-            if any(sensitive in key.lower() for sensitive in sensitive_keys):
-                sanitized[key] = "[REDACTED]"
-            elif isinstance(value, str) and len(value) > 50:
-                # Truncate long strings that might contain secrets
-                sanitized[key] = value[:20] + "...[TRUNCATED]"
-            else:
-                sanitized[key] = value
-
-        return sanitized
-
-    @staticmethod
-    def secure_logging_example():
-        """Example of secure logging practices."""
-
-        # ❌ INSECURE: Logging sensitive data
-        # logger.info(f"Created key: {key.access_url}")
-
-        # ✅ SECURE: Log without sensitive information
-        # logger.info(f"Created key with ID: {key.id}")
-
-
-async def secure_data_operations():
-    """Demonstrate secure data handling."""
-
-    async with AsyncOutlineClient(
-            api_url=os.getenv("OUTLINE_API_URL"),
-            cert_sha256=os.getenv("OUTLINE_CERT_SHA256"),
-            enable_logging=False  # Disable to prevent credential leaks
-    ) as client:
-        # Create access key
-        key = await client.create_access_key(name="secure_user")
-
-        # ✅ SECURE: Store only necessary information
-        key_info = {
-            'id': key.id,
-            'name': key.name,
-            'created_at': key.id,  # Use ID as creation timestamp
-            # Don't store access_url in logs or databases
-        }
-
-        # ✅ SECURE: Provide access_url securely to end user
-        # (e.g., through encrypted channel, secure API response, etc.)
-        return {
-            'key_id': key.id,
-            'access_url': key.access_url,  # Only in direct response
-            'status': 'created'
-        }
+# 32+ sensitive patterns automatically detected:
+# password, passwd, pwd, secret, api_key, token, cert, private_key, etc.
 ```
 
 ### Memory Security
 
 ```python
 import gc
-from typing import Optional
+from pyoutlineapi import AsyncOutlineClient
 
 
-class SecurityAwareClient:
-    """Client wrapper with security-focused memory management."""
+async def memory_secure_operation():
+    """Ensure sensitive data is cleared from memory."""
 
-    def __init__(self, api_url: str, cert_sha256: str):
-        self._api_url = api_url
-        self._cert_sha256 = cert_sha256
-        self._client: Optional[AsyncOutlineClient] = None
+    api_url = os.getenv("OUTLINE_API_URL")
+    cert = os.getenv("OUTLINE_CERT_SHA256")
 
-    async def __aenter__(self):
-        self._client = AsyncOutlineClient(
-            api_url=self._api_url,
-            cert_sha256=self._cert_sha256,
-            enable_logging=False
-        )
-        return await self._client.__aenter__()
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self._client:
-            result = await self._client.__aexit__(exc_type, exc_val, exc_tb)
-
-            # ✅ SECURE: Clear sensitive data from memory
-            self._api_url = None
-            self._cert_sha256 = None
-            self._client = None
-
-            # Force garbage collection to clear sensitive data
-            gc.collect()
-
+    try:
+        async with AsyncOutlineClient(
+                api_url=api_url,
+                cert_sha256=cert
+        ) as client:
+            result = await client.get_server_info()
             return result
+
+    finally:
+        # ✅ SECURE: Clear sensitive variables
+        api_url = None
+        cert = None
+
+        # Force garbage collection
+        gc.collect()
 ```
 
-## Logging and Monitoring
-
-### Security-Conscious Logging
+### Output Sanitization
 
 ```python
-import logging
-import re
-from typing import Any
+from pyoutlineapi import AsyncOutlineClient
 
 
-class SecureFormatter(logging.Formatter):
-    """Custom formatter that redacts sensitive information."""
+async def sanitized_output_example():
+    """Demonstrate automatic output sanitization."""
 
-    # Patterns that might contain sensitive data
-    SENSITIVE_PATTERNS = [
-        r'(access_url["\']?\s*[:=]\s*["\']?)([^"\'\\s]+)',
-        r'(password["\']?\s*[:=]\s*["\']?)([^"\'\\s]+)',
-        r'(secret["\']?\s*[:=]\s*["\']?)([^"\'\\s]+)',
-        r'(cert_sha256["\']?\s*[:=]\s*["\']?)([^"\'\\s]+)',
-        r'(api_url["\']?\s*[:=]\s*["\']?)([^"\'\\s]+)',
-    ]
+    async with AsyncOutlineClient.from_env() as client:
+        key = await client.create_access_key(name="Alice")
 
-    def format(self, record: logging.LogRecord) -> str:
-        # Format the record normally first
-        formatted = super().format(record)
+        # ✅ SECURE: Get sanitized config for logging
+        safe_config = client.get_sanitized_config()
+        logger.info(f"Using config: {safe_config}")
+        # Output: {'api_url': 'https://server.com/***', 'cert_sha256': '***MASKED***', ...}
 
-        # Redact sensitive information
-        for pattern in self.SENSITIVE_PATTERNS:
-            formatted = re.sub(pattern, r'\1[REDACTED]', formatted, flags=re.IGNORECASE)
+        # ✅ SECURE: Safe string representation
+        print(client)
+        # Output: AsyncOutlineClient(host=https://server.com, status=connected)
 
-        return formatted
+        # ❌ NEVER: Log full key object
+        # logger.info(f"Created key: {key}")  # Would expose access_url!
 
-
-def setup_secure_logging():
-    """Set up logging with security considerations."""
-
-    # Create secure formatter
-    formatter = SecureFormatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-
-    # Configure handler
-    handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-
-    # Configure logger
-    logger = logging.getLogger('pyoutlineapi')
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)  # Don't use DEBUG in production
-
-    return logger
-
-
-async def secure_logging_example():
-    """Example of secure logging practices."""
-
-    logger = setup_secure_logging()
-
-    async with AsyncOutlineClient(
-            api_url=os.getenv("OUTLINE_API_URL"),
-            cert_sha256=os.getenv("OUTLINE_CERT_SHA256"),
-            enable_logging=True  # Now safe with secure formatter
-    ) as client:
-        # Log operations without sensitive data
-        logger.info("Attempting to connect to Outline server")
-
-        server = await client.get_server_info()
-        logger.info(f"Connected to server: {server.name}")
-
-        # ✅ SECURE: Log events without sensitive information
-        key = await client.create_access_key(name="user123")
-        logger.info(f"Created access key with ID: {key.id}")
-
-        # ❌ INSECURE: Don't log the access URL
-        # logger.info(f"Access URL: {key.access_url}")
+        # ✅ SECURE: Log only safe fields
+        logger.info(f"Created key ID: {key.id}, name: {key.name}")
 ```
 
-### Security Monitoring
+---
+
+## Audit Logging
+
+### Production Audit Logging
 
 ```python
-import time
-from collections import defaultdict
-from typing import Dict, List
+from pyoutlineapi import DefaultAuditLogger, AsyncOutlineClient
+
+# ✅ PRODUCTION: Async audit logger with queue
+audit_logger = DefaultAuditLogger(
+    enable_async=True,  # Non-blocking queue processing
+    queue_size=5000  # Large queue for high throughput
+)
+
+async with AsyncOutlineClient.from_env(audit_logger=audit_logger) as client:
+    # All operations automatically audited
+    key = await client.create_access_key(name="Alice")
+    # 📝 [AUDIT] create_access_key on {key.id} | {'name': 'Alice', 'success': True}
+
+    await client.rename_access_key(key.id, "Alice Smith")
+    # 📝 [AUDIT] rename_access_key on {key.id} | {'new_name': 'Alice Smith', 'success': True}
+
+    try:
+        await client.delete_access_key("invalid-id")
+    except Exception:
+        pass
+    # 📝 [AUDIT] delete_access_key on invalid-id | {'success': False, 'error': '...'}
+
+# Graceful shutdown with queue draining
+await audit_logger.shutdown(timeout=5.0)
+```
+
+### Custom Audit Logger (SIEM Integration)
+
+```python
+from pyoutlineapi import AuditLogger
+import json
+import asyncio
+import aiohttp
 
 
-class SecurityMonitor:
-    """Monitor for suspicious activities."""
+class SIEMauditLogger:
+    """Send audit logs to SIEM system."""
 
-    def __init__(self):
-        self.request_counts: Dict[str, List[float]] = defaultdict(list)
-        self.failed_requests: Dict[str, int] = defaultdict(int)
+    def __init__(self, siem_endpoint: str, api_key: str):
+        self.siem_endpoint = siem_endpoint
+        self.api_key = api_key
+        self.session = None
 
-    def log_request(self, endpoint: str, success: bool):
-        """Log API request for monitoring."""
-        current_time = time.time()
+    def log_action(self, action: str, resource: str, **kwargs) -> None:
+        """Synchronous logging (for compatibility)."""
+        asyncio.create_task(self.alog_action(action, resource, **kwargs))
 
-        # Track request frequency
-        self.request_counts[endpoint].append(current_time)
+    async def alog_action(self, action: str, resource: str, **kwargs) -> None:
+        """Async logging to SIEM."""
+        if not self.session:
+            self.session = aiohttp.ClientSession()
 
-        # Clean old entries (keep last hour)
-        hour_ago = current_time - 3600
-        self.request_counts[endpoint] = [
-            t for t in self.request_counts[endpoint] if t > hour_ago
-        ]
-
-        # Track failures
-        if not success:
-            self.failed_requests[endpoint] += 1
-
-    def check_rate_limits(self, endpoint: str, max_per_hour: int = 1000) -> bool:
-        """Check if request rate is suspicious."""
-        return len(self.request_counts[endpoint]) > max_per_hour
-
-    def check_failure_rate(self, endpoint: str, max_failures: int = 10) -> bool:
-        """Check if failure rate is suspicious."""
-        return self.failed_requests[endpoint] > max_failures
-
-
-async def monitored_operations():
-    """Example of security monitoring in practice."""
-
-    monitor = SecurityMonitor()
-
-    async with AsyncOutlineClient(...) as client:
+        event = {
+            "timestamp": time.time(),
+            "service": "pyoutlineapi",
+            "action": action,
+            "resource": resource,
+            "severity": "INFO" if kwargs.get("success") else "WARNING",
+            **kwargs
+        }
 
         try:
-            # Monitor server access
-            monitor.log_request("get_server_info", True)
-            server = await client.get_server_info()
-
-            # Check for suspicious activity
-            if monitor.check_rate_limits("get_server_info"):
-                print("WARNING: High request rate detected")
-
-            if monitor.check_failure_rate("get_server_info"):
-                print("WARNING: High failure rate detected")
+            async with self.session.post(
+                    self.siem_endpoint,
+                    json=event,
+                    headers={"Authorization": f"Bearer {self.api_key}"}
+            ) as resp:
+                if resp.status != 200:
+                    print(f"SIEM logging failed: {resp.status}")
 
         except Exception as e:
-            monitor.log_request("get_server_info", False)
-            raise
+            print(f"SIEM logging error: {e}")
+
+    async def shutdown(self) -> None:
+        """Cleanup."""
+        if self.session:
+            await self.session.close()
+
+
+# Usage
+siem_logger = SIEMauditLogger(
+    siem_endpoint="https://siem.company.com/events",
+    api_key=os.getenv("SIEM_API_KEY")
+)
+
+async with AsyncOutlineClient.from_env(audit_logger=siem_logger) as client:
+    await client.create_access_key(name="User")
 ```
+
+### Audit Log Security
+
+```python
+# ✅ SECURE: Sensitive data automatically filtered
+key = await client.create_access_key(
+    name="Alice",
+    password="secret123"  # Automatically masked in audit logs
+)
+# Audit log: {'name': 'Alice', 'password': '***REDACTED***', 'success': True}
+
+# ✅ SECURE: Correlation IDs for request tracking
+from pyoutlineapi.base_client import correlation_id
+
+correlation_id.set("request-abc-123")
+await client.create_access_key(name="Bob")
+# Audit log includes correlation ID for tracing
+
+# ✅ SECURE: Failed operations logged
+try:
+    await client.delete_access_key("non-existent")
+except Exception:
+    pass
+# Audit log: {'success': False, 'error': 'Key not found', 'error_type': 'APIError'}
+```
+
+---
+
+## Circuit Breaker Security
+
+### Preventing Cascading Failures
+
+```python
+from pyoutlineapi import AsyncOutlineClient, CircuitOpenError
+
+# ✅ PRODUCTION: Enable circuit breaker
+async with AsyncOutlineClient.from_env(
+        enable_circuit_breaker=True,
+        circuit_failure_threshold=5,  # Open after 5 failures
+        circuit_recovery_timeout=60.0,  # Test recovery after 60s
+        circuit_success_threshold=2,  # Close after 2 successes
+        circuit_call_timeout=10.0  # Individual call timeout
+) as client:
+    try:
+        await client.get_server_info()
+
+    except CircuitOpenError as e:
+        # ✅ SECURE: Circuit prevents hammering failing service
+        print(f"Circuit open - service degraded")
+        print(f"Retry after: {e.retry_after}s")
+
+        # Implement fallback or alert
+        await notify_operations_team(
+            "Outline service circuit breaker opened"
+        )
+
+        # Wait before retry
+        await asyncio.sleep(e.retry_after)
+
+    # Monitor circuit health
+    metrics = client.get_circuit_metrics()
+    if metrics:
+        if metrics['state'] == 'OPEN':
+            print("⚠️ CRITICAL: Circuit breaker is OPEN")
+        elif metrics['state'] == 'HALF_OPEN':
+            print("⚠️ WARNING: Circuit breaker testing recovery")
+
+        if metrics['success_rate'] < 0.5:
+            print("⚠️ WARNING: Low success rate detected")
+```
+
+### Circuit Breaker Monitoring
+
+```python
+async def monitor_circuit_breaker(client: AsyncOutlineClient):
+    """Monitor circuit breaker for security incidents."""
+
+    while True:
+        metrics = client.get_circuit_metrics()
+
+        if not metrics:
+            await asyncio.sleep(10)
+            continue
+
+        # Security alerts
+        if metrics['state'] == 'OPEN':
+            await send_alert(
+                severity="HIGH",
+                message="Circuit breaker opened - service degraded",
+                metrics=metrics
+            )
+
+        if metrics['failed_calls'] > 100:
+            await send_alert(
+                severity="MEDIUM",
+                message=f"High failure count: {metrics['failed_calls']}",
+                metrics=metrics
+            )
+
+        if metrics['success_rate'] < 0.5:
+            await send_alert(
+                severity="MEDIUM",
+                message=f"Low success rate: {metrics['success_rate']:.2%}",
+                metrics=metrics
+            )
+
+        await asyncio.sleep(30)
+```
+
+---
 
 ## Deployment Security
 
-### Container Security
+### Docker Security
+
+**Secure Dockerfile:**
 
 ```dockerfile
-# Dockerfile security best practices
-FROM python:3.13-alpine
+# Use specific version (not 'latest')
+FROM python:3.12-slim-bookworm
 
 # Create non-root user
-RUN useradd --create-home --shell /bin/bash appuser
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Set work directory
+# Set secure working directory
 WORKDIR /app
 
-# Copy and install dependencies
+# Install dependencies as root
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy application
+COPY --chown=appuser:appuser . .
 
 # Switch to non-root user
 USER appuser
 
-# Set secure environment
-ENV PYTHONPATH=/app
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# Security hardening
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONH
+
+ASHSEED=random
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD python -c "import asyncio; from app import health_check; exit(0 if asyncio.run(health_check()) else 1)"
 
 # Run application
-CMD ["python", "app.py"]
+CMD ["python", "-u", "app.py"]
 ```
 
+**Secure docker-compose.yml:**
+
 ```yaml
-# docker-compose.yml security considerations
 version: '3.8'
+
 services:
-  pyoutlineapi-app:
+  outline-manager:
     build: .
-    environment:
-      - OUTLINE_API_URL_FILE=/run/secrets/outline_api_url
-      - OUTLINE_CERT_SHA256_FILE=/run/secrets/outline_cert
+
+    # Use secrets (not environment variables)
     secrets:
       - outline_api_url
-      - outline_cert
-    networks:
-      - internal
-    restart: unless-stopped
+      - outline_cert_sha256
+
+    environment:
+      - OUTLINE_API_URL_FILE=/run/secrets/outline_api_url
+      - OUTLINE_CERT_SHA256_FILE=/run/secrets/outline_cert_sha256
+      - OUTLINE_ENABLE_CIRCUIT_BREAKER=true
+      - OUTLINE_ENABLE_LOGGING=false
 
     # Security constraints
     read_only: true
-    cap_drop:
-      - ALL
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100M
+    # Resource limits (prevent DoS)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    # Network isolation
+    networks:
+      - internal
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import asyncio; from app import health_check; exit(0 if asyncio.run(health_check()) else 1)" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service,environment"
 
 secrets:
   outline_api_url:
     external: true
-  outline_cert:
+  outline_cert_sha256:
     external: true
 
 networks:
   internal:
     driver: bridge
+    internal: false
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 ```
 
-### Environment Security
+### Kubernetes Security
+
+**Secure Kubernetes Deployment:**
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: outline-credentials
+type: Opaque
+stringData:
+  api-url: "https://your-server.com:12345/path"
+  cert-sha256: "your-certificate-fingerprint"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outline-manager
+  labels:
+    app: outline-manager
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: outline-manager
+  template:
+    metadata:
+      labels:
+        app: outline-manager
+    spec:
+      # Security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: outline-manager
+          image: myregistry/outline-manager:1.0.0
+          imagePullPolicy: Always
+
+          # Security context for container
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+
+          # Environment from secrets
+          env:
+            - name: OUTLINE_API_URL
+              valueFrom:
+                secretKeyRef:
+                  name: outline-credentials
+                  key: api-url
+            - name: OUTLINE_CERT_SHA256
+              valueFrom:
+                secretKeyRef:
+                  name: outline-credentials
+                  key: cert-sha256
+            - name: OUTLINE_ENABLE_CIRCUIT_BREAKER
+              value: "true"
+            - name: OUTLINE_ENABLE_LOGGING
+              value: "false"
+
+          # Resource limits
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+          # Volume mounts for tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
+
+      # Pod security
+      automountServiceAccountToken: false
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: outline-manager-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: outline-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: outline-manager
+spec:
+  type: ClusterIP
+  selector:
+    app: outline-manager
+  ports:
+    - port: 8080
+      targetPort: 8080
+```
+
+### Secrets Management
+
+**HashiCorp Vault Integration:**
 
 ```python
-# secure_config.py
-import os
-from pathlib import Path
-from typing import Optional
+import hvac
+from pyoutlineapi import AsyncOutlineClient
 
 
-class SecureConfig:
-    """Secure configuration management."""
+class VaultSecretLoader:
+    """Load secrets from HashiCorp Vault."""
 
-    @staticmethod
-    def load_from_file(file_path: str) -> Optional[str]:
-        """Load secret from file (for Docker secrets)."""
+    def __init__(self, vault_addr: str, vault_token: str):
+        self.client = hvac.Client(url=vault_addr, token=vault_token)
+
+    def get_outline_credentials(self, path: str) -> dict:
+        """Retrieve Outline credentials from Vault."""
         try:
-            return Path(file_path).read_text().strip()
-        except (FileNotFoundError, PermissionError):
-            return None
+            secret = self.client.secrets.kv.v2.read_secret_version(path=path)
+            data = secret['data']['data']
 
-    @classmethod
-    def get_outline_config(cls) -> dict:
-        """Get Outline configuration from secure sources."""
-
-        # Try Docker secrets first
-        api_url = cls.load_from_file('/run/secrets/outline_api_url')
-        cert_sha256 = cls.load_from_file('/run/secrets/outline_cert')
-
-        # Fall back to environment variables
-        if not api_url:
-            api_url = os.getenv('OUTLINE_API_URL')
-        if not cert_sha256:
-            cert_sha256 = os.getenv('OUTLINE_CERT_SHA256')
-
-        if not api_url or not cert_sha256:
-            raise ValueError("Missing required Outline configuration")
-
-        return {
-            'api_url': api_url,
-            'cert_sha256': cert_sha256
-        }
+            return {
+                'api_url': data['api_url'],
+                'cert_sha256': data['cert_sha256']
+            }
+        except Exception as e:
+            raise ValueError(f"Failed to load secrets from Vault: {e}")
 
 
-# Usage in application
-async def secure_app_startup():
-    """Start application with secure configuration."""
+# Usage
+vault = VaultSecretLoader(
+    vault_addr=os.getenv("VAULT_ADDR"),
+    vault_token=os.getenv("VAULT_TOKEN")
+)
 
-    try:
-        config = SecureConfig.get_outline_config()
+creds = vault.get_outline_credentials("secret/outline/production")
 
-        async with AsyncOutlineClient(
-                api_url=config['api_url'],
-                cert_sha256=config['cert_sha256'],
-                enable_logging=False  # Disable in production
-        ) as client:
-
-            # Verify connection security
-            if not await client.health_check():
-                raise ConnectionError("Failed to establish secure connection")
-
-            return client
-
-    except Exception as e:
-        # Log security errors (without sensitive details)
-        print(f"Security configuration error: {type(e).__name__}")
-        raise
+async with AsyncOutlineClient(
+        api_url=creds['api_url'],
+        cert_sha256=creds['cert_sha256']
+) as client:
+    await client.get_server_info()
 ```
+
+**AWS Secrets Manager Integration:**
+
+```python
+import boto3
+import json
+from pyoutlineapi import AsyncOutlineClient
+
+
+class AWSSecretLoader:
+    """Load secrets from AWS Secrets Manager."""
+
+    def __init__(self, region: str = 'us-east-1'):
+        self.client = boto3.client('secretsmanager', region_name=region)
+
+    def get_outline_credentials(self, secret_name: str) -> dict:
+        """Retrieve Outline credentials from AWS Secrets Manager."""
+        try:
+            response = self.client.get_secret_value(SecretId=secret_name)
+            secret = json.loads(response['SecretString'])
+
+            return {
+                'api_url': secret['api_url'],
+                'cert_sha256': secret['cert_sha256']
+            }
+        except Exception as e:
+            raise ValueError(f"Failed to load secrets from AWS: {e}")
+
+
+# Usage
+aws_secrets = AWSSecretLoader(region='us-east-1')
+creds = aws_secrets.get_outline_credentials("outline/production/credentials")
+
+async with AsyncOutlineClient(
+        api_url=creds['api_url'],
+        cert_sha256=creds['cert_sha256']
+) as client:
+    await client.get_server_info()
+```
+
+---
 
 ## Dependencies and Updates
 
-### Dependency Security
+### Dependency Security Scanning
 
 ```bash
+# Install security tools
+pip install safety pip-audit bandit
+
 # Check for known vulnerabilities
-pip install safety
-safety check
+safety check --json
 
-# Check for outdated packages
-pip install pip-audit
-pip-audit
+# Audit dependencies
+pip-audit --desc
 
-# Use pip-tools for reproducible builds
-pip install pip-tools
-pip-compile --generate-hashes requirements.in
+# Security linting
+bandit -r pyoutlineapi/ -f json
+
+# Generate SBOM (Software Bill of Materials)
+pip install cyclonedx-bom
+cyclonedx-py requirements.txt -o sbom.json
+```
+
+**Automated Security Scanning in CI/CD:**
+
+```yaml
+# .github/workflows/security.yml
+name: Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install safety pip-audit bandit
+          pip install -r requirements.txt
+
+      - name: Run Safety check
+        run: safety check --json
+
+      - name: Run pip-audit
+        run: pip-audit --desc
+
+      - name: Run Bandit
+        run: bandit -r pyoutlineapi/ -f json -o bandit-report.json
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
 ```
 
 ### Update Management
 
 ```python
-# version_check.py
+# check_updates.py
 import aiohttp
 import asyncio
 from packaging import version
+import pyoutlineapi
 
 
-async def check_pyoutlineapi_version():
-    """Check if PyOutlineAPI version is up to date."""
+async def check_pyoutlineapi_updates():
+    """Check for security updates."""
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get('https://pypi.org/pypi/pyoutlineapi/json') as resp:
-                data = await resp.json()
-                latest_version = data['info']['version']
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://pypi.org/pypi/pyoutlineapi/json') as resp:
+            if resp.status != 200:
+                print("❌ Failed to check for updates")
+                return
 
-                # Compare with current version
-                import pyoutlineapi
-                current_version = pyoutlineapi.__version__
+            data = await resp.json()
+            latest = data['info']['version']
+            current = pyoutlineapi.__version__
 
-                if version.parse(current_version) < version.parse(latest_version):
-                    print(f"WARNING: PyOutlineAPI {latest_version} available (current: {current_version})")
-                    print("Consider updating for latest security fixes")
-                    return False
+            if version.parse(current) < version.parse(latest):
+                print(f"⚠️ Update available: {latest} (current: {current})")
 
+                # Check for security releases
+                releases = data['releases'].get(latest, [])
+                for release in releases:
+                    if 'security' in release.get('comment_text', '').lower():
+                        print("🚨 SECURITY UPDATE - Update immediately!")
+                        return True
+
+                print("ℹ️ Regular update available")
                 return True
 
-    except Exception as e:
-        print(f"Could not check for updates: {e}")
-        return None
+            print(f"✅ Up to date: {current}")
+            return False
 
 
-# Run version check
+# Run check
 if __name__ == "__main__":
-    asyncio.run(check_pyoutlineapi_version())
+    asyncio.run(check_pyoutlineapi_updates())
 ```
+
+### Dependency Pinning
+
+**requirements.txt with hashes:**
+
+```text
+# requirements.txt
+# Generated with: pip-compile --generate-hashes requirements.in
+
+pyoutlineapi==0.4.0 \
+    --hash=sha256:abc123... \
+    --hash=sha256:def456...
+
+aiohttp==3.9.1 \
+    --hash=sha256:123abc... \
+    --hash=sha256:456def...
+
+pydantic==2.5.3 \
+    --hash=sha256:789ghi... \
+    --hash=sha256:012jkl...
+
+# Verify with: pip install --require-hashes -r requirements.txt
+```
+
+---
 
 ## Security Checklist
 
-### Pre-Deployment Checklist
+### Pre-Deployment Security Checklist
 
-- [ ] **Certificate Verification**
-    - [ ] Certificate fingerprint is correctly configured
-    - [ ] No hardcoded certificates in code
-    - [ ] Certificate rotation process is documented
+#### Configuration Security
 
-- [ ] **Credential Management**
-    - [ ] API URLs stored securely (environment variables/secrets)
-    - [ ] No credentials in version control
-    - [ ] Secrets management system in place
+- [ ] ✅ Environment variables configured (no hardcoded credentials)
+- [ ] ✅ `.env` file added to `.gitignore`
+- [ ] ✅ Production config uses `ProductionConfig` preset
+- [ ] ✅ HTTPS enforced (no HTTP connections)
+- [ ] ✅ Certificate fingerprint verified and correct
+- [ ] ✅ Logging disabled in production (`enable_logging=false`)
+- [ ] ✅ Circuit breaker enabled (`enable_circuit_breaker=true`)
+- [ ] ✅ Reasonable timeouts configured (5-30 seconds)
+- [ ] ✅ Rate limiting configured (≤100 concurrent requests)
 
-- [ ] **Network Security**
-    - [ ] HTTPS-only connections enforced
-    - [ ] Proper firewall rules configured
-    - [ ] Rate limiting implemented
+#### Credential Management
 
-- [ ] **Access Control**
-    - [ ] Appropriate data limits set on access keys
-    - [ ] Key naming conventions follow security guidelines
-    - [ ] Regular key rotation schedule established
+- [ ] ✅ Credentials stored in secrets manager (Vault/AWS/Docker secrets)
+- [ ] ✅ Credentials rotated within last 90 days
+- [ ] ✅ Separate credentials for each environment (dev/staging/prod)
+- [ ] ✅ Credential rotation procedure documented
+- [ ] ✅ Emergency credential revocation process in place
 
-- [ ] **Monitoring and Logging**
-    - [ ] Security logging configured
-    - [ ] Sensitive data redaction implemented
-    - [ ] Monitoring for suspicious activities
+#### Network Security
 
-- [ ] **Code Security**
-    - [ ] Static analysis tools run (bandit, safety)
-    - [ ] Dependencies audited for vulnerabilities
-    - [ ] Security tests included in CI/CD
+- [ ] ✅ TLS 1.2+ enforced
+- [ ] ✅ Certificate pinning enabled
+- [ ] ✅ Firewall rules configured (allowlist only)
+- [ ] ✅ Network isolation implemented (internal networks)
+- [ ] ✅ DDoS protection configured (rate limiting)
+
+#### Access Control
+
+- [ ] ✅ Access keys have appropriate data limits
+- [ ] ✅ Key naming conventions follow security guidelines
+- [ ] ✅ Regular key rotation schedule established
+- [ ] ✅ Unused keys identified and removed
+- [ ] ✅ Key usage monitoring enabled
+
+#### Audit & Monitoring
+
+- [ ] ✅ Audit logging enabled in production
+- [ ] ✅ Audit logs sent to SIEM/centralized logging
+- [ ] ✅ Sensitive data filtering active
+- [ ] ✅ Correlation IDs tracked for requests
+- [ ] ✅ Security alerts configured
+- [ ] ✅ Health monitoring enabled
+- [ ] ✅ Circuit breaker metrics tracked
+
+#### Code Security
+
+- [ ] ✅ Dependencies scanned for vulnerabilities (`safety check`)
+- [ ] ✅ Static analysis passed (`bandit -r pyoutlineapi/`)
+- [ ] ✅ No secrets in code or version control
+- [ ] ✅ Input validation enabled (automatic with Pydantic)
+- [ ] ✅ Output sanitization enabled (automatic)
+- [ ] ✅ Security tests in CI/CD pipeline
+
+#### Container/Deployment Security
+
+- [ ] ✅ Running as non-root user
+- [ ] ✅ Read-only filesystem enabled
+- [ ] ✅ Capabilities dropped (`cap_drop: ALL`)
+- [ ] ✅ Security options configured (`no-new-privileges`)
+- [ ] ✅ Resource limits set (CPU/memory)
+- [ ] ✅ Health checks configured
+- [ ] ✅ Secrets mounted securely (not in environment)
 
 ### Runtime Security Checklist
 
-- [ ] **Connection Security**
-    - [ ] Health checks passing
-    - [ ] Certificate validation working
-    - [ ] No connection errors or timeouts
+#### Connection Health
 
-- [ ] **Access Key Management**
-    - [ ] Regular usage monitoring
-    - [ ] Cleanup of unused keys
-    - [ ] Data limit enforcement
+- [ ] ✅ Health checks passing consistently
+- [ ] ✅ Certificate validation successful
+- [ ] ✅ No connection timeouts or errors
+- [ ] ✅ Circuit breaker in CLOSED state
+- [ ] ✅ Success rate >95%
 
-- [ ] **System Security**
-    - [ ] Log monitoring active
-    - [ ] No sensitive data in logs
-    - [ ] Error handling not exposing internals
+#### Access Key Management
 
-### Incident Response
+- [ ] ✅ Regular usage monitoring active
+- [ ] ✅ Unused keys cleaned up monthly
+- [ ] ✅ Data limits enforced
+- [ ] ✅ No keys with unlimited access
+- [ ] ✅ Key creation/deletion audited
 
-If you suspect a security incident:
+#### Monitoring & Alerting
 
-1. **Immediate Actions**:
-    - Rotate API credentials
-    - Check access logs for suspicious activity
-    - Disable affected access keys
-    - Document the incident
+- [ ] ✅ Log monitoring active
+- [ ] ✅ No sensitive data in logs
+- [ ] ✅ Security alerts configured
+- [ ] ✅ Anomaly detection enabled
+- [ ] ✅ On-call rotation established
 
-2. **Investigation**:
-    - Review server metrics for unusual patterns
-    - Check for unauthorized access key creation/modification
-    - Analyze network traffic logs
+#### Compliance
 
-3. **Recovery**:
-    - Update credentials and certificates
-    - Implement additional security measures
-    - Update incident response procedures
+- [ ] ✅ Audit logs retained per policy (90+ days)
+- [ ] ✅ Access reviews completed quarterly
+- [ ] ✅ Security training current
+- [ ] ✅ Incident response plan tested
+- [ ] ✅ Compliance certifications current
 
-4. **Reporting**:
-    - Report security incidents to `pytelemonbot@mail.ru`
-    - Document lessons learned
-    - Update security procedures
+---
+
+## Incident Response
+
+### Incident Classification
+
+| Severity          | Description             | Response Time | Examples                           |
+|-------------------|-------------------------|---------------|------------------------------------|
+| **P0 - Critical** | Active security breach  | Immediate     | Credential compromise, data breach |
+| **P1 - High**     | Potential security risk | < 4 hours     | Suspicious activity, failed logins |
+| **P2 - Medium**   | Security concern        | < 24 hours    | Configuration drift, outdated deps |
+| **P3 - Low**      | Minor security issue    | < 7 days      | Best practice violations           |
+
+### Security Incident Response Plan
+
+**Phase 1: Detection & Assessment (0-15 minutes)**
+
+```python
+async def detect_security_incident(client: AsyncOutlineClient):
+    """Automated security incident detection."""
+
+    # Check circuit breaker state
+    metrics = client.get_circuit_metrics()
+    if metrics and metrics['state'] == 'OPEN':
+        await alert_security_team(
+            severity="HIGH",
+            message="Circuit breaker opened - possible DoS or service failure"
+        )
+
+    # Check for unusual key creation patterns
+    keys = await client.get_access_keys()
+    recent_keys = [k for k in keys.access_keys
+                   if is_recently_created(k, hours=1)]
+
+    if len(recent_keys) > 10:  # Threshold
+        await alert_security_team(
+            severity="HIGH",
+            message=f"Unusual key creation: {len(recent_keys)} keys in last hour"
+        )
+
+    # Check for excessive data usage
+    if client.is_connected:
+        metrics = await client.get_transfer_metrics()
+        for key_id, bytes_used in metrics.bytes_transferred_by_user_id.items():
+            if bytes_used > 100 * 1024 ** 3:  # 100 GB threshold
+                await alert_security_team(
+                    severity="MEDIUM",
+                    message=f"High data usage detected: Key {key_id}"
+                )
+```
+
+**Phase 2: Containment (15-60 minutes)**
+
+```python
+async def contain_security_incident(client: AsyncOutlineClient):
+    """Immediate containment actions."""
+
+    # 1. Rotate credentials
+    print("Step 1: Rotating credentials...")
+    await rotate_outline_credentials()
+
+    # 2. Disable suspicious keys
+    print("Step 2: Disabling suspicious access keys...")
+    suspicious_keys = await identify_suspicious_keys(client)
+    for key_id in suspicious_keys:
+        await client.delete_access_key(key_id)
+        print(f"  ✅ Disabled key: {key_id}")
+
+    # 3. Enable additional monitoring
+    print("Step 3: Enhanced monitoring enabled...")
+    await enable_enhanced_monitoring()
+
+    # 4. Notify stakeholders
+    print("Step 4: Notifying stakeholders...")
+    await notify_security_team({
+        "incident": "Security incident contained",
+        "actions_taken": [
+            "Credentials rotated",
+            f"Disabled {len(suspicious_keys)} suspicious keys",
+            "Enhanced monitoring enabled"
+        ]
+    })
+```
+
+**Phase 3: Eradication (1-24 hours)**
+
+```python
+async def eradicate_threat(client: AsyncOutlineClient):
+    """Remove threat completely."""
+
+    # 1. Full audit of all access keys
+    print("Conducting full access key audit...")
+    keys = await client.get_access_keys()
+
+    audit_results = []
+    for key in keys.access_keys:
+        status = await audit_access_key(key)
+        audit_results.append(status)
+
+        if status['risk_level'] == 'HIGH':
+            await client.delete_access_key(key.id)
+            print(f"  ⚠️ Removed high-risk key: {key.id}")
+
+    # 2. Review and update security policies
+    await update_security_policies()
+
+    # 3. Patch vulnerabilities
+    await apply_security_patches()
+
+    # 4. Verify system integrity
+    integrity_check = await verify_system_integrity(client)
+    if not integrity_check:
+        raise SecurityError("System integrity compromised")
+```
+
+**Phase 4: Recovery (24-72 hours)**
+
+```python
+async def recover_from_incident():
+    """Restore normal operations securely."""
+
+    # 1. Restore from clean backup if needed
+    if backup_required:
+        await restore_from_backup()
+
+    # 2. Recreate legitimate access keys
+    print("Recreating legitimate access keys...")
+    await recreate_access_keys_from_approved_list()
+
+    # 3. Update documentation
+    await update_security_documentation()
+
+    # 4. Conduct post-incident review
+    await schedule_post_incident_review()
+```
+
+**Phase 5: Lessons Learned (7 days)**
+
+```markdown
+## Post-Incident Review Template
+
+### Incident Summary
+
+- **Date/Time**:
+- **Duration**:
+- **Severity**:
+- **Impact**:
+
+### Timeline
+
+- **Detection**:
+- **Containment**:
+- **Eradication**:
+- **Recovery**:
+
+### Root Cause Analysis
+
+1. What happened?
+2. Why did it happen?
+3. How was it detected?
+
+### Actions Taken
+
+- [ ] Immediate response
+- [ ] Containment measures
+- [ ] System recovery
+
+### Lessons Learned
+
+1. What worked well?
+2. What could be improved?
+3. What should we do differently?
+
+### Action Items
+
+- [ ] Update security policies
+- [ ] Implement additional monitoring
+- [ ] Security training
+- [ ] Tool/process improvements
+
+### Follow-up
+
+- **Review Date**:
+- **Owner**:
+- **Status**: 
+```
+
+### Emergency Contacts
+
+**Security Team Contacts:**
+
+```python
+SECURITY_CONTACTS = {
+    "primary": {
+        "email": "security@company.com",
+        "phone": "+1-XXX-XXX-XXXX",
+        "pagerduty": "security-team"
+    },
+    "escalation": {
+        "email": "ciso@company.com",
+        "phone": "+1-XXX-XXX-XXXX"
+    },
+    "vendor": {
+        "email": "pytelemonbot@mail.ru",
+        "github": "https://github.com/orenlab/pyoutlineapi/security"
+    }
+}
+```
+
+### Incident Communication Template
+
+```python
+async def send_security_incident_notification(
+        severity: str,
+        title: str,
+        description: str,
+        actions_taken: list[str]
+):
+    """Send standardized security incident notification."""
+
+    message = f"""
+🚨 SECURITY INCIDENT - {severity}
+
+Title: {title}
+Time: {datetime.now().isoformat()}
+Severity: {severity}
+
+Description:
+{description}
+
+Actions Taken:
+{chr(10).join(f"- {action}" for action in actions_taken)}
+
+Status: Under Investigation
+
+Contact: security@company.com
+Incident ID: INC-{datetime.now().strftime('%Y%m%d-%H%M%S')}
+    """
+
+    # Send via multiple channels
+    await send_email(to=SECURITY_CONTACTS['primary']['email'], body=message)
+    await send_slack_alert(channel='#security-incidents', message=message)
+    await create_pagerduty_incident(severity=severity, message=message)
+```
 
 ---
 
 ## Additional Resources
 
-- [OWASP Security Guidelines](https://owasp.org/)
+### Security Standards & Frameworks
+
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+- [NIST Cybersecurity Framework](https://www.nist.gov/cyberframework)
+- [CIS Controls](https://www.cisecurity.org/controls)
+- [ISO 27001](https://www.iso.org/isoiec-27001-information-security.html)
+
+### Python Security
+
 - [Python Security Best Practices](https://python-security.readthedocs.io/)
-- [Outline Server Security](https://github.com/Jigsaw-Code/outline-server/blob/main/docs/security.md)
-- [TLS Certificate Pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning)
+- [Bandit Security Linter](https://bandit.readthedocs.io/)
+- [Safety - Dependency Scanner](https://pyup.io/safety/)
+- [OWASP Python Security Project](https://owasp.org/www-project-python-security/)
+
+### TLS & Certificate Security
+
+- [TLS Best Practices](https://wiki.mozilla.org/Security/Server_Side_TLS)
+- [Certificate Pinning Guide](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning)
+- [Let's Encrypt Documentation](https://letsencrypt.org/docs/)
+
+### Outline VPN Security
+
+- [Outline Server Security](https://github.com/Jigsaw-Code/outline-server/blob/master/docs/security.md)
+- [Outline Documentation](https://getoutline.org/support/)
+
+### Container Security
+
+- [Docker Security Best Practices](https://docs.docker.com/engine/security/)
+- [Kubernetes Security Best Practices](https://kubernetes.io/docs/concepts/security/)
+- [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker)
+
+### Secrets Management
+
+- [HashiCorp Vault](https://www.vaultproject.io/)
+- [AWS Secrets Manager](https://aws.amazon.com/secrets-manager/)
+- [Docker Secrets](https://docs.docker.com/engine/swarm/secrets/)
+- [Kubernetes Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
+
+---
+
+## Version History
+
+| Version | Date       | Changes                            |
+|---------|------------|------------------------------------|
+| 1.0.0   | 2025-01-XX | Initial security policy for v0.4.0 |
+
+---
+
+**Last Updated**: 2025-10-20  
+**Next Review**: 2026-01-20 (Quarterly review)
+
+For security questions or to report vulnerabilities, contact: `pytelemonbot@mail.ru`
+
+---
+
+**Made with 🔒 by the PyOutlineAPI Security Team**
+
+*Protecting your Outline VPN infrastructure with enterprise-grade security*
