@@ -40,19 +40,6 @@ def _log_if_enabled(level: int, message: str) -> None:
         logger.log(level, message)
 
 
-def _validate_string_not_empty(value: str | None, field_name: str) -> str:
-    """DRY validation for non-empty strings.
-
-    :param value: Value to validate
-    :param field_name: Field name for error message
-    :return: Stripped string
-    :raises ValueError: If string is empty
-    """
-    if not value or not value.strip():
-        raise ValueError(f"{field_name} cannot be empty")
-    return value.strip()
-
-
 class OutlineClientConfig(BaseSettings):
     """Main configuration with enhanced security.
 
@@ -158,7 +145,7 @@ class OutlineClientConfig(BaseSettings):
         :return: Validated user agent
         :raises ValueError: If user agent is invalid
         """
-        v = _validate_string_not_empty(v, "User agent")
+        v = Validators.validate_string_not_empty(v, "User agent")
 
         # Check for control characters
         if any(ord(c) < 32 for c in v):

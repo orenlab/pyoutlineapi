@@ -263,7 +263,6 @@ class CircuitBreaker:
 
             await self._record_failure(duration, e)
 
-            # Import here to avoid circular dependency
             from .exceptions import TimeoutError as OutlineTimeoutError
 
             raise OutlineTimeoutError(

@@ -13,7 +13,7 @@ Source code repository:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from .audit import AuditDecorator, AuditLogger, get_default_audit_logger
 from .common_types import JsonPayload, QueryParams, ResponseData, Validators
@@ -34,9 +34,6 @@ from .models import (
     ServerNameRequest,
 )
 from .response_parser import JsonDict, ResponseParser
-
-if TYPE_CHECKING:
-    pass
 
 
 # ===== Mixins for Audit Support =====
@@ -95,6 +92,14 @@ class HTTPClientProtocol(Protocol):
         :param json: Request JSON payload
         :param params: Query parameters
         :return: Response data
+        """
+        ...
+
+    def _resolve_json_format(self, as_json: bool | None) -> bool:
+        """Resolve JSON format preference.
+
+        :param as_json: Explicit format preference
+        :return: Resolved format preference
         """
         ...
 
@@ -267,11 +272,8 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
             limit=limit,
         )
 
-        data = await self._request(
-            "POST",
-            "access-keys",
-            json=request.model_dump(exclude_none=True, by_alias=True),
-        )
+        payload = request.model_dump(by_alias=True, exclude_none=True)
+        data = await self._request("POST", "access-keys", json=payload)
         return ResponseParser.parse(
             data, AccessKey, as_json=self._resolve_json_format(as_json)
         )
@@ -280,6 +282,7 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         action="create_access_key_with_id",
         resource_from=lambda result, *args, **kwargs: args[0] if args else "unknown",
         extract_details=lambda result, *args, **kwargs: {
+            "key_id": args[0] if args else "unknown",
             "name": kwargs.get("name", "unnamed"),
             "method": kwargs.get("method"),
             "has_limit": kwargs.get("limit") is not None,
@@ -296,11 +299,11 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         limit: DataLimit | None = None,
         as_json: bool | None = None,
     ) -> AccessKey | JsonDict:
-        """Create access key with specific ID.
+        """Create new access key with specific ID.
 
         Based on OpenAPI: PUT /access-keys/{id}
 
-        :param key_id: Desired key ID
+        :param key_id: Desired access key ID
         :param name: Key name
         :param password: Key password
         :param port: Custom port
@@ -308,6 +311,7 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         :param limit: Data transfer limit
         :param as_json: Return raw JSON instead of model
         :return: Created access key
+        :raises ValueError: If key_id is invalid
         """
         validated_key_id = Validators.validate_key_id(key_id)
         validated_name = Validators.validate_name(name) if name is not None else None
@@ -321,10 +325,9 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
             limit=limit,
         )
 
+        payload = request.model_dump(by_alias=True, exclude_none=True)
         data = await self._request(
-            "PUT",
-            f"access-keys/{validated_key_id}",
-            json=request.model_dump(exclude_none=True, by_alias=True),
+            "PUT", f"access-keys/{validated_key_id}", json=payload
         )
         return ResponseParser.parse(
             data, AccessKey, as_json=self._resolve_json_format(as_json)
@@ -335,7 +338,7 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         *,
         as_json: bool | None = None,
     ) -> AccessKeyList | JsonDict:
-        """Get all access keys.
+        """Get list of all access keys.
 
         Based on OpenAPI: GET /access-keys
 
@@ -359,10 +362,10 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
 
         :param key_id: Access key ID
         :param as_json: Return raw JSON instead of model
-        :return: Access key details
+        :return: Access key
+        :raises ValueError: If key_id is invalid
         """
         validated_key_id = Validators.validate_key_id(key_id)
-
         data = await self._request("GET", f"access-keys/{validated_key_id}")
         return ResponseParser.parse(
             data, AccessKey, as_json=self._resolve_json_format(as_json)
@@ -371,18 +374,17 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
     @AuditDecorator.audit_action(
         action="delete_access_key",
         resource_from=lambda result, *args, **kwargs: args[0] if args else "unknown",
-        log_failure=True,
     )
     async def delete_access_key(self: HTTPClientProtocol, key_id: str) -> bool:
         """Delete access key.
 
         Based on OpenAPI: DELETE /access-keys/{id}
 
-        :param key_id: Access key ID to delete
+        :param key_id: Access key ID
         :return: True if successful
+        :raises ValueError: If key_id is invalid
         """
         validated_key_id = Validators.validate_key_id(key_id)
-
         data = await self._request("DELETE", f"access-keys/{validated_key_id}")
         return ResponseParser.parse_simple(data)
 
@@ -425,26 +427,28 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         action="set_access_key_data_limit",
         resource_from=lambda result, *args, **kwargs: args[0] if args else "unknown",
         extract_details=lambda result, *args, **kwargs: {
-            "bytes_limit": args[1] if len(args) > 1 else "unknown"
+            "bytes_limit": args[1].bytes
+            if len(args) > 1 and hasattr(args[1], "bytes")
+            else "unknown"
         },
     )
     async def set_access_key_data_limit(
         self: HTTPClientProtocol,
         key_id: str,
-        bytes_limit: int,
+        limit: DataLimit,
     ) -> bool:
         """Set data limit for specific access key.
 
         Based on OpenAPI: PUT /access-keys/{id}/data-limit
 
         :param key_id: Access key ID
-        :param bytes_limit: Limit in bytes
+        :param limit: Data transfer limit
         :return: True if successful
+        :raises ValueError: If key_id is invalid
         """
         validated_key_id = Validators.validate_key_id(key_id)
-        validated_bytes = Validators.validate_non_negative(bytes_limit, "bytes_limit")
 
-        request = DataLimitRequest(limit=DataLimit(bytes=validated_bytes))
+        request = DataLimitRequest(limit=limit)
 
         data = await self._request(
             "PUT",
@@ -491,22 +495,23 @@ class DataLimitMixin(AuditableMixin):
         action="set_global_data_limit",
         resource_from="server",
         extract_details=lambda result, *args, **kwargs: {
-            "bytes_limit": args[0] if args else "unknown"
+            "bytes_limit": args[0].bytes
+            if args and hasattr(args[0], "bytes")
+            else "unknown"
         },
     )
     async def set_global_data_limit(
         self: HTTPClientProtocol,
-        bytes_limit: int,
+        limit: DataLimit,
     ) -> bool:
         """Set global data limit for all access keys.
 
         Based on OpenAPI: PUT /server/access-key-data-limit
 
-        :param bytes_limit: Limit in bytes
+        :param limit: Data transfer limit
         :return: True if successful
         """
-        validated_bytes = Validators.validate_non_negative(bytes_limit, "bytes_limit")
-        request = DataLimitRequest(limit=DataLimit(bytes=validated_bytes))
+        request = DataLimitRequest(limit=limit)
 
         data = await self._request(
             "PUT",

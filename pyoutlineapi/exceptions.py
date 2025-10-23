@@ -15,6 +15,9 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Final
 
+# Import sanitizer from common_types (DRY!)
+from .common_types import CredentialSanitizer
+
 # Maximum length for error messages to prevent DoS
 _MAX_MESSAGE_LENGTH: Final[int] = 1024
 
@@ -25,6 +28,7 @@ class OutlineError(Exception):
     Provides rich error context, retry guidance, and safe serialization.
 
     Security features:
+    - Automatic credential sanitization in messages (NEW 2025)
     - Separate internal and safe details
     - Message length limits
     - No sensitive data in string representations
@@ -43,22 +47,26 @@ class OutlineError(Exception):
         details: dict[str, Any] | None = None,
         safe_details: dict[str, Any] | None = None,
     ) -> None:
-        """Initialize exception.
+        """Initialize exception with automatic credential sanitization.
 
-        :param message: Error message
+        :param message: Error message (will be sanitized automatically)
         :param details: Internal details (may contain sensitive data)
         :param safe_details: Safe details for logging/display
         :raises ValueError: If message is too long
         """
-        # Validate and truncate message
+        # Validate and sanitize message (HIGH-004)
         if not isinstance(message, str):
             message = str(message)
 
-        if len(message) > _MAX_MESSAGE_LENGTH:
-            message = message[:_MAX_MESSAGE_LENGTH] + "..."
+        # Sanitize credentials from message
+        sanitized_message = CredentialSanitizer.sanitize(message)
 
-        self._message = message
-        super().__init__(message)
+        # Truncate if too long
+        if len(sanitized_message) > _MAX_MESSAGE_LENGTH:
+            sanitized_message = sanitized_message[:_MAX_MESSAGE_LENGTH] + "..."
+
+        self._message = sanitized_message
+        super().__init__(sanitized_message)
 
         # Store immutable copies of details
         self._details: dict[str, Any] = dict(details) if details else {}
@@ -125,7 +133,7 @@ class APIError(OutlineError):
         endpoint: str | None = None,
         response_data: dict[str, Any] | None = None,
     ) -> None:
-        """Initialize API error.
+        """Initialize API error with sanitized endpoint.
 
         :param message: Error message
         :param status_code: HTTP status code

@@ -4,8 +4,11 @@ Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
 All rights reserved.
 
 This software is licensed under the MIT License.
-Full license text: https://opensource.org/licenses/MIT
-Source repository: https://github.com/orenlab/pyoutlineapi
+You can find the full license text at:
+    https://opensource.org/licenses/MIT
+
+Source code repository:
+    https://github.com/orenlab/pyoutlineapi
 
 Quick Start:
     >>> from pyoutlineapi import AsyncOutlineClient
@@ -64,21 +67,29 @@ from .audit import (
     get_default_audit_logger,
     set_default_audit_logger,
 )
-from .base_client import MetricsCollector, correlation_id
-from .circuit_breaker import CircuitConfig, CircuitState
-from .client import AsyncOutlineClient, create_client
+from .base_client import MetricsCollector, NoOpMetrics, correlation_id
+from .circuit_breaker import CircuitConfig, CircuitMetrics, CircuitState
+from .client import (
+    AsyncOutlineClient,
+    MultiServerManager,
+    create_client,
+    create_multi_server_manager,
+)
 from .common_types import (
     DEFAULT_SENSITIVE_KEYS,
     AuditDetails,
     ConfigOverrides,
     Constants,
+    CredentialSanitizer,
     JsonPayload,
     MetricsTags,
     QueryParams,
     ResponseData,
+    SecureIDGenerator,
     TimestampMs,
     TimestampSec,
     Validators,
+    build_config_overrides,
     is_json_serializable,
     is_valid_bytes,
     is_valid_port,
@@ -100,6 +111,7 @@ from .exceptions import (
     OutlineError,
     TimeoutError,
     ValidationError,
+    format_error_chain,
     get_retry_delay,
     get_safe_error_dict,
     is_retryable,
@@ -108,18 +120,32 @@ from .models import (
     AccessKey,
     AccessKeyCreateRequest,
     AccessKeyList,
+    AccessKeyMetric,
+    AccessKeyNameRequest,
+    BandwidthData,
+    BandwidthDataValue,
+    BandwidthInfo,
+    ConnectionInfo,
     DataLimit,
     DataLimitRequest,
+    DataTransferred,
+    ErrorResponse,
     ExperimentalMetrics,
     HealthCheckResult,
+    HostnameRequest,
+    LocationMetric,
+    MetricsEnabledRequest,
     MetricsStatusResponse,
+    PeakDeviceCount,
+    PortRequest,
     Server,
+    ServerExperimentalMetric,
     ServerMetrics,
+    ServerNameRequest,
     ServerSummary,
+    TunnelTime,
 )
-
-if TYPE_CHECKING:
-    import sys
+from .response_parser import JsonDict, ResponseParser
 
 # Package metadata
 try:
@@ -133,66 +159,112 @@ __license__: Final[str] = "MIT"
 
 # Public API
 __all__: Final[list[str]] = [
+    # Core client classes
+    "AsyncOutlineClient",
+    "MultiServerManager",
+    # Audit
+    "AuditDetails",
+    "AuditLogger",
+    "DefaultAuditLogger",
+    "NoOpAuditLogger",
+    # Circuit breaker
+    "CircuitConfig",
+    "CircuitMetrics",
+    "CircuitOpenError",
+    "CircuitState",
+    # Configuration
+    "ConfigOverrides",
+    "ConfigurationError",
+    "Constants",
+    "DevelopmentConfig",
+    "OutlineClientConfig",
+    "ProductionConfig",
+    # Common types and utilities
+    "CredentialSanitizer",
     "DEFAULT_SENSITIVE_KEYS",
+    "JsonDict",
+    "JsonPayload",
+    "MetricsTags",
+    "QueryParams",
+    "ResponseData",
+    "SecureIDGenerator",
+    "TimestampMs",
+    "TimestampSec",
+    "Validators",
+    # Exceptions
     "APIError",
+    "ConnectionError",
+    "OutlineError",
+    "TimeoutError",
+    "ValidationError",
+    # Metrics
+    "MetricsCollector",
+    "NoOpMetrics",
+    # Models - Core
     "AccessKey",
     "AccessKeyCreateRequest",
     "AccessKeyList",
-    "AsyncOutlineClient",
-    "AuditDetails",
-    "AuditLogger",
-    "CircuitConfig",
-    "CircuitOpenError",
-    "CircuitState",
-    "ConfigOverrides",
-    "ConfigurationError",
-    "ConnectionError",
-    "Constants",
     "DataLimit",
     "DataLimitRequest",
-    "DefaultAuditLogger",
-    "DevelopmentConfig",
-    "ExperimentalMetrics",
-    "HealthCheckResult",
-    "JsonPayload",
-    "MetricsCollector",
-    "MetricsStatusResponse",
-    "MetricsTags",
-    "NoOpAuditLogger",
-    "OutlineClientConfig",
-    "OutlineError",
-    "ProductionConfig",
-    "QueryParams",
-    "ResponseData",
     "Server",
+    # Models - Request models
+    "AccessKeyNameRequest",
+    "HostnameRequest",
+    "MetricsEnabledRequest",
+    "PortRequest",
+    "ServerNameRequest",
+    # Models - Response models
+    "ErrorResponse",
+    "MetricsStatusResponse",
     "ServerMetrics",
+    # Models - Experimental metrics
+    "AccessKeyMetric",
+    "BandwidthData",
+    "BandwidthDataValue",
+    "BandwidthInfo",
+    "ConnectionInfo",
+    "DataTransferred",
+    "ExperimentalMetrics",
+    "LocationMetric",
+    "PeakDeviceCount",
+    "ServerExperimentalMetric",
+    "TunnelTime",
+    # Models - Utility models
+    "HealthCheckResult",
     "ServerSummary",
-    "TimeoutError",
-    "TimestampMs",
-    "TimestampSec",
-    "ValidationError",
-    "Validators",
+    # Response parser
+    "ResponseParser",
+    # Package metadata
     "__author__",
     "__email__",
     "__license__",
     "__version__",
+    # Context variables
     "correlation_id",
+    # Factory functions
     "create_client",
+    "create_multi_server_manager",
+    # Configuration utilities
+    "build_config_overrides",
     "create_env_template",
+    "load_config",
+    # Audit utilities
     "get_default_audit_logger",
+    "set_default_audit_logger",
+    # Exception utilities
+    "format_error_chain",
     "get_retry_delay",
     "get_safe_error_dict",
+    "is_retryable",
+    # Common utilities
     "get_version",
     "is_json_serializable",
-    "is_retryable",
     "is_valid_bytes",
     "is_valid_port",
-    "load_config",
     "mask_sensitive_data",
     "print_type_info",
     "quick_setup",
     "secure_compare",
-    "set_default_audit_logger",
 ]
 
 
@@ -275,6 +347,22 @@ Constants and Validators:
     Validators.validate_port(8080)
     Validators.validate_key_id("my-key")
 
+Utility Classes:
+    from pyoutlineapi import (
+        CredentialSanitizer,
+        SecureIDGenerator,
+        ResponseParser,
+    )
+
+    # Sanitize sensitive data
+    safe_url = CredentialSanitizer.sanitize(url)
+
+    # Generate secure IDs
+    secure_id = SecureIDGenerator.generate()
+
+    # Parse API responses
+    parsed = ResponseParser.parse(data, Model)
+
 📖 Documentation: https://github.com/orenlab/pyoutlineapi
     """
     print(info)
@@ -312,6 +400,5 @@ if TYPE_CHECKING:
         # Show help in interactive mode
         print(f"🚀 PyOutlineAPI v{__version__}")
         print("💡 Quick start: pyoutlineapi.quick_setup()")
-        print("📍 Security info: pyoutlineapi.print_security_info()")
         print("🎯 Type hints: pyoutlineapi.print_type_info()")
         print("📚 Help: help(pyoutlineapi.AsyncOutlineClient)")

@@ -13,8 +13,13 @@ Source code repository:
 
 from __future__ import annotations
 
+import ipaddress
+import re
 import secrets
 import sys
+import time
+import urllib.parse
+from functools import lru_cache
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -28,6 +33,9 @@ from typing import (
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
+
+if TYPE_CHECKING:
+    from .models import DataLimit
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -73,26 +81,188 @@ MetricsTags: TypeAlias = dict[str, str]
 class Constants:
     """Application-wide constants with security limits."""
 
+    # Port constraints
     MIN_PORT: Final[int] = 1025
     MAX_PORT: Final[int] = 65535
 
+    # Length limits
     MAX_NAME_LENGTH: Final[int] = 255
     CERT_FINGERPRINT_LENGTH: Final[int] = 64
     MAX_KEY_ID_LENGTH: Final[int] = 255
     MAX_URL_LENGTH: Final[int] = 2048
 
+    # Network defaults
     DEFAULT_TIMEOUT: Final[int] = 10
     DEFAULT_RETRY_ATTEMPTS: Final[int] = 2
     DEFAULT_MAX_CONNECTIONS: Final[int] = 10
     DEFAULT_RETRY_DELAY: Final[float] = 1.0
     DEFAULT_USER_AGENT: Final[str] = "PyOutlineAPI/0.4.0"
 
+    # Resource limits
     MAX_RECURSION_DEPTH: Final[int] = 10
     MAX_SNAPSHOT_SIZE_MB: Final[int] = 10
 
+    # HTTP retry codes
     RETRY_STATUS_CODES: Final[frozenset[int]] = frozenset(
         {408, 429, 500, 502, 503, 504}
     )
+
+    # ===== Security limits =====
+
+    # Response size protection (DoS prevention)
+    MAX_RESPONSE_SIZE: Final[int] = 10 * 1024 * 1024  # 10 MB
+    MAX_RESPONSE_CHUNK_SIZE: Final[int] = 8192  # 8 KB chunks
+
+    # Rate limiting defaults
+    DEFAULT_RATE_LIMIT_RPS: Final[float] = 100.0  # Requests per second
+    DEFAULT_RATE_LIMIT_BURST: Final[int] = 200  # Burst capacity
+    DEFAULT_RATE_LIMIT: Final[int] = 100  # Concurrent requests
+
+    # Connection limits
+    MAX_CONNECTIONS_PER_HOST: Final[int] = 50
+    DNS_CACHE_TTL: Final[int] = 300  # 5 minutes
+
+    # Timeout strategies
+    TIMEOUT_WARNING_RATIO: Final[float] = 0.8  # Warn at 80% of timeout
+    MAX_TIMEOUT: Final[int] = 300  # 5 minutes absolute max
+
+
+# ===== NEW: SSRF Protection (HIGH-002) =====
+
+
+class SSRFProtection:
+    """SSRF protection with blocked IP ranges."""
+
+    # Private and special-use IP ranges to block
+    BLOCKED_IP_RANGES: Final[list[ipaddress.IPv4Network | ipaddress.IPv6Network]] = [
+        ipaddress.ip_network("0.0.0.0/8"),  # Current network
+        ipaddress.ip_network("10.0.0.0/8"),  # Private
+        ipaddress.ip_network("127.0.0.0/8"),  # Loopback
+        ipaddress.ip_network("169.254.0.0/16"),  # Link-local
+        ipaddress.ip_network("172.16.0.0/12"),  # Private
+        ipaddress.ip_network("192.168.0.0/16"),  # Private
+        ipaddress.ip_network("224.0.0.0/4"),  # Multicast
+        ipaddress.ip_network("240.0.0.0/4"),  # Reserved
+        ipaddress.ip_network("::1/128"),  # IPv6 loopback
+        ipaddress.ip_network("fc00::/7"),  # IPv6 private
+        ipaddress.ip_network("fe80::/10"),  # IPv6 link-local
+    ]
+
+    # Allowed localhost for development
+    ALLOWED_LOCALHOST: Final[frozenset[str]] = frozenset(
+        {"localhost", "127.0.0.1", "::1"}
+    )
+
+    @classmethod
+    @lru_cache(maxsize=256)
+    def is_blocked_ip(cls, hostname: str) -> bool:
+        """Check if hostname resolves to blocked IP range (CACHED).
+
+        :param hostname: Hostname or IP address
+        :return: True if blocked
+        """
+        # Allow localhost in development
+        if hostname in cls.ALLOWED_LOCALHOST:
+            return False
+
+        try:
+            ip = ipaddress.ip_address(hostname)
+            return any(ip in blocked for blocked in cls.BLOCKED_IP_RANGES)
+        except ValueError:
+            # Not an IP address, hostname is OK at this stage
+            # DNS resolution happens at connection time
+            return False
+
+
+# ===== Credential Sanitization =====
+
+
+class CredentialSanitizer:
+    """Sanitize credentials from strings and exceptions."""
+
+    # Patterns for detecting credentials
+    PATTERNS: Final[list[tuple[re.Pattern[str], str]]] = [
+        (
+            re.compile(
+                r'api[_-]?key["\']?\s*[:=]\s*["\']?([a-zA-Z0-9]{20,})',
+                re.IGNORECASE,
+            ),
+            "***API_KEY***",
+        ),
+        (
+            re.compile(r'token["\']?\s*[:=]\s*["\']?([a-zA-Z0-9]{20,})', re.IGNORECASE),
+            "***TOKEN***",
+        ),
+        (
+            re.compile(r'password["\']?\s*[:=]\s*["\']?([^\s"\']+)', re.IGNORECASE),
+            "***PASSWORD***",
+        ),
+        (
+            re.compile(
+                r'cert[_-]?sha256["\']?\s*[:=]\s*["\']?([a-f0-9]{64})', re.IGNORECASE
+            ),
+            "***CERT***",
+        ),
+        (
+            re.compile(r"bearer\s+([a-zA-Z0-9\-._~+/]+=*)", re.IGNORECASE),
+            "Bearer ***TOKEN***",
+        ),
+        (
+            re.compile(r"access_url['\"]?\s*[:=]\s*['\"]?([^\s'\"]+)", re.IGNORECASE),
+            "***ACCESS_URL***",
+        ),
+    ]
+
+    @classmethod
+    @lru_cache(maxsize=512)
+    def sanitize(cls, text: str) -> str:
+        """Remove credentials from string.
+
+        :param text: Text that may contain credentials
+        :return: Sanitized text
+        """
+        if not text:
+            return text
+
+        sanitized = text
+        for pattern, replacement in cls.PATTERNS:
+            sanitized = pattern.sub(replacement, sanitized)
+        return sanitized
+
+
+# ===== Secure ID Generation =====
+
+
+class SecureIDGenerator:
+    """Cryptographically secure ID generation."""
+
+    __slots__ = ()
+
+    @staticmethod
+    def generate_correlation_id() -> str:
+        """Generate secure correlation ID with 128 bits entropy.
+
+        Format: {timestamp_us}-{random_hex}
+
+        :return: Correlation ID string
+        """
+        # 16 bytes = 128 bits of entropy
+        random_part = secrets.token_hex(16)
+
+        # Microsecond timestamp for uniqueness and ordering
+        timestamp = int(time.time() * 1_000_000)
+
+        return f"{timestamp}-{random_part}"
+
+    @staticmethod
+    def generate_request_id() -> str:
+        """Generate secure request ID.
+
+        Alias for correlation ID for API compatibility.
+
+        :return: Request ID string
+        """
+        return SecureIDGenerator.generate_correlation_id()
 
 
 # ===== Enhanced Sensitive Keys =====
@@ -100,34 +270,18 @@ class Constants:
 DEFAULT_SENSITIVE_KEYS: Final[frozenset[str]] = frozenset(
     {
         "password",
-        "passwd",
-        "pwd",
-        "pass",
-        "secret",
         "api_key",
+        "apiKey",
         "apikey",
-        "api_secret",
         "token",
-        "access_token",
-        "refresh_token",
-        "bearer",
-        "auth",
-        "authorization",
-        "authenticate",
-        "session",
-        "session_id",
-        "sessionid",
-        "cookie",
-        "cert",
-        "certificate",
+        "secret",
         "cert_sha256",
-        "key",
-        "private_key",
-        "privatekey",
-        "public_key",
-        "publickey",
+        "certSha256",
         "access_url",
-        "accessurl",
+        "accessUrl",
+        "authorization",
+        "api_url",
+        "apiUrl",
     }
 )
 
@@ -135,219 +289,228 @@ DEFAULT_SENSITIVE_KEYS: Final[frozenset[str]] = frozenset(
 # ===== Type Guards =====
 
 
-def is_valid_port(value: object) -> TypeGuard[Port]:
-    """Type-safe port validation.
+def is_valid_port(value: Any) -> TypeGuard[int]:
+    """Type guard for valid port numbers.
 
     :param value: Value to check
-    :return: True if value is a valid port
+    :return: True if value is valid port
     """
     return isinstance(value, int) and Constants.MIN_PORT <= value <= Constants.MAX_PORT
 
 
-def is_valid_bytes(value: object) -> TypeGuard[Bytes]:
-    """Type-safe bytes validation.
+def is_valid_bytes(value: Any) -> TypeGuard[int]:
+    """Type guard for valid byte counts.
 
     :param value: Value to check
-    :return: True if value is valid bytes count
+    :return: True if value is valid bytes
     """
     return isinstance(value, int) and value >= 0
 
 
-def is_json_serializable(value: object) -> bool:
-    """Check if value is JSON serializable.
+def is_json_serializable(value: Any) -> TypeGuard[JsonValue]:
+    """Type guard for JSON-serializable values.
 
     :param value: Value to check
-    :return: True if JSON serializable
+    :return: True if value is JSON-serializable
     """
-    return isinstance(value, str | int | float | bool | type(None) | dict | list)
-
-
-# ===== Security Utilities =====
+    if value is None or isinstance(value, str | int | float | bool):
+        return True
+    if isinstance(value, dict):
+        return all(
+            isinstance(k, str) and is_json_serializable(v) for k, v in value.items()
+        )
+    if isinstance(value, list):
+        return all(is_json_serializable(item) for item in value)
+    return False
 
 
 def secure_compare(a: str, b: str) -> bool:
-    """Constant-time string comparison to prevent timing attacks.
+    """Timing-safe string comparison.
 
     :param a: First string
     :param b: Second string
-    :return: True if strings match
+    :return: True if strings are equal
     """
-    try:
-        return secrets.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
-    except (AttributeError, TypeError):
-        return False
+    return secrets.compare_digest(a.encode(), b.encode())
 
 
-# ===== Validators Utility Class =====
+# ===== Validators =====
 
 
 class Validators:
-    """Enhanced validators with security focus and DRY optimization."""
+    """Input validation utilities with security hardening."""
 
-    __slots__ = ()  # Stateless utility class
-
-    # ===== Helper Methods =====
+    __slots__ = ()
 
     @staticmethod
-    def _validate_string_not_empty(value: str | None, field_name: str) -> str:
-        """Validate that string is not empty after stripping.
+    @lru_cache(maxsize=64)
+    def validate_cert_fingerprint(fingerprint: SecretStr) -> SecretStr:
+        """Validate and normalize certificate fingerprint&
 
-        :param value: Value to validate
-        :param field_name: Field name for error message
-        :return: Stripped string
-        :raises ValueError: If string is empty or None
+        :param fingerprint: SHA-256 fingerprint
+        :return: Normalized fingerprint (lowercase, no separators)
+        :raises ValueError: If format is invalid
         """
-        if value is None or not value.strip():
-            raise ValueError(f"{field_name} cannot be empty")
-        return value.strip()
+        if not fingerprint:
+            raise ValueError("Certificate fingerprint cannot be empty")
+
+        # Remove common separators
+        cleaned = fingerprint.get_secret_value().lower()
+
+        # Validate hex format
+        if not re.match(r"^[a-f0-9]{64}$", cleaned):
+            raise ValueError(
+                f"Invalid certificate fingerprint format. "
+                f"Expected 64 hex characters, got: {len(cleaned)}"
+            )
+
+        return SecretStr(cleaned)
 
     @staticmethod
-    def _validate_no_null_bytes(value: str, field_name: str) -> None:
-        """Validate that string contains no null bytes.
+    def validate_port(port: int) -> int:
+        """Validate port number.
 
-        :param value: String to validate
-        :param field_name: Field name for error message
-        :raises ValueError: If null bytes found
+        :param port: Port number
+        :return: Validated port
+        :raises ValueError: If port is out of range
         """
-        if "\x00" in value:
-            raise ValueError(f"{field_name} contains null bytes")
-
-    @staticmethod
-    def _validate_length(value: str, max_length: int, field_name: str) -> None:
-        """Validate string length.
-
-        :param value: String to validate
-        :param max_length: Maximum allowed length
-        :param field_name: Field name for error message
-        :raises ValueError: If string exceeds max length
-        """
-        if len(value) > max_length:
-            raise ValueError(f"{field_name} too long (max {max_length})")
-
-    # ===== Core Validators =====
-
-    @classmethod
-    def validate_port(cls, port: int) -> int:
-        """Validate port with type checking.
-
-        Only allows unprivileged ports (1025-65535) for security.
-
-        :param port: Port number to validate
-        :return: Validated port number
-        :raises ValueError: If port is invalid
-        """
-        if not isinstance(port, int):
-            raise ValueError(f"Port must be int, got {type(port).__name__}")
-        if not Constants.MIN_PORT <= port <= Constants.MAX_PORT:
-            raise ValueError(f"Port must be {Constants.MIN_PORT}-{Constants.MAX_PORT}")
+        if not is_valid_port(port):
+            raise ValueError(
+                f"Port must be between {Constants.MIN_PORT} and {Constants.MAX_PORT}"
+            )
         return port
 
-    @classmethod
-    def validate_url(cls, url: str) -> str:
-        """Validate URL with security checks.
+    @staticmethod
+    def validate_name(name: str) -> str:
+        """Validate name field.
 
-        Performs length check, null byte check, and scheme validation.
+        :param name: Name to validate
+        :return: Validated name
+        :raises ValueError: If name is invalid
+        """
+        if not name or not name.strip():
+            raise ValueError("Name cannot be empty")
+
+        name = name.strip()
+        if len(name) > Constants.MAX_NAME_LENGTH:
+            raise ValueError(
+                f"Name too long: {len(name)} (max {Constants.MAX_NAME_LENGTH})"
+            )
+
+        return name
+
+    @staticmethod
+    def validate_url(url: str) -> str:
+        """Validate and sanitize URL.
 
         :param url: URL to validate
         :return: Validated URL
         :raises ValueError: If URL is invalid
         """
-        url = cls._validate_string_not_empty(url, "URL")
-        cls._validate_length(url, Constants.MAX_URL_LENGTH, "URL")
-        cls._validate_no_null_bytes(url, "URL")
+        if not url or not url.strip():
+            raise ValueError("URL cannot be empty")
 
+        url = url.strip()
+
+        if len(url) > Constants.MAX_URL_LENGTH:
+            raise ValueError(
+                f"URL too long: {len(url)} (max {Constants.MAX_URL_LENGTH})"
+            )
+
+        # Check for null bytes
+        if "\x00" in url:
+            raise ValueError("URL contains null bytes")
+
+        # Parse URL
         try:
             parsed = urlparse(url)
+            if not parsed.scheme or not parsed.netloc:
+                raise ValueError("Invalid URL format")
         except Exception as e:
             raise ValueError(f"Invalid URL: {e}") from e
 
-        if not parsed.scheme:
-            raise ValueError("URL must include scheme (http/https)")
-        if not parsed.netloc:
-            raise ValueError("URL must include hostname")
-        if parsed.scheme not in {"http", "https"}:
-            raise ValueError("URL scheme must be http or https")
+        # SSRF protection
+        if SSRFProtection.is_blocked_ip(parsed.netloc):
+            raise ValueError(f"Access to {parsed.netloc} is blocked (SSRF protection)")
 
         return url
 
-    @classmethod
-    def validate_cert_fingerprint(cls, cert: SecretStr) -> SecretStr:
-        """Validate cert fingerprint with enhanced security.
+    @staticmethod
+    def validate_string_not_empty(value: str, field_name: str) -> str:
+        """Validate string is not empty.
 
-        Checks length, null bytes, and hexadecimal format.
-
-        :param cert: Certificate fingerprint
-        :return: Validated fingerprint
-        :raises ValueError: If fingerprint is invalid
+        :param value: String value
+        :param field_name: Field name for error messages
+        :return: Stripped string
+        :raises ValueError: If string is empty
         """
-        parsed_cert = cert.get_secret_value()
-        parsed_cert = cls._validate_string_not_empty(parsed_cert, "Certificate")
-        parsed_cert = parsed_cert.lower()
+        if not value or not value.strip():
+            raise ValueError(f"{field_name} cannot be empty")
+        return value.strip()
 
-        if len(parsed_cert) != Constants.CERT_FINGERPRINT_LENGTH:
-            raise ValueError(
-                f"Certificate must be {Constants.CERT_FINGERPRINT_LENGTH} hex chars"
-            )
+    @staticmethod
+    def _validate_length(value: str, max_length: int, name: str) -> None:
+        """Validate string length.
 
-        cls._validate_no_null_bytes(parsed_cert, "Certificate")
-
-        if not all(c in "0123456789abcdef" for c in parsed_cert):
-            raise ValueError("Certificate must be hexadecimal (0-9, a-f)")
-
-        return cert
-
-    @classmethod
-    def validate_name(cls, name: str | None) -> str | None:
-        """Validate and normalize name.
-
-        :param name: Name to validate
-        :return: Validated name or None if empty
-        :raises ValueError: If name exceeds maximum length
+        :param value: String value
+        :param max_length: Maximum allowed length
+        :param name: Field name for error messages
+        :raises ValueError: If string is too long
         """
-        if name is None:
-            return None
+        if len(value) > max_length:
+            raise ValueError(f"{name} too long: {len(value)} (max {max_length})")
 
-        if isinstance(name, str):
-            name = name.strip()
-            if not name:
-                return None
-            cls._validate_length(name, Constants.MAX_NAME_LENGTH, "Name")
-            return name
+    @staticmethod
+    def _validate_no_null_bytes(value: str, name: str) -> None:
+        """Validate string contains no null bytes.
 
-        return str(name).strip() or None
+        :param value: String value
+        :param name: Field name for error messages
+        :raises ValueError: If string contains null bytes
+        """
+        if "\x00" in value:
+            raise ValueError(f"{name} contains null bytes")
 
-    @classmethod
-    def validate_non_negative(cls, value: int, name: str = "value") -> int:
-        """Validate non-negative integer.
+    @staticmethod
+    def validate_non_negative(value: DataLimit | int, name: str) -> int:
+        """Validate integer is non-negative.
 
-        :param value: Value to validate
-        :param name: Value name for error message
+        :param value: Integer value
+        :param name: Field name for error messages
         :return: Validated value
-        :raises ValueError: If value is invalid
+        :raises ValueError: If value is negative
         """
-        if not isinstance(value, int):
-            raise ValueError(f"{name} must be int, got {type(value).__name__}")
         if value < 0:
             raise ValueError(f"{name} must be non-negative, got {value}")
         return value
 
     @classmethod
+    @lru_cache(maxsize=256)
     def validate_key_id(cls, key_id: str) -> str:
-        """Enhanced key_id validation with comprehensive security checks.
-
-        Protects against path traversal, null byte injection, ReDoS, and DoS attacks.
+        """Enhanced key_id validation.
 
         :param key_id: Key ID to validate
         :return: Validated key ID
         :raises ValueError: If key ID is invalid
         """
-        clean_id = cls._validate_string_not_empty(key_id, "key_id")
+        clean_id = cls.validate_string_not_empty(key_id, "key_id")
         cls._validate_length(clean_id, Constants.MAX_KEY_ID_LENGTH, "key_id")
         cls._validate_no_null_bytes(clean_id, "key_id")
 
-        if any(c in clean_id for c in {".", "/", "\\"}):
-            raise ValueError("key_id contains invalid characters (., /, \\)")
+        try:
+            decoded = urllib.parse.unquote(clean_id)
+            double_decoded = urllib.parse.unquote(decoded)
 
+            # Check all variants for malicious characters
+            for variant in [clean_id, decoded, double_decoded]:
+                if any(c in variant for c in {".", "/", "\\", "%", "\x00"}):
+                    raise ValueError(
+                        "key_id contains invalid characters (., /, \\, %, null)"
+                    )
+        except Exception as e:
+            raise ValueError(f"Invalid key_id encoding: {e}") from e
+
+        # Strict whitelist approach
         allowed_chars = frozenset(
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
         )
@@ -357,8 +520,9 @@ class Validators:
         return clean_id
 
     @staticmethod
+    @lru_cache(maxsize=256)
     def sanitize_url_for_logging(url: str) -> str:
-        """Remove secret path from URL for safe logging.
+        """Remove secret path from URL for safe logging
 
         :param url: URL to sanitize
         :return: Sanitized URL
@@ -370,6 +534,7 @@ class Validators:
             return "***INVALID_URL***"
 
     @staticmethod
+    @lru_cache(maxsize=512)
     def sanitize_endpoint_for_logging(endpoint: str) -> str:
         """Sanitize endpoint for safe logging.
 
@@ -559,6 +724,7 @@ __all__ = [
     "ClientDependencies",
     "ConfigOverrides",
     "Constants",
+    "CredentialSanitizer",
     "JsonDict",
     "JsonList",
     "JsonPayload",
@@ -568,6 +734,8 @@ __all__ = [
     "Port",
     "QueryParams",
     "ResponseData",
+    "SSRFProtection",
+    "SecureIDGenerator",
     "Timestamp",
     "TimestampMs",
     "TimestampSec",

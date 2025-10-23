@@ -337,7 +337,7 @@ class BatchOperations:
         configs: list[dict[str, object]],
         *,
         fail_fast: bool = False,
-    ) -> BatchResult[AccessKey]:
+    ) -> BatchResult[object] | BatchResult[AccessKey]:
         """Create multiple access keys in batch.
 
         :param configs: List of key configuration dictionaries
@@ -368,7 +368,9 @@ class BatchOperations:
         processor: BatchProcessor[dict[str, object], AccessKey] = BatchProcessor(
             self._max_concurrent
         )
-        results = await processor.process(valid_configs, create_key, fail_fast=fail_fast)
+        results = await processor.process(
+            valid_configs, create_key, fail_fast=fail_fast
+        )
 
         return self._build_result(results, validation_errors)
 
@@ -377,7 +379,7 @@ class BatchOperations:
         key_ids: list[str],
         *,
         fail_fast: bool = False,
-    ) -> BatchResult[bool]:
+    ) -> BatchResult[object] | BatchResult[bool]:
         """Delete multiple access keys in batch.
 
         :param key_ids: List of key IDs to delete
@@ -412,7 +414,7 @@ class BatchOperations:
         key_name_pairs: list[tuple[str, str]],
         *,
         fail_fast: bool = False,
-    ) -> BatchResult[bool]:
+    ) -> BatchResult[object] | BatchResult[bool]:
         """Rename multiple access keys in batch.
 
         :param key_name_pairs: List of (key_id, new_name) tuples
@@ -462,7 +464,9 @@ class BatchOperations:
         processor: BatchProcessor[tuple[str, str], bool] = BatchProcessor(
             self._max_concurrent
         )
-        results = await processor.process(validated_pairs, rename_key, fail_fast=fail_fast)
+        results = await processor.process(
+            validated_pairs, rename_key, fail_fast=fail_fast
+        )
 
         return self._build_result(results, validation_errors)
 
@@ -471,7 +475,7 @@ class BatchOperations:
         key_limit_pairs: list[tuple[str, int]],
         *,
         fail_fast: bool = False,
-    ) -> BatchResult[bool]:
+    ) -> BatchResult[object] | BatchResult[bool]:
         """Set data limits for multiple keys in batch.
 
         :param key_limit_pairs: List of (key_id, bytes_limit) tuples
@@ -516,7 +520,9 @@ class BatchOperations:
         processor: BatchProcessor[tuple[str, int], bool] = BatchProcessor(
             self._max_concurrent
         )
-        results = await processor.process(validated_pairs, set_limit, fail_fast=fail_fast)
+        results = await processor.process(
+            validated_pairs, set_limit, fail_fast=fail_fast
+        )
 
         return self._build_result(results, validation_errors)
 
@@ -525,7 +531,7 @@ class BatchOperations:
         key_ids: list[str],
         *,
         fail_fast: bool = False,
-    ) -> BatchResult[AccessKey]:
+    ) -> BatchResult[object] | BatchResult[AccessKey]:
         """Fetch multiple access keys in batch.
 
         :param key_ids: List of key IDs to fetch
@@ -589,7 +595,9 @@ class BatchOperations:
         processor: BatchProcessor[Callable[[], Awaitable[object]], object] = (
             BatchProcessor(self._max_concurrent)
         )
-        results = await processor.process(valid_operations, execute_op, fail_fast=fail_fast)
+        results = await processor.process(
+            valid_operations, execute_op, fail_fast=fail_fast
+        )
 
         return self._build_result(results, validation_errors)
 

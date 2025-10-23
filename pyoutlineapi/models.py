@@ -31,7 +31,7 @@ from .common_types import (
 if TYPE_CHECKING:
     from typing_extensions import Self
 
-# Constants for unit conversions (DRY)
+# Constants for unit conversions
 _BYTES_IN_KB: Final[int] = 1024
 _BYTES_IN_MB: Final[int] = 1024**2
 _BYTES_IN_GB: Final[int] = 1024**3
@@ -40,7 +40,7 @@ _SEC_IN_MIN: Final[float] = 60.0
 _SEC_IN_HOUR: Final[float] = 3600.0
 
 
-# ===== Unit Conversion Mixin (DRY) =====
+# ===== Unit Conversion Mixin =====
 
 
 class ByteConversionMixin:
