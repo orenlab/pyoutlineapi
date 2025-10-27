@@ -13,6 +13,7 @@ Source code repository:
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import Field, field_validator
@@ -31,7 +32,7 @@ from .common_types import (
 if TYPE_CHECKING:
     from typing_extensions import Self
 
-# Constants for unit conversions
+# Constants for unit conversions (immutable, typed)
 _BYTES_IN_KB: Final[int] = 1024
 _BYTES_IN_MB: Final[int] = 1024**2
 _BYTES_IN_GB: Final[int] = 1024**3
@@ -40,11 +41,11 @@ _SEC_IN_MIN: Final[float] = 60.0
 _SEC_IN_HOUR: Final[float] = 3600.0
 
 
-# ===== Unit Conversion Mixin =====
+# ===== Unit Conversion Mixins =====
 
 
 class ByteConversionMixin:
-    """Mixin for byte conversion utilities (DRY)."""
+    """Mixin for byte conversion utilities with optimized calculations."""
 
     bytes: int
 
@@ -74,7 +75,7 @@ class ByteConversionMixin:
 
 
 class TimeConversionMixin:
-    """Mixin for time conversion utilities (DRY)."""
+    """Mixin for time conversion utilities with optimized calculations."""
 
     seconds: int
 
@@ -99,10 +100,7 @@ class TimeConversionMixin:
 
 
 class DataLimit(BaseValidatedModel, ByteConversionMixin):
-    """Data transfer limit in bytes.
-
-    Provides convenient unit conversions and factory methods.
-    """
+    """Data transfer limit in bytes with unit conversions."""
 
     bytes: Bytes
 
@@ -135,10 +133,9 @@ class DataLimit(BaseValidatedModel, ByteConversionMixin):
 
 
 class AccessKey(BaseValidatedModel):
-    """Access key model matching API schema.
+    """Access key model matching API schema with optimized properties.
 
-    Represents a VPN access key with authentication and configuration details.
-    Based on OpenAPI schema: /access-keys endpoint
+    SCHEMA: Based on OpenAPI /access-keys endpoint
     """
 
     id: str
@@ -172,7 +169,7 @@ class AccessKey(BaseValidatedModel):
 
     @property
     def has_data_limit(self) -> bool:
-        """Check if key has data limit set.
+        """Check if key has data limit (optimized None check).
 
         :return: True if data limit exists
         """
@@ -180,7 +177,7 @@ class AccessKey(BaseValidatedModel):
 
     @property
     def display_name(self) -> str:
-        """Get display name (name or id if no name).
+        """Get display name with optimized conditional.
 
         :return: Display name
         """
@@ -188,17 +185,18 @@ class AccessKey(BaseValidatedModel):
 
 
 class AccessKeyList(BaseValidatedModel):
-    """List of access keys with utility methods.
+    """List of access keys with optimized utility methods.
 
-    Provides convenient access and filtering operations.
-    Based on OpenAPI schema: GET /access-keys response
+    SCHEMA: Based on GET /access-keys response
     """
 
     access_keys: list[AccessKey] = Field(alias="accessKeys")
 
-    @property
+    @cached_property
     def count(self) -> int:
-        """Get number of access keys.
+        """Get number of access keys (cached).
+
+        NOTE: Cached because list is immutable after creation
 
         :return: Key count
         """
@@ -206,14 +204,14 @@ class AccessKeyList(BaseValidatedModel):
 
     @property
     def is_empty(self) -> bool:
-        """Check if list is empty.
+        """Check if list is empty (uses cached count).
 
         :return: True if no keys
         """
         return self.count == 0
 
     def get_by_id(self, key_id: str) -> AccessKey | None:
-        """Get key by ID.
+        """Get key by ID with early return optimization.
 
         :param key_id: Access key ID
         :return: Access key or None if not found
@@ -224,24 +222,22 @@ class AccessKeyList(BaseValidatedModel):
         return None
 
     def get_by_name(self, name: str) -> list[AccessKey]:
-        """Get keys by name.
-
-        May return multiple keys with the same name.
+        """Get keys by name with optimized list comprehension.
 
         :param name: Key name
-        :return: List of matching keys
+        :return: List of matching keys (may be multiple)
         """
         return [key for key in self.access_keys if key.name == name]
 
     def filter_with_limits(self) -> list[AccessKey]:
-        """Get keys that have data limits.
+        """Get keys with data limits (optimized comprehension).
 
         :return: List of keys with limits
         """
         return [key for key in self.access_keys if key.has_data_limit]
 
     def filter_without_limits(self) -> list[AccessKey]:
-        """Get keys without data limits.
+        """Get keys without data limits (optimized comprehension).
 
         :return: List of keys without limits
         """
@@ -249,10 +245,9 @@ class AccessKeyList(BaseValidatedModel):
 
 
 class Server(BaseValidatedModel):
-    """Server information model matching API schema.
+    """Server information model with optimized properties.
 
-    Represents Outline VPN server configuration and metadata.
-    Based on OpenAPI schema: GET /server response
+    SCHEMA: Based on GET /server response
     """
 
     name: str
@@ -280,15 +275,17 @@ class Server(BaseValidatedModel):
 
     @property
     def has_global_limit(self) -> bool:
-        """Check if server has global data limit.
+        """Check if server has global data limit (optimized).
 
         :return: True if global limit exists
         """
         return self.access_key_data_limit is not None
 
-    @property
+    @cached_property
     def created_timestamp_seconds(self) -> float:
-        """Get creation timestamp in seconds.
+        """Get creation timestamp in seconds (cached).
+
+        NOTE: Cached because timestamp is immutable
 
         :return: Timestamp in seconds
         """
@@ -299,98 +296,73 @@ class Server(BaseValidatedModel):
 
 
 class ServerMetrics(BaseValidatedModel):
-    """Transfer metrics model matching API /metrics/transfer.
+    """Transfer metrics with optimized aggregations.
 
-    Provides aggregated traffic statistics and analysis.
-    Based on OpenAPI schema: GET /metrics/transfer response
+    SCHEMA: Based on GET /metrics/transfer response
     """
 
     bytes_transferred_by_user_id: BytesPerUserDict = Field(
         alias="bytesTransferredByUserId"
     )
 
-    @property
+    @cached_property
     def total_bytes(self) -> int:
-        """Calculate total bytes across all keys.
+        """Calculate total bytes with caching.
 
         :return: Total bytes transferred
         """
         return sum(self.bytes_transferred_by_user_id.values())
 
-    @property
-    def total_megabytes(self) -> float:
-        """Get total in megabytes.
-
-        :return: Total MB transferred
-        """
-        return self.total_bytes / _BYTES_IN_MB
-
-    @property
+    @cached_property
     def total_gigabytes(self) -> float:
-        """Get total in gigabytes.
+        """Get total in gigabytes (uses cached total_bytes).
 
         :return: Total GB transferred
         """
         return self.total_bytes / _BYTES_IN_GB
 
-    @property
-    def key_count(self) -> int:
-        """Get number of keys with traffic.
+    @cached_property
+    def user_count(self) -> int:
+        """Get number of users (cached).
 
-        :return: Active key count
+        :return: Number of users
         """
         return len(self.bytes_transferred_by_user_id)
 
-    def get_top_consumers(self, n: int = 10) -> list[tuple[str, int]]:
-        """Get top N consumers by bytes.
+    def get_user_bytes(self, user_id: str) -> int:
+        """Get bytes for specific user (O(1) dict lookup).
 
-        :param n: Number of top consumers
-        :return: List of (key_id, bytes) tuples sorted by usage
+        :param user_id: User/key ID
+        :return: Bytes transferred or 0 if not found
         """
-        if n < 1:
-            return []
+        return self.bytes_transferred_by_user_id.get(user_id, 0)
 
-        sorted_items = sorted(
+    def top_users(self, limit: int = 10) -> list[tuple[str, int]]:
+        """Get top users by bytes transferred (optimized sorting).
+
+        :param limit: Number of top users to return
+        :return: List of (user_id, bytes) tuples
+        """
+        return sorted(
             self.bytes_transferred_by_user_id.items(),
             key=lambda x: x[1],
             reverse=True,
-        )
-        return sorted_items[:n]
-
-    def get_usage_for_key(self, key_id: str) -> int:
-        """Get bytes transferred for specific key.
-
-        :param key_id: Access key ID
-        :return: Bytes transferred or 0 if not found
-        """
-        return self.bytes_transferred_by_user_id.get(key_id, 0)
-
-
-class MetricsStatusResponse(BaseValidatedModel):
-    """Metrics status response matching API /metrics/enabled.
-
-    Based on OpenAPI schema: GET /metrics/enabled response
-    """
-
-    metrics_enabled: bool = Field(alias="metricsEnabled")
-
-
-# ===== Experimental Metrics Models =====
+        )[:limit]
 
 
 class TunnelTime(BaseValidatedModel, TimeConversionMixin):
-    """Tunnel time metric in seconds.
+    """Tunnel time metric with time conversions.
 
-    Based on OpenAPI schema: experimental metrics tunnelTime object
+    SCHEMA: Based on experimental metrics tunnelTime object
     """
 
     seconds: int = Field(ge=0)
 
 
 class DataTransferred(BaseValidatedModel, ByteConversionMixin):
-    """Data transfer metric in bytes.
+    """Data transfer metric with byte conversions.
 
-    Based on OpenAPI schema: experimental metrics dataTransferred object
+    SCHEMA: Based on experimental metrics dataTransferred object
     """
 
     bytes: Bytes
@@ -399,7 +371,7 @@ class DataTransferred(BaseValidatedModel, ByteConversionMixin):
 class BandwidthDataValue(BaseValidatedModel):
     """Bandwidth data value.
 
-    Based on OpenAPI schema: experimental metrics bandwidth data object
+    SCHEMA: Based on experimental metrics bandwidth data object
     """
 
     bytes: int
@@ -408,7 +380,7 @@ class BandwidthDataValue(BaseValidatedModel):
 class BandwidthData(BaseValidatedModel):
     """Bandwidth measurement data.
 
-    Based on OpenAPI schema: experimental metrics bandwidth current/peak object
+    SCHEMA: Based on experimental metrics bandwidth current/peak object
     """
 
     data: BandwidthDataValue
@@ -418,7 +390,7 @@ class BandwidthData(BaseValidatedModel):
 class BandwidthInfo(BaseValidatedModel):
     """Current and peak bandwidth information.
 
-    Based on OpenAPI schema: experimental metrics bandwidth object
+    SCHEMA: Based on experimental metrics bandwidth object
     """
 
     current: BandwidthData
@@ -428,7 +400,7 @@ class BandwidthInfo(BaseValidatedModel):
 class LocationMetric(BaseValidatedModel):
     """Location-based usage metric.
 
-    Based on OpenAPI schema: experimental metrics locations array item
+    SCHEMA: Based on experimental metrics locations array item
     """
 
     location: str
@@ -441,7 +413,7 @@ class LocationMetric(BaseValidatedModel):
 class PeakDeviceCount(BaseValidatedModel):
     """Peak device count with timestamp.
 
-    Based on OpenAPI schema: experimental metrics connection peakDeviceCount object
+    SCHEMA: Based on experimental metrics connection peakDeviceCount object
     """
 
     data: int
@@ -451,7 +423,7 @@ class PeakDeviceCount(BaseValidatedModel):
 class ConnectionInfo(BaseValidatedModel):
     """Connection information and statistics.
 
-    Based on OpenAPI schema: experimental metrics connection object
+    SCHEMA: Based on experimental metrics connection object
     """
 
     last_traffic_seen: TimestampSec = Field(alias="lastTrafficSeen")
@@ -461,7 +433,7 @@ class ConnectionInfo(BaseValidatedModel):
 class AccessKeyMetric(BaseValidatedModel):
     """Per-key experimental metrics.
 
-    Based on OpenAPI schema: experimental metrics accessKeys array item
+    SCHEMA: Based on experimental metrics accessKeys array item
     """
 
     access_key_id: str = Field(alias="accessKeyId")
@@ -473,7 +445,7 @@ class AccessKeyMetric(BaseValidatedModel):
 class ServerExperimentalMetric(BaseValidatedModel):
     """Server-level experimental metrics.
 
-    Based on OpenAPI schema: experimental metrics server object
+    SCHEMA: Based on experimental metrics server object
     """
 
     tunnel_time: TunnelTime = Field(alias="tunnelTime")
@@ -483,23 +455,23 @@ class ServerExperimentalMetric(BaseValidatedModel):
 
 
 class ExperimentalMetrics(BaseValidatedModel):
-    """Experimental metrics response matching API /experimental/server/metrics.
+    """Experimental metrics with optimized lookup.
 
-    Based on OpenAPI schema: GET /experimental/server/metrics response
+    SCHEMA: Based on GET /experimental/server/metrics response
     """
 
     server: ServerExperimentalMetric
     access_keys: list[AccessKeyMetric] = Field(alias="accessKeys")
 
     def get_key_metric(self, key_id: str) -> AccessKeyMetric | None:
-        """Get metrics for specific key.
+        """Get metrics for specific key with early return.
 
         :param key_id: Access key ID
         :return: Key metrics or None if not found
         """
         for metric in self.access_keys:
             if metric.access_key_id == key_id:
-                return metric
+                return metric  # Early return
         return None
 
 
@@ -509,11 +481,10 @@ class ExperimentalMetrics(BaseValidatedModel):
 class AccessKeyCreateRequest(BaseValidatedModel):
     """Request model for creating access keys.
 
-    All fields are optional for flexible key creation.
-    Based on OpenAPI schema: POST /access-keys request body
+    SCHEMA: Based on POST /access-keys request body
     """
 
-    name: str | None = None
+    name: str
     method: str | None = None
     password: str | None = None
     port: Port | None = None
@@ -523,7 +494,7 @@ class AccessKeyCreateRequest(BaseValidatedModel):
 class ServerNameRequest(BaseValidatedModel):
     """Request model for renaming server.
 
-    Based on OpenAPI schema: PUT /name request body
+    SCHEMA: Based on PUT /name request body
     """
 
     name: str = Field(min_length=1, max_length=255)
@@ -532,7 +503,7 @@ class ServerNameRequest(BaseValidatedModel):
 class HostnameRequest(BaseValidatedModel):
     """Request model for setting hostname.
 
-    Based on OpenAPI schema: PUT /server/hostname-for-access-keys request body
+    SCHEMA: Based on PUT /server/hostname-for-access-keys request body
     """
 
     hostname: str = Field(min_length=1)
@@ -541,7 +512,7 @@ class HostnameRequest(BaseValidatedModel):
 class PortRequest(BaseValidatedModel):
     """Request model for setting default port.
 
-    Based on OpenAPI schema: PUT /server/port-for-new-access-keys request body
+    SCHEMA: Based on PUT /server/port-for-new-access-keys request body
     """
 
     port: Port
@@ -550,7 +521,7 @@ class PortRequest(BaseValidatedModel):
 class AccessKeyNameRequest(BaseValidatedModel):
     """Request model for renaming access key.
 
-    Based on OpenAPI schema: PUT /access-keys/{id}/name request body
+    SCHEMA: Based on PUT /access-keys/{id}/name request body
     """
 
     name: str = Field(min_length=1, max_length=255)
@@ -559,7 +530,7 @@ class AccessKeyNameRequest(BaseValidatedModel):
 class DataLimitRequest(BaseValidatedModel):
     """Request model for setting data limit.
 
-    Based on OpenAPI schema: PUT /access-keys/{id}/data-limit request body
+    SCHEMA: Based on PUT /access-keys/{id}/data-limit request body
     """
 
     limit: DataLimit
@@ -568,7 +539,17 @@ class DataLimitRequest(BaseValidatedModel):
 class MetricsEnabledRequest(BaseValidatedModel):
     """Request model for enabling/disabling metrics.
 
-    Based on OpenAPI schema: PUT /metrics/enabled request body
+    SCHEMA: Based on PUT /metrics/enabled request body
+    """
+
+    metrics_enabled: bool = Field(alias="metricsEnabled")
+
+
+class MetricsStatusResponse(BaseValidatedModel):
+    """Response model for metrics status.
+
+    Returns current metrics sharing status.
+    SCHEMA: Based on GET /metrics/enabled response
     """
 
     metrics_enabled: bool = Field(alias="metricsEnabled")
@@ -578,16 +559,16 @@ class MetricsEnabledRequest(BaseValidatedModel):
 
 
 class ErrorResponse(BaseValidatedModel):
-    """Error response model matching API error schema.
+    """Error response with optimized string formatting.
 
-    Based on OpenAPI schema: error response format
+    SCHEMA: Based on API error response format
     """
 
     code: str
     message: str
 
     def __str__(self) -> str:
-        """Format error as string.
+        """Format error as string (optimized f-string).
 
         :return: Formatted error message
         """
@@ -598,15 +579,15 @@ class ErrorResponse(BaseValidatedModel):
 
 
 class HealthCheckResult(BaseValidatedModel):
-    """Health check result with diagnostic information."""
+    """Health check result with optimized diagnostics."""
 
     healthy: bool
     timestamp: float
     checks: ChecksDict
 
-    @property
+    @cached_property
     def failed_checks(self) -> list[str]:
-        """Get failed checks.
+        """Get failed checks (cached for repeated access).
 
         :return: List of failed check names
         """
@@ -618,20 +599,20 @@ class HealthCheckResult(BaseValidatedModel):
 
     @property
     def success_rate(self) -> float:
-        """Calculate health check success rate.
+        """Calculate success rate (uses cached failed_checks).
 
         :return: Success rate (0.0 to 1.0)
         """
         if not self.checks:
-            return 1.0
+            return 1.0  # Early return
 
         total = len(self.checks)
-        passed = total - len(self.failed_checks)
+        passed = total - len(self.failed_checks)  # Uses cached property
         return passed / total
 
 
 class ServerSummary(BaseValidatedModel):
-    """Server summary model with aggregated information."""
+    """Server summary with optimized aggregations."""
 
     server: dict[str, Any]
     access_keys_count: int
@@ -642,17 +623,17 @@ class ServerSummary(BaseValidatedModel):
 
     @property
     def total_bytes_transferred(self) -> int:
-        """Get total bytes if metrics available.
+        """Get total bytes with early return optimization.
 
         :return: Total bytes or 0 if no metrics
         """
-        if self.transfer_metrics:
-            return sum(self.transfer_metrics.values())
-        return 0
+        if not self.transfer_metrics:
+            return 0  # Early return
+        return sum(self.transfer_metrics.values())
 
     @property
     def total_gigabytes_transferred(self) -> float:
-        """Get total gigabytes if metrics available.
+        """Get total GB (uses total_bytes_transferred).
 
         :return: Total GB or 0.0 if no metrics
         """
@@ -660,7 +641,7 @@ class ServerSummary(BaseValidatedModel):
 
     @property
     def has_errors(self) -> bool:
-        """Check if summary contains errors.
+        """Check if summary has errors (optimized None check).
 
         :return: True if errors present
         """

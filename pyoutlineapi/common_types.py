@@ -14,6 +14,7 @@ Source code repository:
 from __future__ import annotations
 
 import ipaddress
+import logging
 import re
 import secrets
 import sys
@@ -94,9 +95,15 @@ class Constants:
     # Network defaults
     DEFAULT_TIMEOUT: Final[int] = 10
     DEFAULT_RETRY_ATTEMPTS: Final[int] = 2
-    DEFAULT_MAX_CONNECTIONS: Final[int] = 10
+    DEFAULT_MIN_CONNECTIONS: Final[int] = 1
+    DEFAULT_MAX_CONNECTIONS: Final[int] = 100
     DEFAULT_RETRY_DELAY: Final[float] = 1.0
+    DEFAULT_MIN_TIMEOUT: Final[int] = 1
+    DEFAULT_MAX_TIMEOUT: Final[int] = 300
     DEFAULT_USER_AGENT: Final[str] = "PyOutlineAPI/0.4.0"
+    _MIN_RATE_LIMIT: Final[int] = 1
+    _MAX_RATE_LIMIT: Final[int] = 1000
+    _SAFETY_MARGIN: Final[float] = 10.0
 
     # Resource limits
     MAX_RECURSION_DEPTH: Final[int] = 10
@@ -106,6 +113,12 @@ class Constants:
     RETRY_STATUS_CODES: Final[frozenset[int]] = frozenset(
         {408, 429, 500, 502, 503, 504}
     )
+
+    # Logging levels
+    LOG_LEVEL_DEBUG: Final[int] = logging.DEBUG
+    LOG_LEVEL_INFO: Final[int] = logging.INFO
+    LOG_LEVEL_WARNING: Final[int] = logging.WARNING
+    LOG_LEVEL_ERROR: Final[int] = logging.ERROR
 
     # ===== Security limits =====
 
@@ -127,7 +140,7 @@ class Constants:
     MAX_TIMEOUT: Final[int] = 300  # 5 minutes absolute max
 
 
-# ===== NEW: SSRF Protection (HIGH-002) =====
+# ===== SSRF Protection (HIGH-002) =====
 
 
 class SSRFProtection:
@@ -322,16 +335,6 @@ def is_json_serializable(value: Any) -> TypeGuard[JsonValue]:
     if isinstance(value, list):
         return all(is_json_serializable(item) for item in value)
     return False
-
-
-def secure_compare(a: str, b: str) -> bool:
-    """Timing-safe string comparison.
-
-    :param a: First string
-    :param b: Second string
-    :return: True if strings are equal
-    """
-    return secrets.compare_digest(a.encode(), b.encode())
 
 
 # ===== Validators =====
@@ -599,7 +602,9 @@ class ClientDependencies(TypedDict, total=False):
 # ===== Helper Functions =====
 
 
-def build_config_overrides(**kwargs: int | str | bool | None) -> ConfigOverrides:
+def build_config_overrides(
+    **kwargs: int | str | bool | None,
+) -> dict[str, int | str | bool | None]:
     """Build configuration overrides dictionary from kwargs.
 
     DRY implementation - single source of truth for config building.
@@ -612,7 +617,7 @@ def build_config_overrides(**kwargs: int | str | bool | None) -> ConfigOverrides
         >>> # Returns: {'timeout': 20, 'enable_logging': True}
     """
     valid_keys = ConfigOverrides.__annotations__.keys()
-    return {k: v for k, v in kwargs.items() if k in valid_keys and v is not None}  # type: ignore[misc]
+    return {k: v for k, v in kwargs.items() if k in valid_keys and v is not None}
 
 
 def merge_config_kwargs(
@@ -746,6 +751,5 @@ __all__ = [
     "is_valid_port",
     "mask_sensitive_data",
     "merge_config_kwargs",
-    "secure_compare",
     "validate_snapshot_size",
 ]

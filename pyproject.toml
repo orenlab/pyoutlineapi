@@ -40,6 +40,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3 :: Only",
     # Framework
     "Framework :: AsyncIO",
@@ -101,7 +102,6 @@ pdoc = "^15.0.4"
 rich = "^14.2.0"
 
 # Metrics (optional, for development)
-sortedcontainers = "^2.4.0"
 
 # ===== Pdoc Configuration =====
 
@@ -319,7 +319,6 @@ strict_concatenate = false
 module = [
     "aiohttp.*",
     "aioresponses.*",
-    "sortedcontainers.*",
 ]
 ignore_missing_imports = true
 

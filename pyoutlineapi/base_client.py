@@ -41,8 +41,8 @@ from .common_types import (
 from .exceptions import (
     APIError,
     CircuitOpenError,
-    ConnectionError as OutlineConnectionError,
-    TimeoutError as OutlineTimeoutError,
+    OutlineConnectionError,
+    OutlineTimeoutError,
 )
 
 if TYPE_CHECKING:
@@ -55,23 +55,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Context variable for correlation ID tracking
+# Context variable for correlation ID tracking (thread-safe)
 correlation_id: ContextVar[str] = ContextVar("correlation_id", default="")
 
 
-def _log_if_enabled(level: int, message: str, **kwargs: object) -> None:
-    """Centralized logging with level check (DRY).
-
-    :param level: Logging level
-    :param message: Log message
-    :param kwargs: Additional logging kwargs
-    """
-    if logger.isEnabledFor(level):
-        logger.log(level, message, **kwargs)
-
-
 class MetricsCollector(Protocol):
-    """Protocol for metrics collection."""
+    """Protocol for metrics collection.
+
+    Allows dependency injection of custom metrics backends.
+    """
 
     def increment(self, metric: str, *, tags: MetricsTags | None = None) -> None:
         """Increment counter metric."""
@@ -91,29 +83,29 @@ class MetricsCollector(Protocol):
 
 
 class NoOpMetrics:
-    """No-op metrics collector (default)."""
+    """No-op metrics collector (zero-overhead default).
+
+    Uses __slots__ to minimize memory footprint.
+    """
 
     __slots__ = ()
 
     def increment(self, metric: str, *, tags: MetricsTags | None = None) -> None:
-        """No-op increment."""
+        """No-op increment (zero overhead)."""
 
     def timing(
         self, metric: str, value: float, *, tags: MetricsTags | None = None
     ) -> None:
-        """No-op timing."""
+        """No-op timing (zero overhead)."""
 
     def gauge(
         self, metric: str, value: float, *, tags: MetricsTags | None = None
     ) -> None:
-        """No-op gauge."""
+        """No-op gauge (zero overhead)."""
 
 
 class TokenBucketRateLimiter:
-    """Token bucket algorithm for requests-per-second rate limiting.
-
-    Thread-safe and optimized for async environment using event loop time.
-    """
+    """Token bucket algorithm for requests-per-second rate limiting."""
 
     __slots__ = ("_capacity", "_last_update", "_lock", "_rate", "_tokens")
 
@@ -142,13 +134,17 @@ class TokenBucketRateLimiter:
     async def acquire(self, tokens: float = 1.0) -> None:
         """Acquire tokens, waiting if necessary.
 
+        Uses monotonic clock for accurate timing.
+
         :param tokens: Number of tokens to acquire
         """
         async with self._lock:
-            now = asyncio.get_event_loop().time()
+            # Cache loop reference (minor optimization)
+            loop = asyncio.get_event_loop()
+            now = loop.time()
             elapsed = now - self._last_update
 
-            # Refill tokens based on elapsed time
+            # Refill tokens based on elapsed time (O(1) calculation)
             self._tokens = min(self._capacity, self._tokens + elapsed * self._rate)
             self._last_update = now
 
@@ -162,7 +158,9 @@ class TokenBucketRateLimiter:
 
     @property
     def available_tokens(self) -> float:
-        """Get currently available tokens (approximate).
+        """Get currently available tokens (approximate, lock-free).
+
+        Lock-free read for minimal overhead. May be slightly stale.
 
         :return: Number of available tokens
         """
@@ -172,7 +170,10 @@ class TokenBucketRateLimiter:
 
 
 class RateLimiter:
-    """Concurrent request limiter with dynamic limit adjustment."""
+    """Concurrent request limiter with dynamic limit adjustment.
+
+    Uses Semaphore for efficient concurrent limiting.
+    """
 
     __slots__ = ("_limit", "_lock", "_semaphore")
 
@@ -210,16 +211,16 @@ class RateLimiter:
 
     @property
     def available(self) -> int:
-        """Get available slots."""
+        """Get available slots (lock-free read).
+
+        Uses getattr for safety - may return 0 if unable to read.
+        """
         try:
             value = getattr(self._semaphore, "_value", None)
             return value if isinstance(value, int) else 0
         except (AttributeError, TypeError):
-            _log_if_enabled(
-                logging.WARNING,
-                "Cannot access semaphore value",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(Constants.LOG_LEVEL_WARNING):
+                logger.warning("Cannot access semaphore value", exc_info=True)
             return 0
 
     @property
@@ -229,6 +230,8 @@ class RateLimiter:
 
     async def set_limit(self, new_limit: int) -> None:
         """Change rate limit dynamically.
+
+        Creates new semaphore to avoid complex state management.
 
         :param new_limit: New rate limit value
         :raises ValueError: If new_limit is less than 1
@@ -244,14 +247,12 @@ class RateLimiter:
             self._limit = new_limit
             self._semaphore = Semaphore(new_limit)
 
-            _log_if_enabled(
-                logging.DEBUG,
-                f"Rate limit changed from {old_limit} to {new_limit}",
-            )
+            if logger.isEnabledFor(Constants.LOG_LEVEL_DEBUG):
+                logger.debug("Rate limit changed from %d to %d", old_limit, new_limit)
 
 
 class RetryHelper:
-    """Helper class for retry logic with exponential backoff (DRY)."""
+    """Helper class for retry logic with exponential backoff."""
 
     __slots__ = ()
 
@@ -263,6 +264,8 @@ class RetryHelper:
         metrics: MetricsCollector,
     ) -> ResponseData:
         """Execute request with retry logic and comprehensive error metrics.
+
+        Implements exponential backoff with jitter for distributed systems.
 
         :param func: Request function to execute
         :param endpoint: API endpoint
@@ -280,7 +283,7 @@ class RetryHelper:
             except (OutlineTimeoutError, OutlineConnectionError, APIError) as error:
                 last_error = error
 
-                # Error metrics tracking
+                # Track error metrics
                 metrics.increment(
                     "outline.request.error",
                     tags={
@@ -290,18 +293,22 @@ class RetryHelper:
                     },
                 )
 
-                _log_if_enabled(
-                    logging.WARNING,
-                    f"Request to {endpoint} failed "
-                    f"(attempt {attempt + 1}/{retry_attempts + 1}): {error}",
-                )
+                if logger.isEnabledFor(Constants.LOG_LEVEL_WARNING):
+                    logger.warning(
+                        "Request to %s failed (attempt %d/%d): %s",
+                        endpoint,
+                        attempt + 1,
+                        retry_attempts + 1,
+                        error,
+                    )
 
+                # Check if error is retryable
                 if (
                     isinstance(error, APIError)
                     and error.status_code
                     and error.status_code not in Constants.RETRY_STATUS_CODES
                 ):
-                    # Track non-retryable errors
+                    # Non-retryable error - fail fast
                     metrics.increment(
                         "outline.request.non_retryable",
                         tags={"endpoint": endpoint, "status": str(error.status_code)},
@@ -316,7 +323,7 @@ class RetryHelper:
                     )
                     await asyncio.sleep(delay)
 
-        # Track exhausted retries
+        # All retries exhausted
         metrics.increment("outline.request.exhausted", tags={"endpoint": endpoint})
 
         raise APIError(
@@ -328,22 +335,31 @@ class RetryHelper:
     def _calculate_delay(attempt: int) -> float:
         """Calculate retry delay with exponential backoff and jitter.
 
-        :param attempt: Current attempt number
+        Jitter prevents thundering herd problem in distributed systems.
+
+        :param attempt: Current attempt number (0-indexed)
         :return: Delay in seconds
         """
         base_delay = Constants.DEFAULT_RETRY_DELAY * (attempt + 1)
+        # Secure random jitter: ±20% of base delay
         jitter = base_delay * 0.2 * (secrets.randbelow(40) - 20) / 100
         return max(0.1, base_delay + jitter)
 
 
 class SSLFingerprintValidator:
-    """Enhanced SSL validation with fingerprint pinning.
+    """Enhanced SSL validation with strict fingerprint pinning.
 
-    Note: Outline VPN uses self-signed certificates, so we disable CA verification
-    but enforce strict fingerprint pinning for security.
+    SECURITY CRITICAL:
+    - Outline VPN uses self-signed certificates
+    - We disable CA verification but enforce fingerprint pinning
+    - Constant-time comparison prevents timing attacks
+    - SecretStr keeps fingerprint secure in memory
+    - TLS 1.2+ enforcement
 
-    SECURITY NOTE: Accepts SecretStr to maintain secret in memory protection.
-    Fingerprint is read only when needed and stored securely.
+    MITM Prevention:
+    - Fingerprint verified on every connection
+    - Mismatch raises ValueError (connection aborted)
+    - Certificate pinning per OWASP recommendations
     """
 
     __slots__ = ("_expected_fingerprint_secret", "_ssl_context")
@@ -353,19 +369,26 @@ class SSLFingerprintValidator:
 
         :param cert_sha256: Pre-validated SHA-256 fingerprint as SecretStr
 
-        Note: Fingerprint must be already validated by Validators.validate_cert_fingerprint().
-              SecretStr is kept to maintain security - secret value is read only when needed.
+        SECURITY: Fingerprint must be pre-validated by
+        Validators.validate_cert_fingerprint() before calling this.
+        SecretStr maintained for memory protection.
         """
         self._expected_fingerprint_secret: SecretStr = cert_sha256
 
         # Create SSL context WITHOUT CA verification (self-signed certs)
-        # Security is ensured by fingerprint pinning
+        # Security is ensured by strict fingerprint pinning
         self._ssl_context = ssl.create_default_context()
         self._ssl_context.check_hostname = False  # We verify via fingerprint
         self._ssl_context.verify_mode = ssl.CERT_NONE  # Accept self-signed
 
-        # Enforce minimum TLS 1.2
+        # SECURITY: Enforce minimum TLS 1.2 (TLS 1.3 preferred if available)
         self._ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+
+        # Enable TLS 1.3 if available
+        try:
+            self._ssl_context.maximum_version = ssl.TLSVersion.TLSv1_3
+        except AttributeError:
+            pass  # TLS 1.3 not available, TLS 1.2 is acceptable
 
     def __exit__(
         self,
@@ -374,28 +397,32 @@ class SSLFingerprintValidator:
         exc_tb: object | None,
     ) -> None:
         """Clean up sensitive data on exit."""
-        # Clear sensitive data
-        self._expected_fingerprint_secret, self._ssl_context = None, None
+        # Clear sensitive references
+        self._expected_fingerprint_secret = None
+        self._ssl_context = None
 
     @property
-    @lru_cache(maxsize=128)
+    @lru_cache(maxsize=1)  # Cache single SSL context (always same)
     def ssl_context(self) -> ssl.SSLContext:
-        """Get SSL context for aiohttp."""
+        """Get SSL context for aiohttp (cached)."""
         return self._ssl_context
 
-    @lru_cache(maxsize=512)
+    @lru_cache(maxsize=512)  # Cache verified fingerprints
     def _verify_cert_fingerprint(self, cert_der: bytes) -> None:
-        """Verify certificate fingerprint matches expected (DRY implementation).
+        """Verify certificate fingerprint matches expected.
 
         :param cert_der: Certificate in DER format
-        :raises ValueError: If fingerprint doesn't match
+        :raises ValueError: If fingerprint doesn't match (MITM detected)
         """
         import hashlib
 
+        # Compute actual fingerprint
         actual_fingerprint = hashlib.sha256(cert_der).hexdigest()
 
+        # Get expected fingerprint from secure storage
         expected_fingerprint = self._expected_fingerprint_secret.get_secret_value()
 
+        # SECURITY: Constant-time comparison prevents timing attacks
         if not secrets.compare_digest(actual_fingerprint, expected_fingerprint):
             raise ValueError(
                 "Certificate fingerprint mismatch - possible MITM attack detected"
@@ -407,14 +434,12 @@ class SSLFingerprintValidator:
         trace_config_ctx: TraceConfig,
         params: TraceRequestStartParams,
     ) -> None:
-        """Verify certificate fingerprint during connection (MITM prevention).
-
-        Called by aiohttp trace callback on request start.
+        """Verify certificate fingerprint during connection.
 
         :param session: aiohttp session
         :param trace_config_ctx: Trace context
         :param params: Request parameters
-        :raises ValueError: If fingerprint doesn't match
+        :raises ValueError: If fingerprint doesn't match (MITM detected)
         """
         # Get peer certificate from connection
         connection = getattr(params, "connection", None)
@@ -429,14 +454,15 @@ class SSLFingerprintValidator:
         if ssl_object is None:
             return
 
-        # Get certificate in DER format
+        # Get certificate in DER format (binary)
         cert_der = ssl_object.getpeercert(binary_form=True)
         if cert_der:
+            # SECURITY: Verify fingerprint (raises on mismatch)
             self._verify_cert_fingerprint(cert_der)
 
 
 class BaseHTTPClient:
-    """Enhanced base HTTP client with comprehensive security features."""
+    """HTTP client with comprehensive security features."""
 
     __slots__ = (
         "_active_requests",
@@ -478,7 +504,7 @@ class BaseHTTPClient:
         """Initialize base HTTP client with enhanced security.
 
         :param api_url: Outline server API URL
-        :param cert_sha256: SHA-256 certificate fingerprint
+        :param cert_sha256: SHA-256 certificate fingerprint (as SecretStr)
         :param timeout: Request timeout in seconds
         :param retry_attempts: Number of retry attempts
         :param max_connections: Connection pool size
@@ -490,13 +516,14 @@ class BaseHTTPClient:
         :param metrics: Custom metrics collector
         :raises ValueError: If parameters are invalid
         """
-        # Use Validators from common_types (DRY!)
+        # Validate and sanitize URL (removes trailing slash)
         self._api_url = Validators.validate_url(api_url).rstrip("/")
 
-        # Validate fingerprint once
-        # Keep as SecretStr for security - never expose as plain string
+        # SECURITY: Validate fingerprint and keep as SecretStr
+        # Never expose as plain string - SecretStr protects memory
         self._cert_sha256 = Validators.validate_cert_fingerprint(cert_sha256)
 
+        # Validate numeric parameters
         self._validate_numeric_params(timeout, retry_attempts, max_connections)
 
         self._timeout = aiohttp.ClientTimeout(total=float(timeout))
@@ -505,7 +532,7 @@ class BaseHTTPClient:
         self._user_agent = user_agent or Constants.DEFAULT_USER_AGENT
         self._enable_logging = enable_logging
 
-        # Pass SecretStr directly - maintains security, no string exposure
+        # SECURITY: Pass SecretStr directly - maintains security
         self._ssl_validator = SSLFingerprintValidator(self._cert_sha256)
 
         self._session: aiohttp.ClientSession | None = None
@@ -515,14 +542,16 @@ class BaseHTTPClient:
         if circuit_config is not None:
             self._init_circuit_breaker(circuit_config)
 
+        # Rate limiting: concurrent + token bucket
         self._rate_limiter = RateLimiter(rate_limit)
-
         self._rate_limiter_tps = TokenBucketRateLimiter()
 
+        # Audit logging and metrics
         self._audit_logger = audit_logger or NoOpAuditLogger()
         self._metrics = metrics or NoOpMetrics()
         self._retry_helper = RetryHelper()
 
+        # Active request tracking for graceful shutdown
         self._active_requests: set[asyncio.Task[ResponseData]] = set()
         self._active_requests_lock = asyncio.Lock()
         self._shutdown_event = asyncio.Event()
@@ -531,7 +560,7 @@ class BaseHTTPClient:
     def _validate_numeric_params(
         timeout: int, retry_attempts: int, max_connections: int
     ) -> None:
-        """Validate numeric parameters (DRY).
+        """Validate numeric parameters.
 
         :param timeout: Timeout value
         :param retry_attempts: Retry attempts value
@@ -548,16 +577,20 @@ class BaseHTTPClient:
     def _init_circuit_breaker(self, config: CircuitConfig) -> None:
         """Initialize circuit breaker with adjusted timeout.
 
+        Ensures circuit breaker timeout accounts for retries.
+
         :param config: Circuit breaker configuration
         """
         from .circuit_breaker import CircuitBreaker, CircuitConfig
 
+        # Calculate maximum possible request time including retries
         max_retry_time = self._timeout.total * (self._retry_attempts + 1)
         max_delays = sum(
             Constants.DEFAULT_RETRY_DELAY * (i + 1) for i in range(self._retry_attempts)
         )
-        cb_timeout = max_retry_time + max_delays + 5.0
+        cb_timeout = max_retry_time + max_delays + 5.0  # +5s safety margin
 
+        # Adjust circuit breaker timeout if too low
         if config.call_timeout < cb_timeout:
             adjusted_config = CircuitConfig(
                 failure_threshold=config.failure_threshold,
@@ -584,14 +617,19 @@ class BaseHTTPClient:
         await self.shutdown()
 
     async def _ensure_session(self) -> None:
-        """Ensure aiohttp session is initialized with enhanced security."""
+        """Ensure aiohttp session is initialized with enhanced security.
+
+        Double-checked locking pattern for thread-safe lazy initialization.
+        """
         if self._session is not None and not self._session.closed:
-            return
+            return  # Fast path - no lock needed
 
         async with self._session_lock:
+            # Double-check after acquiring lock
             if self._session is not None and not self._session.closed:
                 return
 
+            # Create connector with security and performance settings
             connector = aiohttp.TCPConnector(
                 ssl=self._ssl_validator.ssl_context,
                 limit=self._max_connections,
@@ -601,18 +639,19 @@ class BaseHTTPClient:
                 force_close=False,  # Reuse connections for performance
             )
 
-            # Setup trace config for fingerprint verification (MITM prevention)
+            # Verifies certificate on every request (MITM prevention)
             trace_config = aiohttp.TraceConfig()
             trace_config.on_request_start.append(self._ssl_validator.verify_connection)
 
             self._session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=self._timeout,
-                raise_for_status=False,
+                raise_for_status=False,  # Manual status handling
                 trace_configs=[trace_config],
             )
 
-            _log_if_enabled(logging.DEBUG, "HTTP session initialized!")
+            if logger.isEnabledFor(Constants.LOG_LEVEL_DEBUG):
+                logger.debug("HTTP session initialized")
 
     async def _request(
         self,
@@ -622,27 +661,36 @@ class BaseHTTPClient:
         json: JsonPayload = None,
         params: QueryParams | None = None,
     ) -> ResponseData:
-        """Make HTTP request.
+        """Make HTTP request with comprehensive protection.
 
-        :param method: HTTP method
+        Request flow:
+        1. Ensure session initialized
+        2. Generate secure correlation ID
+        3. Apply token bucket rate limiting
+        4. Apply circuit breaker (if configured)
+        5. Execute request with retry logic
+        6. Track metrics and audit log
+
+        :param method: HTTP method (GET, POST, PUT, DELETE)
         :param endpoint: API endpoint path
-        :param json: JSON payload
+        :param json: JSON payload for request body
         :param params: Query parameters
-        :return: Response data
-        :raises APIError: If request fails
+        :return: Response data as dict
+        :raises APIError: If request fails after retries
         :raises CircuitOpenError: If circuit breaker is open
         :raises TimeoutError: If request times out
         :raises ConnectionError: If connection fails
         """
         await self._ensure_session()
 
-        # Generate secure correlation ID
+        # SECURITY: Generate secure correlation ID for distributed tracing
         request_id = SecureIDGenerator.generate_correlation_id()
         correlation_id.set(request_id)
 
-        # Apply token bucket rate limiting
+        # Apply token bucket rate limiting (requests per second)
         await self._rate_limiter_tps.acquire()
 
+        # Circuit breaker protection (if configured)
         if self._circuit_breaker:
             try:
                 return await self._circuit_breaker.call(
@@ -654,17 +702,18 @@ class BaseHTTPClient:
                     correlation_id=request_id,
                 )
             except CircuitOpenError:
-                # Track circuit breaker open event with detailed metrics
+                # Track circuit breaker open event
                 self._metrics.increment(
                     "outline.circuit.open",
                     tags={"endpoint": endpoint, "method": method},
                 )
-                _log_if_enabled(
-                    logging.ERROR,
-                    f"Circuit breaker OPEN for {endpoint} - rejecting request",
-                )
+                if logger.isEnabledFor(Constants.LOG_LEVEL_ERROR):
+                    logger.error(
+                        "Circuit breaker OPEN for %s - rejecting request", endpoint
+                    )
                 raise
 
+        # No circuit breaker - direct execution
         return await self._make_request_inner(
             method, endpoint, json=json, params=params, correlation_id=request_id
         )
@@ -678,7 +727,9 @@ class BaseHTTPClient:
         params: QueryParams | None = None,
         correlation_id: str,
     ) -> ResponseData:
-        """Inner request method with size limits and validation.
+        """Inner request method with comprehensive error handling.
+
+        Implements retry logic, metrics, audit logging, and error handling.
 
         :param method: HTTP method
         :param endpoint: API endpoint
@@ -689,24 +740,27 @@ class BaseHTTPClient:
         """
 
         async def _make_request() -> ResponseData:
+            """Actual request execution (closure for retry logic)."""
             await self._ensure_session()
 
             url = self._build_url(endpoint)
             start_time = time.monotonic()
 
-            # Track active request
+            # Track active request for graceful shutdown
             current_task = asyncio.current_task()
             if current_task:
                 async with self._active_requests_lock:
                     self._active_requests.add(current_task)
 
             try:
+                # Apply concurrent rate limiting
                 async with self._rate_limiter:
+                    # SECURITY: Headers with security and tracing info
                     headers = {
                         "User-Agent": self._user_agent,
                         "X-Request-ID": correlation_id,
-                        "X-Content-Type-Options": "nosniff",
-                        "X-Frame-Options": "DENY",
+                        "X-Content-Type-Options": "nosniff",  # Security header
+                        "X-Frame-Options": "DENY",  # Security header
                         "Accept": "application/json",
                     }
 
@@ -716,24 +770,31 @@ class BaseHTTPClient:
                     ) as response:
                         duration = time.monotonic() - start_time
 
-                        if self._enable_logging:
+                        # Debug logging (if enabled)
+                        if self._enable_logging and logger.isEnabledFor(
+                            Constants.LOG_LEVEL_DEBUG
+                        ):
                             safe_endpoint = Validators.sanitize_endpoint_for_logging(
                                 endpoint
                             )
-                            _log_if_enabled(
-                                logging.DEBUG,
-                                f"[{correlation_id}] {method} {safe_endpoint} -> {response.status}",
+                            logger.debug(
+                                "[%s] %s %s -> %d",
+                                correlation_id,
+                                method,
+                                safe_endpoint,
+                                response.status,
                                 extra={"correlation_id": correlation_id},
                             )
 
+                        # Metrics: request duration
                         self._metrics.timing(
                             "outline.request.duration",
                             duration,
                             tags={"method": method, "endpoint": endpoint},
                         )
 
+                        # Handle HTTP errors (4xx, 5xx)
                         if response.status >= 400:
-                            # Track HTTP errors with detailed metrics
                             self._metrics.increment(
                                 "outline.request.http_error",
                                 tags={
@@ -745,20 +806,23 @@ class BaseHTTPClient:
                             )
                             await self._handle_error(response, endpoint)
 
+                        # Metrics: successful request
                         self._metrics.increment(
                             "outline.request.success",
                             tags={"method": method, "endpoint": endpoint},
                         )
 
+                        # Handle 204 No Content
                         if response.status == 204:
                             return {"success": True}
 
+                        # Parse JSON response with size limits
                         return await self._parse_response_safe(response, endpoint)
 
             except asyncio.TimeoutError as e:
                 duration = time.monotonic() - start_time
 
-                # Track timeout with metrics
+                # Track timeout metrics
                 self._metrics.timing(
                     "outline.request.timeout",
                     duration,
@@ -779,7 +843,7 @@ class BaseHTTPClient:
                 ) from e
 
             except aiohttp.ClientConnectionError as e:
-                # Track connection errors with error type
+                # Track connection errors
                 self._metrics.increment(
                     "outline.connection.error",
                     tags={
@@ -788,8 +852,9 @@ class BaseHTTPClient:
                         "method": method,
                     },
                 )
-                hostname = Validators.sanitize_url_for_logging(url)
 
+                # SECURITY: Sanitize hostname and error message
+                hostname = Validators.sanitize_url_for_logging(url)
                 safe_message = CredentialSanitizer.sanitize(str(e))
 
                 raise OutlineConnectionError(
@@ -798,7 +863,7 @@ class BaseHTTPClient:
                 ) from e
 
             except aiohttp.ClientError as e:
-                # Track client errors with detailed categorization
+                # Track client errors
                 self._metrics.increment(
                     "outline.request.client_error",
                     tags={
@@ -808,6 +873,7 @@ class BaseHTTPClient:
                     },
                 )
 
+                # SECURITY: Sanitize error message
                 safe_message = CredentialSanitizer.sanitize(str(e))
 
                 raise APIError(
@@ -820,6 +886,7 @@ class BaseHTTPClient:
                     async with self._active_requests_lock:
                         self._active_requests.discard(current_task)
 
+        # Execute with retry logic
         return await self._retry_helper.execute_with_retry(
             _make_request, endpoint, self._retry_attempts, self._metrics
         )
@@ -835,6 +902,7 @@ class BaseHTTPClient:
         :return: Parsed JSON data
         :raises APIError: If parsing fails or size exceeds limit
         """
+        # Check Content-Length header
         content_length = response.headers.get("Content-Length")
         if content_length and int(content_length) > Constants.MAX_RESPONSE_SIZE:
             raise APIError(
@@ -847,10 +915,10 @@ class BaseHTTPClient:
         # Validate Content-Type
         content_type = response.headers.get("Content-Type", "").lower()
         if content_type and "application/json" not in content_type:
-            _log_if_enabled(
-                logging.WARNING,
-                f"Unexpected Content-Type: {content_type}",
-            )
+            if logger.isEnabledFor(Constants.LOG_LEVEL_WARNING):
+                logger.warning("Unexpected Content-Type: %s", content_type)
+
+        # Read response in chunks with size limit
         chunks = []
         total_size = 0
 
@@ -868,9 +936,11 @@ class BaseHTTPClient:
 
         data = b"".join(chunks)
 
+        # Parse JSON
         try:
             return json.loads(data)
         except (json.JSONDecodeError, ValueError) as e:
+            # Success status but invalid JSON - return generic success
             if 200 <= response.status < 300:
                 return {"success": True}
             raise APIError(
@@ -879,6 +949,7 @@ class BaseHTTPClient:
                 endpoint=endpoint,
             ) from e
 
+    @lru_cache(maxsize=50)
     def _build_url(self, endpoint: str) -> str:
         """Build full URL from endpoint.
 
@@ -902,6 +973,7 @@ class BaseHTTPClient:
         except (ValueError, aiohttp.ContentTypeError, TypeError):
             message = response.reason or "Unknown error"
 
+        # SECURITY: Sanitize error message
         safe_message = CredentialSanitizer.sanitize(message)
 
         raise APIError(safe_message, status_code=response.status, endpoint=endpoint)
@@ -909,44 +981,50 @@ class BaseHTTPClient:
     async def shutdown(self, timeout: float = 30.0) -> None:
         """Graceful shutdown with timeout.
 
-        Waits for active requests to complete before closing.
+        Waits for active requests to complete before closing session.
 
         :param timeout: Maximum time to wait for active requests (seconds)
         """
         if self._shutdown_event.is_set():
-            return
+            return  # Already shutting down
 
         self._shutdown_event.set()
 
+        # Get snapshot of active requests
         async with self._active_requests_lock:
             active_requests = list(self._active_requests)
 
         if active_requests:
-            _log_if_enabled(
-                logging.INFO,
-                f"Waiting for {len(active_requests)} active requests...",
-            )
+            if logger.isEnabledFor(Constants.LOG_LEVEL_INFO):
+                logger.info("Waiting for %d active requests...", len(active_requests))
 
             try:
+                # Wait for active requests with timeout
                 await asyncio.wait_for(
                     asyncio.gather(*active_requests, return_exceptions=True),
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
-                _log_if_enabled(
-                    logging.WARNING,
-                    f"Shutdown timeout, cancelling {len(active_requests)} requests",
-                )
+                if logger.isEnabledFor(Constants.LOG_LEVEL_WARNING):
+                    logger.warning(
+                        "Shutdown timeout, cancelling %d requests",
+                        len(active_requests),
+                    )
+                # Force cancel remaining requests
                 for task in active_requests:
                     if not task.done():
                         task.cancel()
 
+        # Close session
         async with self._session_lock:
             if self._session and not self._session.closed:
                 await self._session.close()
                 self._session = None
 
-        _log_if_enabled(logging.DEBUG, "HTTP client shutdown complete")
+        if logger.isEnabledFor(Constants.LOG_LEVEL_DEBUG):
+            logger.debug("HTTP client shutdown complete")
+
+    # ===== Properties =====
 
     @property
     def api_url(self) -> str:
@@ -967,7 +1045,7 @@ class BaseHTTPClient:
 
     @property
     def rate_limit(self) -> int:
-        """Get current rate limit."""
+        """Get current concurrent rate limit."""
         return self._rate_limiter.limit
 
     @property
@@ -981,13 +1059,15 @@ class BaseHTTPClient:
         return self._rate_limiter.available
 
     async def set_rate_limit(self, new_limit: int) -> None:
-        """Change rate limit dynamically."""
+        """Change concurrent rate limit dynamically."""
         await self._rate_limiter.set_limit(new_limit)
 
     def get_rate_limiter_stats(self) -> dict[str, int | float]:
         """Get comprehensive rate limiter statistics.
 
-        NEW (2025): Includes token bucket metrics.
+        Includes both concurrent and token bucket metrics.
+
+        :return: Rate limiter statistics
         """
         return {
             "limit": self._rate_limiter.limit,
@@ -997,14 +1077,20 @@ class BaseHTTPClient:
         }
 
     async def reset_circuit_breaker(self) -> bool:
-        """Reset circuit breaker to closed state."""
+        """Reset circuit breaker to closed state.
+
+        :return: True if circuit breaker was reset, False if not configured
+        """
         if self._circuit_breaker:
             await self._circuit_breaker.reset()
             return True
         return False
 
     def get_circuit_metrics(self) -> dict[str, int | float | str] | None:
-        """Get circuit breaker metrics."""
+        """Get circuit breaker metrics.
+
+        :return: Circuit breaker metrics or None if not configured
+        """
         if not self._circuit_breaker:
             return None
 

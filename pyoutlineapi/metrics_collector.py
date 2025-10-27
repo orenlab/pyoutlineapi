@@ -14,16 +14,19 @@ Source code repository:
 from __future__ import annotations
 
 import asyncio
+import bisect
 import logging
 import sys
+from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass, field
+from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Final
-
-from sortedcontainers import SortedList
 
 from .common_types import Constants
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from typing_extensions import Self
 
     from .client import AsyncOutlineClient
@@ -34,10 +37,11 @@ logger = logging.getLogger(__name__)
 _MIN_INTERVAL: Final[float] = 1.0
 _MAX_INTERVAL: Final[float] = 3600.0
 _MAX_HISTORY: Final[int] = 100_000
+_PROMETHEUS_CACHE_TTL: Final[int] = 30  # seconds
 
 
 def _log_if_enabled(level: int, message: str) -> None:
-    """Centralized logging with level check (DRY).
+    """Centralized logging with level check.
 
     :param level: Logging level
     :param message: Log message
@@ -48,10 +52,7 @@ def _log_if_enabled(level: int, message: str) -> None:
 
 @dataclass(slots=True, frozen=True)
 class MetricsSnapshot:
-    """Immutable metrics snapshot with size validation.
-
-    Thread-safe due to immutability.
-    """
+    """Immutable metrics snapshot with size validation."""
 
     timestamp: float
     server_info: dict[str, Any] = field(default_factory=dict)
@@ -74,13 +75,15 @@ class MetricsSnapshot:
         max_bytes = Constants.MAX_SNAPSHOT_SIZE_MB * 1024 * 1024
 
         if total_size > max_bytes:
-            raise ValueError(
+            msg = (
                 f"Snapshot too large: {total_size / 1024 / 1024:.2f} MB "
                 f"(max {Constants.MAX_SNAPSHOT_SIZE_MB} MB)"
             )
+            raise ValueError(msg)
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert snapshot to dictionary.
+    @cached_property
+    def _dict_cache(self) -> dict[str, Any]:
+        """Cached dictionary representation for performance.
 
         :return: Dictionary representation
         """
@@ -93,12 +96,19 @@ class MetricsSnapshot:
             "total_bytes": self.total_bytes_transferred,
         }
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert snapshot to dictionary (cached).
+
+        :return: Dictionary representation
+        """
+        return self._dict_cache
+
 
 @dataclass(slots=True, frozen=True)
 class UsageStats:
     """Immutable usage statistics for a time period.
 
-    Provides comprehensive traffic analysis.
+    Provides comprehensive traffic analysis with optimized calculations.
     """
 
     period_start: float
@@ -109,43 +119,42 @@ class UsageStats:
     peak_bytes: int
     active_keys: frozenset[str] = field(default_factory=frozenset)
 
-    @property
+    @cached_property
     def duration(self) -> float:
-        """Get period duration in seconds.
+        """Get period duration in seconds (cached).
 
         :return: Duration in seconds
         """
         return max(0.0, self.period_end - self.period_start)
 
-    @property
+    @cached_property
     def bytes_per_second(self) -> float:
-        """Calculate average bytes per second.
+        """Calculate average bytes per second (cached).
 
         :return: Bytes per second
         """
         duration = self.duration
-        if duration == 0:
-            return 0.0
-        return self.total_bytes_transferred / duration
+        return 0.0 if duration == 0 else self.total_bytes_transferred / duration
 
-    @property
+    @cached_property
     def megabytes_transferred(self) -> float:
-        """Get total in megabytes.
+        """Get total in megabytes (cached).
 
         :return: Total MB transferred
         """
         return self.total_bytes_transferred / (1024**2)
 
-    @property
+    @cached_property
     def gigabytes_transferred(self) -> float:
-        """Get total in gigabytes.
+        """Get total in gigabytes (cached).
 
         :return: Total GB transferred
         """
         return self.total_bytes_transferred / (1024**3)
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary.
+    @cached_property
+    def _dict_cache(self) -> dict[str, Any]:
+        """Cached dictionary representation.
 
         :return: Dictionary representation
         """
@@ -163,14 +172,65 @@ class UsageStats:
             "active_keys_count": len(self.active_keys),
         }
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary (cached).
+
+        :return: Dictionary representation
+        """
+        return self._dict_cache
+
 
 class PrometheusExporter:
-    """Helper class for Prometheus metrics export (DRY)."""
+    """Helper class for Prometheus metrics export with caching.
 
-    __slots__ = ()
+    Optimized for high-frequency exports with minimal overhead.
+    """
+
+    __slots__ = ("_cache", "_cache_time", "_cache_ttl")
+
+    def __init__(self, cache_ttl: int = _PROMETHEUS_CACHE_TTL) -> None:
+        """Initialize exporter with caching.
+
+        :param cache_ttl: Cache TTL in seconds
+        """
+        self._cache: dict[str, str] = {}
+        self._cache_time: dict[str, float] = {}
+        self._cache_ttl = cache_ttl
 
     @staticmethod
+    @lru_cache(maxsize=256)
+    def _format_single_metric(
+        name: str,
+        value: float | int,
+        metric_type: str,
+        help_text: str,
+        labels_tuple: tuple[tuple[str, str], ...] | None,
+    ) -> str:
+        """Format single Prometheus metric (cached via LRU).
+
+        :param name: Metric name
+        :param value: Metric value
+        :param metric_type: Metric type
+        :param help_text: Help text
+        :param labels_tuple: Labels as tuple for hashability
+        :return: Formatted metric string
+        """
+        lines: list[str] = []
+
+        if help_text:
+            lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {metric_type}")
+
+        if labels_tuple:
+            label_str = ",".join(f'{k}="{v}"' for k, v in labels_tuple)
+            lines.append(f"{name}{{{label_str}}} {value}")
+        else:
+            lines.append(f"{name} {value}")
+
+        return "\n".join(lines)
+
     def format_metric(
+        self,
         name: str,
         value: float | int,
         metric_type: str = "gauge",
@@ -181,56 +241,63 @@ class PrometheusExporter:
 
         :param name: Metric name
         :param value: Metric value
-        :param metric_type: Metric type (gauge, counter, histogram, summary)
+        :param metric_type: Metric type
         :param help_text: Help text description
         :param labels: Optional labels dictionary
         :return: List of formatted metric lines
         """
-        lines: list[str] = []
+        # Convert labels dict to tuple for caching
+        labels_tuple = tuple(sorted(labels.items())) if labels else None
+        metric_str = self._format_single_metric(
+            name, value, metric_type, help_text, labels_tuple
+        )
+        return metric_str.split("\n")
 
-        if help_text:
-            lines.append(f"# HELP {name} {help_text}")
-        lines.append(f"# TYPE {name} {metric_type}")
-
-        if labels:
-            label_str = ",".join(f'{k}="{v}"' for k, v in labels.items())
-            lines.append(f"{name}{{{label_str}}} {value}")
-        else:
-            lines.append(f"{name} {value}")
-
-        return lines
-
-    @staticmethod
     def format_metrics_batch(
-        metrics: list[tuple[str, float | int, str, str, dict[str, str] | None]],
+        self,
+        metrics: Sequence[tuple[str, float | int, str, str, dict[str, str] | None]],
+        cache_key: str | None = None,
     ) -> str:
-        """Format multiple metrics at once.
+        """Format multiple metrics at once with optional caching.
 
-        :param metrics: List of (name, value, type, help, labels) tuples
+        :param metrics: Sequence of (name, value, type, help, labels) tuples
+        :param cache_key: Optional cache key for result caching
         :return: Formatted Prometheus metrics string
         """
-        all_lines: list[str] = []
+        # Check cache if key provided
+        if cache_key:
+            current_time = asyncio.get_event_loop().time()
+            if cache_key in self._cache:
+                cache_age = current_time - self._cache_time.get(cache_key, 0)
+                if cache_age < self._cache_ttl:
+                    return self._cache[cache_key]
 
+        # Format metrics
+        all_lines: list[str] = []
         for name, value, metric_type, help_text, labels in metrics:
-            metric_lines = PrometheusExporter.format_metric(
+            metric_lines = self.format_metric(
                 name, value, metric_type, help_text, labels
             )
             all_lines.extend(metric_lines)
             all_lines.append("")  # Empty line between metrics
 
-        return "\n".join(all_lines)
+        result = "\n".join(all_lines)
+
+        # Update cache if key provided
+        if cache_key:
+            self._cache[cache_key] = result
+            self._cache_time[cache_key] = asyncio.get_event_loop().time()
+
+        return result
+
+    def clear_cache(self) -> None:
+        """Clear export cache."""
+        self._cache.clear()
+        self._cache_time.clear()
 
 
 class MetricsCollector:
-    """Enhanced metrics collector with memory protection and thread-safety.
-
-    Features:
-    - Automatic size validation
-    - Memory-efficient sorted storage
-    - Configurable history limits
-    - Context manager support
-    - Extended Prometheus export
-    """
+    """Metrics collector with optimized performance."""
 
     __slots__ = (
         "_client",
@@ -239,9 +306,11 @@ class MetricsCollector:
         "_max_history",
         "_prometheus_exporter",
         "_running",
-        "_shutdown_lock",
+        "_shutdown_event",
         "_start_time",
         "_task",
+        "_stats_cache",
+        "_stats_cache_time",
     )
 
     def __init__(
@@ -254,212 +323,261 @@ class MetricsCollector:
         """Initialize metrics collector.
 
         :param client: AsyncOutlineClient instance
-        :param interval: Collection interval in seconds (1.0-3600.0)
-        :param max_history: Maximum snapshots to keep (1-100000)
-        :raises ValueError: If parameters are invalid
+        :param interval: Collection interval in seconds
+        :param max_history: Maximum snapshots to keep
+        :raises ValueError: If parameters invalid
         """
-        # Validate parameters
         if not _MIN_INTERVAL <= interval <= _MAX_INTERVAL:
-            raise ValueError(
-                f"interval must be between {_MIN_INTERVAL} and {_MAX_INTERVAL}"
-            )
+            msg = f"Interval must be between {_MIN_INTERVAL} and {_MAX_INTERVAL}"
+            raise ValueError(msg)
 
         if not 1 <= max_history <= _MAX_HISTORY:
-            raise ValueError(f"max_history must be between 1 and {_MAX_HISTORY}")
+            msg = f"max_history must be between 1 and {_MAX_HISTORY}"
+            raise ValueError(msg)
 
         self._client = client
         self._interval = interval
         self._max_history = max_history
 
-        # Sorted list for efficient time-based queries
-        self._history: SortedList[MetricsSnapshot] = SortedList(
-            key=lambda s: s.timestamp
-        )
+        # Use deque for O(1) append/popleft operations
+        self._history: deque[MetricsSnapshot] = deque(maxlen=max_history)
 
-        self._running = False
-        self._task: asyncio.Task[None] | None = None
-        self._start_time = 0.0
-        self._shutdown_lock = asyncio.Lock()
         self._prometheus_exporter = PrometheusExporter()
+        self._running = False
+        self._shutdown_event = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+        self._start_time: float = 0.0
+
+        # Stats cache
+        self._stats_cache: UsageStats | None = None
+        self._stats_cache_time: float = 0.0
+
+    async def _collect_single_snapshot(self) -> MetricsSnapshot | None:
+        """Collect a single metrics snapshot.
+
+        :return: MetricsSnapshot or None on error
+        """
+        try:
+            # Gather all metrics concurrently
+            server_task = asyncio.create_task(self._client.get_server_info())
+            transfer_task = asyncio.create_task(self._client.get_transfer_metrics())
+            keys_task = asyncio.create_task(self._client.get_access_keys())
+
+            # Use gather with return_exceptions for resilience
+            results = await asyncio.gather(
+                server_task,
+                transfer_task,
+                keys_task,
+                return_exceptions=True,
+            )
+
+            server_info, transfer_metrics, keys = results
+
+            # Handle errors gracefully
+            server_dict = (
+                server_info.to_dict() if not isinstance(server_info, Exception) else {}
+            )
+            transfer_dict = (
+                transfer_metrics.to_dict()
+                if not isinstance(transfer_metrics, Exception)
+                else {}
+            )
+            keys_list = keys if not isinstance(keys, Exception) else []
+
+            # Try to get experimental metrics (optional)
+            experimental_dict: dict[str, Any] = {}
+            with suppress(Exception):
+                exp_metrics = await self._client.get_experimental_metrics()
+                experimental_dict = exp_metrics.to_dict()
+
+            # Calculate total bytes
+            total_bytes = transfer_dict.get("bytesTransferredByUserId", {})
+            total_bytes_sum = (
+                sum(total_bytes.values()) if isinstance(total_bytes, dict) else 0
+            )
+
+            timestamp = asyncio.get_event_loop().time()
+
+            return MetricsSnapshot(
+                timestamp=timestamp,
+                server_info=server_dict,
+                transfer_metrics=transfer_dict,
+                experimental_metrics=experimental_dict,
+                key_count=len(keys_list),
+                total_bytes_transferred=total_bytes_sum,
+            )
+
+        except Exception as exc:
+            _log_if_enabled(
+                logging.ERROR,
+                f"Failed to collect metrics snapshot: {exc}",
+            )
+            return None
+
+    async def _collect_loop(self) -> None:
+        """Main collection loop with error recovery."""
+        consecutive_errors = 0
+        max_consecutive_errors = 3
+
+        while self._running and not self._shutdown_event.is_set():
+            try:
+                snapshot = await self._collect_single_snapshot()
+
+                if snapshot is not None:
+                    self._history.append(snapshot)
+                    consecutive_errors = 0  # Reset error counter
+                    _log_if_enabled(
+                        logging.DEBUG,
+                        f"Collected metrics snapshot (history size: {len(self._history)})",
+                    )
+                else:
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_consecutive_errors:
+                        _log_if_enabled(
+                            logging.WARNING,
+                            f"Failed to collect metrics {consecutive_errors} times consecutively",
+                        )
+                        # Don't break, keep trying
+
+                # Invalidate stats cache
+                self._stats_cache = None
+
+            except asyncio.CancelledError:
+                _log_if_enabled(logging.INFO, "Metrics collection cancelled")
+                break
+            except Exception as exc:
+                _log_if_enabled(
+                    logging.ERROR,
+                    f"Unexpected error in collection loop: {exc}",
+                )
+                consecutive_errors += 1
+
+            # Wait for next collection
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=self._interval,
+                )
+                break  # Shutdown signaled
+            except TimeoutError:
+                pass  # Normal timeout, continue loop
 
     async def start(self) -> None:
-        """Start periodic metrics collection.
+        """Start metrics collection.
 
         :raises RuntimeError: If already running
         """
         if self._running:
-            _log_if_enabled(logging.WARNING, "Metrics collector already running")
-            raise RuntimeError("Metrics collector already running")
+            msg = "Collector already running"
+            raise RuntimeError(msg)
 
         self._running = True
+        self._shutdown_event.clear()
         self._start_time = asyncio.get_event_loop().time()
-        self._task = asyncio.create_task(self._collection_loop())
+        self._task = asyncio.create_task(self._collect_loop())
 
         _log_if_enabled(
-            logging.INFO, f"Metrics collector started (interval: {self._interval}s)"
+            logging.INFO,
+            f"Metrics collector started (interval={self._interval}s, max_history={self._max_history})",
         )
 
-    async def stop(self, *, timeout: float = 5.0) -> None:
-        """Stop metrics collection gracefully.
+    async def stop(self) -> None:
+        """Stop metrics collection gracefully."""
+        if not self._running:
+            return
 
-        :param timeout: Maximum time to wait for collection task
-        """
-        async with self._shutdown_lock:
-            if not self._running:
-                return
+        _log_if_enabled(logging.INFO, "Stopping metrics collector...")
 
-            self._running = False
+        self._running = False
+        self._shutdown_event.set()
 
-            if self._task and not self._task.done():
+        if self._task and not self._task.done():
+            # Give task time to finish gracefully
+            try:
+                await asyncio.wait_for(self._task, timeout=5.0)
+            except TimeoutError:
+                _log_if_enabled(
+                    logging.WARNING,
+                    "Collection task did not finish gracefully, cancelling",
+                )
                 self._task.cancel()
-                try:
-                    await asyncio.wait_for(self._task, timeout=timeout)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass
-                finally:
-                    self._task = None
+                with suppress(asyncio.CancelledError):
+                    await self._task
 
-            _log_if_enabled(logging.INFO, "Metrics collector stopped")
+        self._task = None
+        _log_if_enabled(logging.INFO, "Metrics collector stopped")
 
-    async def _collection_loop(self) -> None:
-        """Background collection loop with error handling."""
-        while self._running:
-            try:
-                snapshot = await self.collect_snapshot()
+    def get_snapshots(
+        self,
+        *,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        limit: int | None = None,
+    ) -> list[MetricsSnapshot]:
+        """Get metrics snapshots with optional filtering.
 
-                # Add snapshot and enforce size limit (optimized)
-                self._history.add(snapshot)
-                self._trim_history()
-
-                await asyncio.sleep(self._interval)
-
-            except asyncio.CancelledError:
-                _log_if_enabled(logging.DEBUG, "Collection loop cancelled")
-                break
-
-            except Exception as e:
-                _log_if_enabled(logging.ERROR, f"Error collecting metrics: {e}")
-                await asyncio.sleep(self._interval)
-
-    def _trim_history(self) -> None:
-        """Trim history to max_history size (optimized).
-
-        Uses efficient batch removal instead of pop(0) in loop.
+        :param start_time: Filter snapshots after this timestamp
+        :param end_time: Filter snapshots before this timestamp
+        :param limit: Maximum snapshots to return
+        :return: List of snapshots
         """
-        if len(self._history) > self._max_history:
-            excess = len(self._history) - self._max_history
-            # Efficient batch removal using del with slice
-            del self._history[:excess]
+        snapshots = list(self._history)
 
-    async def collect_snapshot(self) -> MetricsSnapshot:
-        """Collect single metrics snapshot with size validation.
+        # Apply time filters using binary search for efficiency
+        if start_time is not None:
+            # Find first snapshot >= start_time
+            idx = bisect.bisect_left(
+                [s.timestamp for s in snapshots],
+                start_time,
+            )
+            snapshots = snapshots[idx:]
 
-        :return: Metrics snapshot
-        :raises ValueError: If snapshot exceeds size limit
-        """
-        snapshot_data: dict[str, Any] = {"timestamp": asyncio.get_event_loop().time()}
+        if end_time is not None:
+            # Find last snapshot <= end_time
+            idx = bisect.bisect_right(
+                [s.timestamp for s in snapshots],
+                end_time,
+            )
+            snapshots = snapshots[:idx]
 
-        try:
-            # Collect server info
-            server = await self._client.get_server_info(as_json=True)
-            snapshot_data["server_info"] = server
+        if limit is not None and limit > 0:
+            snapshots = snapshots[-limit:]
 
-            # Collect access keys count
-            keys = await self._client.get_access_keys(as_json=True)
-            snapshot_data["key_count"] = len(keys.get("accessKeys", []))
-
-            # Collect transfer metrics if enabled
-            try:
-                metrics_status = await self._client.get_metrics_status(as_json=True)
-                if metrics_status.get("metricsEnabled"):
-                    transfer = await self._client.get_transfer_metrics(as_json=True)
-                    snapshot_data["transfer_metrics"] = transfer
-
-                    bytes_by_user = transfer.get("bytesTransferredByUserId", {})
-                    snapshot_data["total_bytes_transferred"] = sum(
-                        bytes_by_user.values()
-                    )
-            except Exception as e:
-                _log_if_enabled(
-                    logging.DEBUG, f"Could not collect transfer metrics: {e}"
-                )
-
-            # Collect experimental metrics
-            try:
-                experimental = await self._client.get_experimental_metrics(
-                    "24h", as_json=True
-                )
-                snapshot_data["experimental_metrics"] = experimental
-            except Exception as e:
-                _log_if_enabled(
-                    logging.DEBUG, f"Could not collect experimental metrics: {e}"
-                )
-
-        except Exception as e:
-            _log_if_enabled(logging.ERROR, f"Error collecting snapshot: {e}")
-
-        return MetricsSnapshot(**snapshot_data)
+        return snapshots
 
     def get_latest_snapshot(self) -> MetricsSnapshot | None:
         """Get most recent snapshot.
 
-        :return: Latest snapshot or None if no snapshots
+        :return: Latest snapshot or None
         """
-        if not self._history:
-            return None
-        return self._history[-1]
+        return self._history[-1] if self._history else None
 
-    def get_snapshots_after(self, cutoff_time: float) -> list[MetricsSnapshot]:
-        """Get snapshots after cutoff time using binary search.
+    def get_usage_stats(
+        self,
+        *,
+        start_time: float | None = None,
+        end_time: float | None = None,
+    ) -> UsageStats:
+        """Calculate usage statistics for period (with caching).
 
-        :param cutoff_time: Cutoff timestamp
-        :return: List of snapshots after cutoff
-        """
-        if not self._history:
-            return []
-
-        # Create dummy snapshot for binary search
-        dummy = MetricsSnapshot(timestamp=cutoff_time)
-        idx = self._history.bisect_left(dummy)
-
-        return list(self._history[idx:])
-
-    def get_usage_stats(self, period_minutes: int | None = None) -> UsageStats:
-        """Calculate usage statistics for a time period.
-
-        :param period_minutes: Period length in minutes, or None for all time
+        :param start_time: Period start timestamp
+        :param end_time: Period end timestamp
         :return: Usage statistics
-        :raises ValueError: If period_minutes is negative
         """
-        if period_minutes is not None and period_minutes < 0:
-            raise ValueError("period_minutes must be non-negative")
+        # Check cache (only for full history queries)
+        if start_time is None and end_time is None:
+            current_time = asyncio.get_event_loop().time()
+            cache_age = current_time - self._stats_cache_time
 
-        current_time = asyncio.get_event_loop().time()
+            if self._stats_cache is not None and cache_age < 5.0:
+                return self._stats_cache
 
-        # Handle empty history
-        if not self._history:
-            return UsageStats(
-                period_start=current_time,
-                period_end=current_time,
-                snapshots_count=0,
-                total_bytes_transferred=0,
-                avg_bytes_per_snapshot=0.0,
-                peak_bytes=0,
-                active_keys=frozenset(),
-            )
+        snapshots = self.get_snapshots(start_time=start_time, end_time=end_time)
 
-        # Get snapshots for period
-        if period_minutes:
-            cutoff_time = current_time - (period_minutes * 60)
-            snapshots = self.get_snapshots_after(cutoff_time)
-        else:
-            snapshots = list(self._history)
-
-        # Handle no snapshots in period
         if not snapshots:
             return UsageStats(
-                period_start=current_time,
-                period_end=current_time,
+                period_start=0.0,
+                period_end=0.0,
                 snapshots_count=0,
                 total_bytes_transferred=0,
                 avg_bytes_per_snapshot=0.0,
@@ -467,21 +585,25 @@ class MetricsCollector:
                 active_keys=frozenset(),
             )
 
-        # Calculate statistics
-        total_bytes = sum(s.total_bytes_transferred for s in snapshots)
-        avg_bytes = total_bytes / len(snapshots)
-        peak_bytes = max(s.total_bytes_transferred for s in snapshots)
-
-        # Collect active keys
+        # Calculate stats efficiently
+        total_bytes = 0
+        peak_bytes = 0
         active_keys_set: set[str] = set()
-        for snapshot in snapshots:
-            if snapshot.transfer_metrics:
-                bytes_by_user = snapshot.transfer_metrics.get(
-                    "bytesTransferredByUserId", {}
-                )
-                active_keys_set.update(bytes_by_user.keys())
 
-        return UsageStats(
+        for snapshot in snapshots:
+            total_bytes += snapshot.total_bytes_transferred
+            peak_bytes = max(peak_bytes, snapshot.total_bytes_transferred)
+
+            # Extract active keys
+            bytes_by_user = snapshot.transfer_metrics.get(
+                "bytesTransferredByUserId", {}
+            )
+            if isinstance(bytes_by_user, dict):
+                active_keys_set.update(k for k, v in bytes_by_user.items() if v > 0)
+
+        avg_bytes = total_bytes / len(snapshots) if snapshots else 0.0
+
+        stats = UsageStats(
             period_start=snapshots[0].timestamp,
             period_end=snapshots[-1].timestamp,
             snapshots_count=len(snapshots),
@@ -491,92 +613,31 @@ class MetricsCollector:
             active_keys=frozenset(active_keys_set),
         )
 
-    def get_key_usage(
+        # Update cache for full history queries
+        if start_time is None and end_time is None:
+            self._stats_cache = stats
+            self._stats_cache_time = asyncio.get_event_loop().time()
+
+        return stats
+
+    def export_prometheus(
         self,
-        key_id: str,
-        period_minutes: int | None = None,
-    ) -> dict[str, Any]:
-        """Get usage statistics for specific key.
+        *,
+        include_per_key: bool = False,
+    ) -> str:
+        """Export all metrics in Prometheus format (with caching).
 
-        :param key_id: Access key ID
-        :param period_minutes: Period length in minutes, or None for all time
-        :return: Key usage statistics
-        :raises ValueError: If key_id is empty or period_minutes is negative
-        """
-        if not key_id or not key_id.strip():
-            raise ValueError("key_id cannot be empty")
-
-        if period_minutes is not None and period_minutes < 0:
-            raise ValueError("period_minutes must be non-negative")
-
-        # Get snapshots for period
-        if period_minutes:
-            cutoff_time = asyncio.get_event_loop().time() - (period_minutes * 60)
-            snapshots = self.get_snapshots_after(cutoff_time)
-        else:
-            snapshots = list(self._history)
-
-        total_bytes = 0
-        data_points: list[dict[str, Any]] = []
-
-        for snapshot in snapshots:
-            if snapshot.transfer_metrics:
-                bytes_by_user = snapshot.transfer_metrics.get(
-                    "bytesTransferredByUserId", {}
-                )
-                bytes_used = bytes_by_user.get(key_id, 0)
-                total_bytes += bytes_used
-                data_points.append(
-                    {
-                        "timestamp": snapshot.timestamp,
-                        "bytes": bytes_used,
-                    }
-                )
-
-        duration = (
-            snapshots[-1].timestamp - snapshots[0].timestamp if snapshots else 0.0
-        )
-        bytes_per_second = total_bytes / duration if duration > 0 else 0.0
-
-        return {
-            "key_id": key_id,
-            "total_bytes": total_bytes,
-            "bytes_per_second": bytes_per_second,
-            "data_points": data_points,
-            "snapshots_count": len(snapshots),
-            "period_start": snapshots[0].timestamp if snapshots else None,
-            "period_end": snapshots[-1].timestamp if snapshots else None,
-        }
-
-    def export_to_dict(self) -> dict[str, Any]:
-        """Export all metrics to dictionary.
-
-        :return: Dictionary with all metrics data
-        """
-        return {
-            "collection_start": self._start_time,
-            "collection_end": asyncio.get_event_loop().time(),
-            "interval": self._interval,
-            "snapshots_count": len(self._history),
-            "snapshots": [s.to_dict() for s in self._history],
-            "summary": self.get_usage_stats().to_dict() if self._history else {},
-        }
-
-    def export_prometheus_format(self, *, include_per_key: bool = False) -> str:
-        """Export metrics in Prometheus format with extended metrics.
-
-        :param include_per_key: Include per-key metrics (can be verbose)
+        :param include_per_key: Include per-key metrics
         :return: Prometheus formatted metrics
         """
-        if not self._history:
+        latest = self.get_latest_snapshot()
+        if latest is None:
             return ""
 
-        latest = self._history[-1]
-        stats = self.get_usage_stats()
+        # Use cache key based on parameters
+        cache_key = f"full_{include_per_key}_{latest.timestamp}"
 
-        # Prepare base metrics
-        base_metrics = [
-            # Keys metrics
+        base_metrics: list[tuple[str, float | int, str, str, dict[str, str] | None]] = [
             (
                 "outline_keys_total",
                 latest.key_count,
@@ -584,14 +645,6 @@ class MetricsCollector:
                 "Total number of access keys",
                 None,
             ),
-            (
-                "outline_active_keys_total",
-                len(stats.active_keys),
-                "gauge",
-                "Number of active keys with traffic",
-                None,
-            ),
-            # Traffic metrics
             (
                 "outline_bytes_transferred_total",
                 latest.total_bytes_transferred,
@@ -601,51 +654,27 @@ class MetricsCollector:
             ),
             (
                 "outline_megabytes_transferred_total",
-                stats.megabytes_transferred,
+                latest.total_bytes_transferred / (1024**2),
                 "counter",
-                "Total megabytes transferred across all keys",
+                "Total megabytes transferred",
                 None,
             ),
             (
                 "outline_gigabytes_transferred_total",
-                stats.gigabytes_transferred,
+                latest.total_bytes_transferred / (1024**3),
                 "counter",
-                "Total gigabytes transferred across all keys",
-                None,
-            ),
-            # Rate metrics
-            (
-                "outline_bytes_per_second",
-                stats.bytes_per_second,
-                "gauge",
-                "Average bytes transferred per second",
+                "Total gigabytes transferred",
                 None,
             ),
             (
-                "outline_megabytes_per_second",
-                stats.bytes_per_second / (1024**2),
-                "gauge",
-                "Average megabytes transferred per second",
-                None,
-            ),
-            # Peak metrics
-            (
-                "outline_peak_bytes",
-                stats.peak_bytes,
-                "gauge",
-                "Peak bytes transferred in single snapshot",
-                None,
-            ),
-            # Collection metrics
-            (
-                "outline_snapshots_total",
+                "outline_snapshots_collected_total",
                 len(self._history),
                 "counter",
-                "Total number of collected snapshots",
+                "Total snapshots collected",
                 None,
             ),
             (
-                "outline_collection_interval_seconds",
+                "outline_collector_interval_seconds",
                 self._interval,
                 "gauge",
                 "Metrics collection interval in seconds",
@@ -661,85 +690,87 @@ class MetricsCollector:
         ]
 
         # Add server info metrics if available
-        if latest.server_info:
-            server = latest.server_info
-            if "metricsEnabled" in server:
-                base_metrics.append(
-                    (
-                        "outline_metrics_enabled",
-                        1 if server["metricsEnabled"] else 0,
-                        "gauge",
-                        "Whether metrics collection is enabled on server",
-                        None,
-                    )
+        if "metricsEnabled" in latest.server_info:
+            metrics_enabled = latest.server_info["metricsEnabled"]
+            base_metrics.append(
+                (
+                    "outline_metrics_enabled",
+                    1 if metrics_enabled else 0,
+                    "gauge",
+                    "Whether metrics collection is enabled on server",
+                    None,
                 )
-            if "portForNewAccessKeys" in server:
-                base_metrics.append(
-                    (
-                        "outline_default_port",
-                        server["portForNewAccessKeys"],
-                        "gauge",
-                        "Default port for new access keys",
-                        None,
-                    )
+            )
+
+        if "portForNewAccessKeys" in latest.server_info:
+            port = latest.server_info["portForNewAccessKeys"]
+            base_metrics.append(
+                (
+                    "outline_default_port",
+                    port,
+                    "gauge",
+                    "Default port for new access keys",
+                    None,
                 )
+            )
 
         # Add per-key metrics if requested
-        if include_per_key and latest.transfer_metrics:
-            bytes_by_user = latest.transfer_metrics.get("bytesTransferredByUserId", {})
-            for key_id, bytes_transferred in bytes_by_user.items():
-                base_metrics.extend(
-                    [
-                        (
-                            "outline_key_bytes_total",
-                            bytes_transferred,
-                            "counter",
-                            "Total bytes transferred by specific key",
-                            {"key_id": key_id},
-                        ),
-                        (
-                            "outline_key_megabytes_total",
-                            bytes_transferred / (1024**2),
-                            "counter",
-                            "Total megabytes transferred by specific key",
-                            {"key_id": key_id},
-                        ),
-                    ]
-                )
-
-        # Add experimental metrics if available
-        if latest.experimental_metrics:
-            exp = latest.experimental_metrics
-            if "server" in exp:
-                server_exp = exp["server"]
-
-                # Tunnel time
-                if "tunnelTime" in server_exp:
-                    tunnel_seconds = server_exp["tunnelTime"].get("seconds", 0)
+        if include_per_key and "bytesTransferredByUserId" in latest.transfer_metrics:
+            bytes_by_user = latest.transfer_metrics["bytesTransferredByUserId"]
+            if isinstance(bytes_by_user, dict):
+                for key_id, bytes_transferred in bytes_by_user.items():
                     base_metrics.extend(
                         [
                             (
-                                "outline_tunnel_time_seconds_total",
-                                tunnel_seconds,
+                                "outline_key_bytes_total",
+                                bytes_transferred,
                                 "counter",
-                                "Total tunnel connection time in seconds",
-                                None,
+                                "Total bytes transferred by specific key",
+                                {"key_id": str(key_id)},
                             ),
                             (
-                                "outline_tunnel_time_hours_total",
-                                tunnel_seconds / 3600,
+                                "outline_key_megabytes_total",
+                                bytes_transferred / (1024**2),
                                 "counter",
-                                "Total tunnel connection time in hours",
-                                None,
+                                "Total megabytes transferred by specific key",
+                                {"key_id": str(key_id)},
                             ),
                         ]
                     )
 
-                # Bandwidth
-                if "bandwidth" in server_exp:
-                    bw = server_exp["bandwidth"]
-                    if "current" in bw and "data" in bw["current"]:
-                        current_bw = bw["current"]["data"].get("bytes", 0)
+        # Add experimental metrics if available
+        if "server" in latest.experimental_metrics:
+            server_exp = latest.experimental_metrics["server"]
+
+            # Tunnel time
+            if "tunnelTime" in server_exp and "seconds" in server_exp["tunnelTime"]:
+                tunnel_seconds = server_exp["tunnelTime"]["seconds"]
+                base_metrics.extend(
+                    [
+                        (
+                            "outline_tunnel_time_seconds_total",
+                            tunnel_seconds,
+                            "counter",
+                            "Total tunnel connection time in seconds",
+                            None,
+                        ),
+                        (
+                            "outline_tunnel_time_hours_total",
+                            tunnel_seconds / 3600,
+                            "counter",
+                            "Total tunnel connection time in hours",
+                            None,
+                        ),
+                    ]
+                )
+
+            # Bandwidth - current
+            if "bandwidth" in server_exp:
+                bandwidth = server_exp["bandwidth"]
+                if "current" in bandwidth and "data" in bandwidth["current"]:
+                    current_data = bandwidth["current"]["data"]
+                    if "bytes" in current_data:
+                        current_bw = current_data["bytes"]
                         base_metrics.append(
                             (
                                 "outline_bandwidth_current_bytes",
@@ -749,8 +780,12 @@ class MetricsCollector:
                                 None,
                             )
                         )
-                    if "peak" in bw and "data" in bw["peak"]:
-                        peak_bw = bw["peak"]["data"].get("bytes", 0)
+
+                # Bandwidth - peak
+                if "peak" in bandwidth and "data" in bandwidth["peak"]:
+                    peak_data = bandwidth["peak"]["data"]
+                    if "bytes" in peak_data:
+                        peak_bw = peak_data["bytes"]
                         base_metrics.append(
                             (
                                 "outline_bandwidth_peak_bytes",
@@ -761,47 +796,67 @@ class MetricsCollector:
                             )
                         )
 
-                # Location metrics
-                if "locations" in server_exp:
-                    locations = server_exp["locations"]
+            # Location metrics
+            if "locations" in server_exp:
+                locations = server_exp["locations"]
+                if isinstance(locations, list):
                     for loc in locations:
+                        if not isinstance(loc, dict):
+                            continue
+
                         location = loc.get("location", "unknown")
-                        loc_bytes = loc.get("dataTransferred", {}).get("bytes", 0)
-                        loc_time = loc.get("tunnelTime", {}).get("seconds", 0)
+                        loc_bytes = 0
+                        loc_time = 0
 
-                        base_metrics.extend(
-                            [
-                                (
-                                    "outline_location_bytes_total",
-                                    loc_bytes,
-                                    "counter",
-                                    "Total bytes transferred by location",
-                                    {"location": location},
-                                ),
-                                (
-                                    "outline_location_tunnel_seconds_total",
-                                    loc_time,
-                                    "counter",
-                                    "Total tunnel time by location",
-                                    {"location": location},
-                                ),
-                            ]
-                        )
+                        if (
+                            "dataTransferred" in loc
+                            and "bytes" in loc["dataTransferred"]
+                        ):
+                            loc_bytes = loc["dataTransferred"]["bytes"]
 
-        return self._prometheus_exporter.format_metrics_batch(base_metrics)
+                        if "tunnelTime" in loc and "seconds" in loc["tunnelTime"]:
+                            loc_time = loc["tunnelTime"]["seconds"]
+
+                        if loc_bytes > 0 or loc_time > 0:
+                            base_metrics.extend(
+                                [
+                                    (
+                                        "outline_location_bytes_total",
+                                        loc_bytes,
+                                        "counter",
+                                        "Total bytes transferred by location",
+                                        {"location": str(location)},
+                                    ),
+                                    (
+                                        "outline_location_tunnel_seconds_total",
+                                        loc_time,
+                                        "counter",
+                                        "Total tunnel time by location",
+                                        {"location": str(location)},
+                                    ),
+                                ]
+                            )
+
+        return self._prometheus_exporter.format_metrics_batch(
+            base_metrics,
+            cache_key=cache_key,
+        )
 
     def export_prometheus_summary(self) -> str:
-        """Export summary metrics in Prometheus format (lightweight).
+        """Export summary metrics in Prometheus format (lightweight, cached).
 
         :return: Prometheus formatted summary metrics
         """
-        if not self._history:
+        latest = self.get_latest_snapshot()
+        if latest is None:
             return ""
 
-        latest = self._history[-1]
         stats = self.get_usage_stats()
+        cache_key = f"summary_{latest.timestamp}"
 
-        summary_metrics = [
+        summary_metrics: list[
+            tuple[str, float | int, str, str, dict[str, str] | None]
+        ] = [
             (
                 "outline_keys_total",
                 latest.key_count,
@@ -839,12 +894,17 @@ class MetricsCollector:
             ),
         ]
 
-        return self._prometheus_exporter.format_metrics_batch(summary_metrics)
+        return self._prometheus_exporter.format_metrics_batch(
+            summary_metrics,
+            cache_key=cache_key,
+        )
 
     def clear_history(self) -> None:
-        """Clear collected metrics history."""
+        """Clear collected metrics history and caches."""
         self._history.clear()
-        _log_if_enabled(logging.INFO, "Metrics history cleared")
+        self._stats_cache = None
+        self._prometheus_exporter.clear_cache()
+        _log_if_enabled(logging.INFO, "Metrics history and caches cleared")
 
     @property
     def is_running(self) -> bool:

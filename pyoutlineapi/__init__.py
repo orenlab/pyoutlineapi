@@ -61,11 +61,14 @@ from typing import TYPE_CHECKING, Final, NoReturn
 
 # Core imports
 from .audit import (
+    AuditContext,
     AuditLogger,
     DefaultAuditLogger,
     NoOpAuditLogger,
-    get_default_audit_logger,
-    set_default_audit_logger,
+    audited,
+    get_audit_logger,
+    get_or_create_audit_logger,
+    set_audit_logger,
 )
 from .base_client import MetricsCollector, NoOpMetrics, correlation_id
 from .circuit_breaker import CircuitConfig, CircuitMetrics, CircuitState
@@ -94,7 +97,6 @@ from .common_types import (
     is_valid_bytes,
     is_valid_port,
     mask_sensitive_data,
-    secure_compare,
 )
 from .config import (
     DevelopmentConfig,
@@ -107,9 +109,9 @@ from .exceptions import (
     APIError,
     CircuitOpenError,
     ConfigurationError,
-    ConnectionError,
+    OutlineConnectionError,
     OutlineError,
-    TimeoutError,
+    OutlineTimeoutError,
     ValidationError,
     format_error_chain,
     get_retry_delay,
@@ -163,7 +165,7 @@ __all__: Final[list[str]] = [
     "AsyncOutlineClient",
     "MultiServerManager",
     # Audit
-    "AuditDetails",
+    "AuditContext",
     "AuditLogger",
     "DefaultAuditLogger",
     "NoOpAuditLogger",
@@ -193,9 +195,9 @@ __all__: Final[list[str]] = [
     "Validators",
     # Exceptions
     "APIError",
-    "ConnectionError",
+    "OutlineConnectionError",
     "OutlineError",
-    "TimeoutError",
+    "OutlineTimeoutError",
     "ValidationError",
     # Metrics
     "MetricsCollector",
@@ -249,8 +251,10 @@ __all__: Final[list[str]] = [
     "create_env_template",
     "load_config",
     # Audit utilities
-    "get_default_audit_logger",
-    "set_default_audit_logger",
+    "audited",
+    "get_audit_logger",
+    "get_or_create_audit_logger",
+    "set_audit_logger",
     # Exception utilities
     "format_error_chain",
     "get_retry_delay",
@@ -264,7 +268,6 @@ __all__: Final[list[str]] = [
     "mask_sensitive_data",
     "print_type_info",
     "quick_setup",
-    "secure_compare",
 ]
 
 

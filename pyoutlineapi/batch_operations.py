@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Generic, TypeVar
 
 from .common_types import Validators
@@ -47,6 +48,7 @@ class BatchResult(Generic[R]):
     """Result of batch operation with enhanced tracking.
 
     Immutable result object to prevent accidental modification.
+    Uses cached_property for expensive computations.
     """
 
     total: int
@@ -56,9 +58,9 @@ class BatchResult(Generic[R]):
     errors: tuple[str, ...] = field(default_factory=tuple)
     validation_errors: tuple[str, ...] = field(default_factory=tuple)
 
-    @property
+    @cached_property
     def success_rate(self) -> float:
-        """Calculate success rate.
+        """Calculate success rate (cached).
 
         :return: Success rate as decimal (0.0 to 1.0)
         """
@@ -66,17 +68,17 @@ class BatchResult(Generic[R]):
             return 1.0
         return self.successful / self.total
 
-    @property
+    @cached_property
     def has_errors(self) -> bool:
-        """Check if any operations failed.
+        """Check if any operations failed (cached).
 
         :return: True if any failures occurred
         """
         return self.failed > 0
 
-    @property
+    @cached_property
     def has_validation_errors(self) -> bool:
-        """Check if any validation errors occurred.
+        """Check if any validation errors occurred (cached).
 
         :return: True if validation errors exist
         """
@@ -96,8 +98,9 @@ class BatchResult(Generic[R]):
         """
         return [r for r in self.results if isinstance(r, Exception)]
 
-    def to_dict(self) -> dict[str, object]:
-        """Convert to dictionary for serialization.
+    @cached_property
+    def _dict_cache(self) -> dict[str, object]:
+        """Cached dictionary representation.
 
         :return: Dictionary representation
         """
@@ -112,6 +115,13 @@ class BatchResult(Generic[R]):
             "errors": list(self.errors),
         }
 
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary for serialization (cached).
+
+        :return: Dictionary representation
+        """
+        return self._dict_cache
+
 
 class BatchProcessor(Generic[T, R]):
     """Generic batch processor with concurrency control and safety features."""
@@ -125,7 +135,8 @@ class BatchProcessor(Generic[T, R]):
         :raises ValueError: If max_concurrent is less than 1
         """
         if max_concurrent < 1:
-            raise ValueError("max_concurrent must be at least 1")
+            msg = "max_concurrent must be at least 1"
+            raise ValueError(msg)
 
         self._max_concurrent = max_concurrent
         self._semaphore = asyncio.Semaphore(max_concurrent)
@@ -170,6 +181,7 @@ class BatchProcessor(Generic[T, R]):
 
         try:
             results = await asyncio.gather(*tasks, return_exceptions=not fail_fast)
+
             return list(results) if isinstance(results, tuple) else results
         except Exception:
             for task in tasks:
@@ -184,7 +196,8 @@ class BatchProcessor(Generic[T, R]):
         :raises ValueError: If new_limit is less than 1
         """
         if new_limit < 1:
-            raise ValueError("Concurrency limit must be at least 1")
+            msg = "Concurrency limit must be at least 1"
+            raise ValueError(msg)
 
         async with self._semaphore_lock:
             if new_limit == self._max_concurrent:
@@ -230,8 +243,9 @@ class ValidationHelper:
             if config.get("name"):
                 validated_name = Validators.validate_name(config["name"])
                 if validated_name is None:
+                    error_msg = f"Config {index}: name cannot be empty"
                     if fail_fast:
-                        raise ValueError(f"Config {index}: name cannot be empty")
+                        raise ValueError(error_msg)
                     return None
                 validated_config["name"] = validated_name
 
@@ -241,8 +255,9 @@ class ValidationHelper:
             return validated_config
 
         except ValueError as e:
+            error_msg = f"Config {index}: {e}"
             if fail_fast:
-                raise ValueError(f"Config {index}: {e}") from e
+                raise ValueError(error_msg) from e
             return None
 
     @staticmethod
@@ -264,8 +279,9 @@ class ValidationHelper:
         try:
             return Validators.validate_key_id(key_id)
         except ValueError as e:
+            error_msg = f"Key {index} ({key_id}): {e}"
             if fail_fast:
-                raise ValueError(f"Key {index} ({key_id}): {e}") from e
+                raise ValueError(error_msg) from e
             return None
 
     @staticmethod
@@ -323,7 +339,8 @@ class BatchOperations:
         :raises ValueError: If max_concurrent is invalid
         """
         if max_concurrent < 1:
-            raise ValueError("max_concurrent must be at least 1")
+            msg = "max_concurrent must be at least 1"
+            raise ValueError(msg)
 
         self._client = client
         self._max_concurrent = max_concurrent
@@ -445,17 +462,19 @@ class BatchOperations:
                 validated_name = Validators.validate_name(name)
 
                 if validated_name is None:
+                    error_msg = "Name cannot be empty"
                     if fail_fast:
-                        raise ValueError("Name cannot be empty")
+                        raise ValueError(error_msg)
                     validation_errors.append(f"Pair {i}: name cannot be empty")
                     continue
 
                 validated_pairs.append((validated_id, validated_name))
 
             except ValueError as e:
+                error_msg = f"Pair {i}: {e}"
                 if fail_fast:
-                    raise ValueError(f"Pair {i}: {e}") from e
-                validation_errors.append(f"Pair {i}: {e}")
+                    raise ValueError(error_msg) from e
+                validation_errors.append(error_msg)
 
         async def rename_key(pair: tuple[str, str]) -> bool:
             key_id, name = pair
@@ -509,9 +528,10 @@ class BatchOperations:
                 validated_pairs.append((validated_id, validated_bytes))
 
             except ValueError as e:
+                error_msg = f"Pair {i}: {e}"
                 if fail_fast:
-                    raise ValueError(f"Pair {i}: {e}") from e
-                validation_errors.append(f"Pair {i}: {e}")
+                    raise ValueError(error_msg) from e
+                validation_errors.append(error_msg)
 
         async def set_limit(pair: tuple[str, int]) -> bool:
             key_id, bytes_limit = pair
@@ -621,17 +641,23 @@ class BatchOperations:
         :param validation_errors: List of validation error messages
         :return: Batch result object
         """
-        successful = sum(1 for r in results if not isinstance(r, Exception))
-        failed = len(results) - successful
+        successful = 0
+        errors_list: list[str] = []
 
-        errors = [str(r) for r in results if isinstance(r, Exception)]
+        for r in results:
+            if isinstance(r, Exception):
+                errors_list.append(str(r))
+            else:
+                successful += 1
+
+        failed = len(results) - successful
 
         return BatchResult(
             total=len(results) + len(validation_errors),
             successful=successful,
             failed=failed + len(validation_errors),
             results=tuple(results),
-            errors=tuple(errors),
+            errors=tuple(errors_list),
             validation_errors=tuple(validation_errors),
         )
 

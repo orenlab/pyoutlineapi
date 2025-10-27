@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from .audit import AuditDecorator, AuditLogger, get_default_audit_logger
+from .audit import AuditLogger, audited, get_or_create_audit_logger
 from .common_types import JsonPayload, QueryParams, ResponseData, Validators
 from .models import (
     AccessKey,
@@ -48,9 +48,10 @@ class AuditableMixin:
 
         :return: Instance logger if set, otherwise shared default logger
         """
-        if hasattr(self, "_audit_logger_instance"):
-            return self._audit_logger_instance
-        return get_default_audit_logger()
+        instance_dict = self.__dict__
+        if "_audit_logger_instance" in instance_dict:
+            return instance_dict["_audit_logger_instance"]
+        return get_or_create_audit_logger()
 
 
 class JsonFormattingMixin:
@@ -64,6 +65,7 @@ class JsonFormattingMixin:
         """
         if as_json is not None:
             return as_json
+        # Use getattr with default to avoid AttributeError overhead
         return getattr(self, "_default_json_format", False)
 
 
@@ -117,6 +119,8 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
         - PUT /server/port-for-new-access-keys
     """
 
+    __slots__ = ()
+
     async def get_server_info(
         self: HTTPClientProtocol,
         *,
@@ -134,13 +138,7 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
             data, Server, as_json=self._resolve_json_format(as_json)
         )
 
-    @AuditDecorator.audit_action(
-        action="rename_server",
-        resource_from=lambda result, *args, **kwargs: "server",
-        extract_details=lambda result, *args, **kwargs: {
-            "new_name": args[0] if args else "unknown"
-        },
-    )
+    @audited()
     async def rename_server(self: HTTPClientProtocol, name: str) -> bool:
         """Rename the server.
 
@@ -152,7 +150,8 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
         """
         validated_name = Validators.validate_name(name)
         if validated_name is None:
-            raise ValueError("Server name cannot be empty")
+            msg = "Server name cannot be empty"
+            raise ValueError(msg)
 
         request = ServerNameRequest(name=validated_name)
         data = await self._request(
@@ -160,13 +159,7 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
         )
         return ResponseParser.parse_simple(data)
 
-    @AuditDecorator.audit_action(
-        action="set_hostname",
-        resource_from="server",
-        extract_details=lambda result, *args, **kwargs: {
-            "hostname": args[0] if args else "unknown"
-        },
-    )
+    @audited()
     async def set_hostname(self: HTTPClientProtocol, hostname: str) -> bool:
         """Set hostname for access keys.
 
@@ -177,9 +170,12 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
         :raises ValueError: If hostname is empty
         """
         if not hostname or not hostname.strip():
-            raise ValueError("Hostname cannot be empty")
+            msg = "Hostname cannot be empty"
+            raise ValueError(msg)
 
-        request = HostnameRequest(hostname=hostname.strip())
+        sanitized_hostname = hostname.strip()
+        request = HostnameRequest(hostname=sanitized_hostname)
+
         data = await self._request(
             "PUT",
             "server/hostname-for-access-keys",
@@ -187,13 +183,7 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
         )
         return ResponseParser.parse_simple(data)
 
-    @AuditDecorator.audit_action(
-        action="set_default_port",
-        resource_from="server",
-        extract_details=lambda result, *args, **kwargs: {
-            "port": args[0] if args else "unknown"
-        },
-    )
+    @audited()
     async def set_default_port(self: HTTPClientProtocol, port: int) -> bool:
         """Set default port for new access keys.
 
@@ -205,6 +195,7 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
         """
         validated_port = Validators.validate_port(port)
         request = PortRequest(port=validated_port)
+
         data = await self._request(
             "PUT",
             "server/port-for-new-access-keys",
@@ -230,15 +221,9 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         - DELETE /access-keys/{id}/data-limit
     """
 
-    @AuditDecorator.audit_action(
-        action="create_access_key",
-        resource_from="id",
-        extract_details=lambda result, *args, **kwargs: {
-            "name": kwargs.get("name", "unnamed"),
-            "method": kwargs.get("method"),
-            "has_limit": kwargs.get("limit") is not None,
-        },
-    )
+    __slots__ = ()
+
+    @audited()
     async def create_access_key(
         self: HTTPClientProtocol,
         *,
@@ -274,20 +259,12 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
 
         payload = request.model_dump(by_alias=True, exclude_none=True)
         data = await self._request("POST", "access-keys", json=payload)
+
         return ResponseParser.parse(
             data, AccessKey, as_json=self._resolve_json_format(as_json)
         )
 
-    @AuditDecorator.audit_action(
-        action="create_access_key_with_id",
-        resource_from=lambda result, *args, **kwargs: args[0] if args else "unknown",
-        extract_details=lambda result, *args, **kwargs: {
-            "key_id": args[0] if args else "unknown",
-            "name": kwargs.get("name", "unnamed"),
-            "method": kwargs.get("method"),
-            "has_limit": kwargs.get("limit") is not None,
-        },
-    )
+    @audited()
     async def create_access_key_with_id(
         self: HTTPClientProtocol,
         key_id: str,
@@ -314,6 +291,7 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         :raises ValueError: If key_id is invalid
         """
         validated_key_id = Validators.validate_key_id(key_id)
+
         validated_name = Validators.validate_name(name) if name is not None else None
         validated_port = Validators.validate_port(port) if port is not None else None
 
@@ -329,6 +307,7 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         data = await self._request(
             "PUT", f"access-keys/{validated_key_id}", json=payload
         )
+
         return ResponseParser.parse(
             data, AccessKey, as_json=self._resolve_json_format(as_json)
         )
@@ -366,15 +345,13 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         :raises ValueError: If key_id is invalid
         """
         validated_key_id = Validators.validate_key_id(key_id)
+
         data = await self._request("GET", f"access-keys/{validated_key_id}")
         return ResponseParser.parse(
             data, AccessKey, as_json=self._resolve_json_format(as_json)
         )
 
-    @AuditDecorator.audit_action(
-        action="delete_access_key",
-        resource_from=lambda result, *args, **kwargs: args[0] if args else "unknown",
-    )
+    @audited()
     async def delete_access_key(self: HTTPClientProtocol, key_id: str) -> bool:
         """Delete access key.
 
@@ -385,16 +362,11 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         :raises ValueError: If key_id is invalid
         """
         validated_key_id = Validators.validate_key_id(key_id)
+
         data = await self._request("DELETE", f"access-keys/{validated_key_id}")
         return ResponseParser.parse_simple(data)
 
-    @AuditDecorator.audit_action(
-        action="rename_access_key",
-        resource_from=lambda result, *args, **kwargs: args[0] if args else "unknown",
-        extract_details=lambda result, *args, **kwargs: {
-            "new_name": args[1] if len(args) > 1 else "unknown"
-        },
-    )
+    @audited()
     async def rename_access_key(
         self: HTTPClientProtocol,
         key_id: str,
@@ -407,13 +379,14 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         :param key_id: Access key ID
         :param name: New name
         :return: True if successful
-        :raises ValueError: If name is empty
+        :raises ValueError: If key_id or name is invalid
         """
         validated_key_id = Validators.validate_key_id(key_id)
         validated_name = Validators.validate_name(name)
 
         if validated_name is None:
-            raise ValueError("Name cannot be empty")
+            msg = "Name cannot be empty"
+            raise ValueError(msg)
 
         request = AccessKeyNameRequest(name=validated_name)
         data = await self._request(
@@ -423,15 +396,7 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         )
         return ResponseParser.parse_simple(data)
 
-    @AuditDecorator.audit_action(
-        action="set_access_key_data_limit",
-        resource_from=lambda result, *args, **kwargs: args[0] if args else "unknown",
-        extract_details=lambda result, *args, **kwargs: {
-            "bytes_limit": args[1].bytes
-            if len(args) > 1 and hasattr(args[1], "bytes")
-            else "unknown"
-        },
-    )
+    @audited()
     async def set_access_key_data_limit(
         self: HTTPClientProtocol,
         key_id: str,
@@ -457,10 +422,7 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         )
         return ResponseParser.parse_simple(data)
 
-    @AuditDecorator.audit_action(
-        action="remove_access_key_data_limit",
-        resource_from=lambda result, *args, **kwargs: args[0] if args else "unknown",
-    )
+    @audited()
     async def remove_access_key_data_limit(
         self: HTTPClientProtocol,
         key_id: str,
@@ -471,6 +433,7 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
 
         :param key_id: Access key ID
         :return: True if successful
+        :raises ValueError: If key_id is invalid
         """
         validated_key_id = Validators.validate_key_id(key_id)
 
@@ -491,15 +454,9 @@ class DataLimitMixin(AuditableMixin):
         - DELETE /server/access-key-data-limit
     """
 
-    @AuditDecorator.audit_action(
-        action="set_global_data_limit",
-        resource_from="server",
-        extract_details=lambda result, *args, **kwargs: {
-            "bytes_limit": args[0].bytes
-            if args and hasattr(args[0], "bytes")
-            else "unknown"
-        },
-    )
+    __slots__ = ()
+
+    @audited()
     async def set_global_data_limit(
         self: HTTPClientProtocol,
         limit: DataLimit,
@@ -520,9 +477,7 @@ class DataLimitMixin(AuditableMixin):
         )
         return ResponseParser.parse_simple(data)
 
-    @AuditDecorator.audit_action(
-        action="remove_global_data_limit", resource_from="server"
-    )
+    @audited()
     async def remove_global_data_limit(self: HTTPClientProtocol) -> bool:
         """Remove global data limit.
 
@@ -547,6 +502,10 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
         - GET /experimental/server/metrics
     """
 
+    __slots__ = ()
+
+    _VALID_SINCE_SUFFIXES: frozenset[str] = frozenset({"h", "d", "m", "s"})
+
     async def get_metrics_status(
         self: HTTPClientProtocol,
         *,
@@ -564,13 +523,7 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
             data, MetricsStatusResponse, as_json=self._resolve_json_format(as_json)
         )
 
-    @AuditDecorator.audit_action(
-        action="set_metrics_status",
-        resource_from="server",
-        extract_details=lambda result, *args, **kwargs: {
-            "enabled": args[0] if args else "unknown"
-        },
-    )
+    @audited()
     async def set_metrics_status(self: HTTPClientProtocol, enabled: bool) -> bool:
         """Enable or disable metrics collection.
 
@@ -581,7 +534,8 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
         :raises ValueError: If enabled is not boolean
         """
         if not isinstance(enabled, bool):
-            raise ValueError(f"enabled must be bool, got {type(enabled).__name__}")
+            msg = f"enabled must be bool, got {type(enabled).__name__}"
+            raise ValueError(msg)
 
         request = MetricsEnabledRequest(metricsEnabled=enabled)
         data = await self._request(
@@ -624,19 +578,22 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
         :raises ValueError: If since parameter is invalid
         """
         if not since or not since.strip():
-            raise ValueError("'since' parameter cannot be empty")
+            msg = "'since' parameter cannot be empty"
+            raise ValueError(msg)
 
-        since = since.strip()
-        valid_suffixes = {"h", "d", "m", "s"}
-        if not any(since.endswith(suffix) for suffix in valid_suffixes):
-            raise ValueError(
-                f"'since' must end with h/d/m/s (e.g., '24h', '7d'), got: {since}"
+        sanitized_since = since.strip()
+
+        if not sanitized_since[-1] in self._VALID_SINCE_SUFFIXES:
+            msg = (
+                f"'since' must end with h/d/m/s (e.g., '24h', '7d'), "
+                f"got: {sanitized_since}"
             )
+            raise ValueError(msg)
 
         data = await self._request(
             "GET",
             "experimental/server/metrics",
-            params={"since": since},
+            params={"since": sanitized_since},
         )
         return ResponseParser.parse(
             data, ExperimentalMetrics, as_json=self._resolve_json_format(as_json)

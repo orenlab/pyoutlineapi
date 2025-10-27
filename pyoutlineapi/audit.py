@@ -14,41 +14,216 @@ Source code repository:
 from __future__ import annotations
 
 import asyncio
-import contextlib
+import contextvars
+import inspect
 import logging
 import time
-from collections.abc import Callable
+from dataclasses import dataclass, field
 from functools import wraps
 from typing import (
+    Any,
     ParamSpec,
     Protocol,
     TypeVar,
-    cast,
     runtime_checkable,
+    cast,
+    TYPE_CHECKING,
 )
+from weakref import WeakValueDictionary
 
 from .common_types import DEFAULT_SENSITIVE_KEYS
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
 # Type variables
 P = ParamSpec("P")
 T = TypeVar("T")
-F = TypeVar("F", bound=Callable[..., object])
+
+_audit_logger_context: contextvars.ContextVar[AuditLogger | None] = (
+    contextvars.ContextVar("audit_logger", default=None)
+)
+
+_logger_cache: WeakValueDictionary[int, AuditLogger] = WeakValueDictionary()
 
 
-# ===== Logging Utility =====
+# ===== Audit Context =====
 
 
-def _log_if_enabled(level: int, message: str, **kwargs: object) -> None:
-    """Centralized logging with level check (DRY).
+@dataclass(slots=True, frozen=True)
+class AuditContext:
+    """Immutable audit context extracted from function call.
 
-    :param level: Logging level
-    :param message: Log message
-    :param kwargs: Additional logging kwargs
+    Uses structural pattern matching and signature inspection for smart extraction.
     """
-    if logger.isEnabledFor(level):
-        logger.log(level, message, **kwargs)
+
+    action: str
+    resource: str
+    success: bool
+    details: dict[str, Any] = field(default_factory=dict)
+    correlation_id: str | None = None
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[..., Any],
+        instance: Any,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any = None,
+        exception: Exception | None = None,
+    ) -> AuditContext:
+        """Build audit context from function call with intelligent extraction.
+
+        :param func: Function being audited
+        :param instance: Instance (self) for methods
+        :param args: Positional arguments
+        :param kwargs: Keyword arguments
+        :param result: Function result (if successful)
+        :param exception: Exception (if failed)
+        :return: Complete audit context
+        """
+        success = exception is None
+
+        # Extract action from function name (snake_case -> action)
+        action = func.__name__
+
+        # Smart resource extraction
+        resource = cls._extract_resource(func, args, kwargs, result, success)
+
+        # Smart details extraction with automatic sanitization
+        details = cls._extract_details(func, args, kwargs, result, exception, success)
+
+        # Correlation ID from instance if available
+        correlation_id = getattr(instance, "_correlation_id", None)
+
+        return cls(
+            action=action,
+            resource=resource,
+            success=success,
+            details=details,
+            correlation_id=correlation_id,
+        )
+
+    @staticmethod
+    def _extract_resource(
+        func: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
+        success: bool,
+    ) -> str:
+        """Smart resource extraction using structural pattern matching.
+
+        Priority:
+        1. result.id (for create operations)
+        2. Known resource parameter names (key_id, id, resource_id)
+        3. First meaningful argument
+        4. Function name analysis
+        5. 'unknown' fallback
+
+        :param func: Function being audited
+        :param args: Positional arguments
+        :param kwargs: Keyword arguments
+        :param result: Function result
+        :param success: Whether operation succeeded
+        :return: Resource identifier
+        """
+        # Pattern 1: Extract from successful result
+        if success and result is not None:
+            match result:
+                case _ if hasattr(result, "id"):
+                    return str(result.id)
+                case dict() if "id" in result:
+                    return str(result["id"])
+
+        # Pattern 2: Extract from known parameter names
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+
+        # Skip 'self' and 'cls'
+        params = [p for p in params if p not in ("self", "cls")]
+
+        # Try common resource identifiers in priority order
+        for resource_param in ("key_id", "id", "resource_id", "user_id", "name"):
+            if resource_param in kwargs:
+                return str(kwargs[resource_param])
+
+        # Pattern 3: First meaningful parameter
+        if params and params[0] in kwargs:
+            return str(kwargs[params[0]])
+
+        # Pattern 4: First positional argument (after self)
+        if args:
+            return str(args[0])
+
+        # Pattern 5: Analyze function name for hints
+        func_name = func.__name__.lower()
+        if any(keyword in func_name for keyword in ("server", "global", "system")):
+            return "server"
+
+        return "unknown"
+
+    @staticmethod
+    def _extract_details(
+        func: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
+        exception: Exception | None,
+        success: bool,
+    ) -> dict[str, Any]:
+        """Smart details extraction using signature introspection.
+
+        Only includes meaningful parameters (excludes technical ones and None values).
+        Automatically sanitizes sensitive data.
+
+        :param func: Function being audited
+        :param args: Positional arguments
+        :param kwargs: Keyword arguments
+        :param result: Function result
+        :param exception: Exception if failed
+        :param success: Whether operation succeeded
+        :return: Sanitized details dictionary
+        """
+        details: dict[str, Any] = {"success": success}
+
+        # Signature-based extraction
+        sig = inspect.signature(func)
+
+        # Parameters to exclude from details
+        excluded = {"self", "cls", "as_json", "return_raw"}
+
+        for param_name, param in sig.parameters.items():
+            if param_name in excluded:
+                continue
+
+            # Get actual value
+            value = kwargs.get(param_name)
+
+            # Only include meaningful values (not None, not default)
+            if value is not None and value != param.default:
+                # Convert complex objects to simple representations
+                match value:
+                    case _ if hasattr(value, "model_dump"):
+                        # Pydantic models
+                        details[param_name] = value.model_dump(exclude_none=True)
+                    case dict():
+                        details[param_name] = value
+                    case list() | tuple():
+                        details[param_name] = len(value)  # Count, not content
+                    case _:
+                        details[param_name] = value
+
+        # Add error information if present
+        if exception:
+            details["error"] = str(exception)
+            details["error_type"] = type(exception).__name__
+
+        # Sanitize sensitive data
+        return _sanitize_details(details)
 
 
 # ===== Audit Logger Protocol =====
@@ -58,20 +233,8 @@ def _log_if_enabled(level: int, message: str, **kwargs: object) -> None:
 class AuditLogger(Protocol):
     """Protocol for audit logging implementations.
 
-    Supports both sync and async logging for maximum flexibility.
+    Designed for async-first applications with sync fallback support.
     """
-
-    def log_action(
-        self,
-        action: str,
-        resource: str,
-        *,
-        user: str | None = None,
-        details: dict[str, object] | None = None,
-        correlation_id: str | None = None,
-    ) -> None:
-        """Log auditable action synchronously."""
-        ...
 
     async def alog_action(
         self,
@@ -79,10 +242,26 @@ class AuditLogger(Protocol):
         resource: str,
         *,
         user: str | None = None,
-        details: dict[str, object] | None = None,
+        details: dict[str, Any] | None = None,
         correlation_id: str | None = None,
     ) -> None:
-        """Log auditable action asynchronously."""
+        """Log auditable action asynchronously (primary method)."""
+        ...
+
+    def log_action(
+        self,
+        action: str,
+        resource: str,
+        *,
+        user: str | None = None,
+        details: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
+    ) -> None:
+        """Log auditable action synchronously (fallback method)."""
+        ...
+
+    async def shutdown(self) -> None:
+        """Gracefully shutdown logger."""
         ...
 
 
@@ -90,50 +269,38 @@ class AuditLogger(Protocol):
 
 
 class DefaultAuditLogger:
-    """Production-ready audit logger with async queue processing."""
+    """Async audit logger with batching and backpressure handling."""
 
     __slots__ = (
-        "_enable_async",
         "_queue",
         "_queue_size",
-        "_shutdown",
-        "_shutdown_lock",
+        "_batch_size",
+        "_batch_timeout",
         "_task",
+        "_shutdown_event",
+        "_lock",
     )
 
-    def __init__(self, *, enable_async: bool = True, queue_size: int = 1000) -> None:
-        """Initialize audit logger.
-
-        :param enable_async: Enable async logging queue for non-blocking operations
-        :param queue_size: Maximum size of async logging queue (default: 1000)
-        """
-        self._enable_async = enable_async
-        self._queue: asyncio.Queue[dict[str, object]] | None = None
-        self._task: asyncio.Task[None] | None = None
-        self._queue_size = queue_size
-        self._shutdown = False
-        self._shutdown_lock = asyncio.Lock()
-
-    def log_action(
+    def __init__(
         self,
-        action: str,
-        resource: str,
         *,
-        user: str | None = None,
-        details: dict[str, object] | None = None,
-        correlation_id: str | None = None,
+        queue_size: int = 10000,
+        batch_size: int = 100,
+        batch_timeout: float = 1.0,
     ) -> None:
-        """Log auditable action synchronously.
+        """Initialize audit logger with batching support.
 
-        :param action: Action being performed (e.g., 'create_key', 'delete_key')
-        :param resource: Resource identifier (e.g., key ID, server name)
-        :param user: User performing the action (optional)
-        :param details: Additional structured details about the action (optional)
-        :param correlation_id: Request correlation ID for tracing (optional)
+        :param queue_size: Maximum queue size (backpressure protection)
+        :param batch_size: Maximum batch size for processing
+        :param batch_timeout: Maximum time to wait for batch completion (seconds)
         """
-        extra = self._prepare_extra(action, resource, user, details, correlation_id)
-        message = self._build_message(action, resource, user, correlation_id, details)
-        logger.info(message, extra=extra)
+        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=queue_size)
+        self._queue_size = queue_size
+        self._batch_size = batch_size
+        self._batch_timeout = batch_timeout
+        self._task: asyncio.Task[None] | None = None
+        self._shutdown_event = asyncio.Event()
+        self._lock = asyncio.Lock()
 
     async def alog_action(
         self,
@@ -141,52 +308,43 @@ class DefaultAuditLogger:
         resource: str,
         *,
         user: str | None = None,
-        details: dict[str, object] | None = None,
+        details: dict[str, Any] | None = None,
         correlation_id: str | None = None,
     ) -> None:
-        """Log auditable action asynchronously (non-blocking).
+        """Log auditable action asynchronously with automatic batching.
 
-        Uses internal queue for high-performance async logging.
-        Falls back to sync logging if queue is full or async is disabled.
-
-        :param action: Action being performed (e.g., 'create_key', 'delete_key')
-        :param resource: Resource identifier (e.g., key ID, server name)
+        :param action: Action being performed
+        :param resource: Resource identifier
         :param user: User performing the action (optional)
-        :param details: Additional structured details about the action (optional)
-        :param correlation_id: Request correlation ID for tracing (optional)
+        :param details: Additional structured details (optional)
+        :param correlation_id: Request correlation ID (optional)
         """
-        # Early return for disabled async or shutdown
-        if not self._enable_async or self._shutdown:
-            self.log_action(
+        if self._shutdown_event.is_set():
+            # Fallback to sync logging during shutdown
+            return self.log_action(
                 action,
                 resource,
                 user=user,
                 details=details,
                 correlation_id=correlation_id,
             )
-            return
 
-        # Lazy queue initialization
-        await self._ensure_queue_initialized()
+        # Ensure background task is running
+        await self._ensure_task_running()
 
-        extra = self._prepare_extra(action, resource, user, details, correlation_id)
+        # Build log entry
+        entry = self._build_entry(action, resource, user, details, correlation_id)
 
-        # Try non-blocking put, fallback to sync on full queue
+        # Try to enqueue, handle backpressure
         try:
-            if self._queue and not self._shutdown:
-                self._queue.put_nowait(extra)
-            else:
-                self.log_action(
-                    action,
-                    resource,
-                    user=user,
-                    details=details,
-                    correlation_id=correlation_id,
-                )
+            self._queue.put_nowait(entry)
         except asyncio.QueueFull:
-            _log_if_enabled(
-                logging.WARNING, "[AUDIT] Queue full, falling back to sync logging"
-            )
+            # Backpressure: log warning and use sync fallback
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "[AUDIT] Queue full (%d items), using sync fallback",
+                    self._queue_size,
+                )
             self.log_action(
                 action,
                 resource,
@@ -195,164 +353,110 @@ class DefaultAuditLogger:
                 correlation_id=correlation_id,
             )
 
-    async def _ensure_queue_initialized(self) -> None:
-        """Ensure queue is initialized (lazy initialization with lock)."""
-        if self._queue is not None:
+    def log_action(
+        self,
+        action: str,
+        resource: str,
+        *,
+        user: str | None = None,
+        details: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
+    ) -> None:
+        """Log auditable action synchronously (fallback method).
+
+        :param action: Action being performed
+        :param resource: Resource identifier
+        :param user: User performing the action (optional)
+        :param details: Additional structured details (optional)
+        :param correlation_id: Request correlation ID (optional)
+        """
+        entry = self._build_entry(action, resource, user, details, correlation_id)
+        self._write_log(entry)
+
+    async def _ensure_task_running(self) -> None:
+        """Ensure background processing task is running (lazy start with lock)."""
+        if self._task is not None and not self._task.done():
             return
 
-        async with self._shutdown_lock:
+        async with self._lock:
             # Double-check after acquiring lock
-            if self._queue is None and not self._shutdown:
-                self._queue = asyncio.Queue(maxsize=self._queue_size)
-                self._task = asyncio.create_task(self._process_queue())
+            if self._task is None or self._task.done():
+                self._task = asyncio.create_task(
+                    self._process_queue(), name="audit-logger"
+                )
 
     async def _process_queue(self) -> None:
-        """Background task to process audit log queue."""
+        """Background task for processing audit logs in batches.
+
+        Uses batching for improved throughput and reduced I/O overhead.
+        """
+        batch: list[dict[str, Any]] = []
+
         try:
-            while not self._shutdown:
-                extra = await self._get_queue_item()
+            while not self._shutdown_event.is_set():
+                try:
+                    # Wait for item with timeout for batch processing
+                    entry = await asyncio.wait_for(
+                        self._queue.get(), timeout=self._batch_timeout
+                    )
+                    batch.append(entry)
 
-                if extra is None:
-                    continue
+                    # Process batch when size reached or queue empty
+                    if len(batch) >= self._batch_size or self._queue.empty():
+                        self._write_batch(batch)
+                        batch.clear()
 
-                self._log_from_extra(extra)
-
-                if self._queue:
                     self._queue.task_done()
 
+                except asyncio.TimeoutError:
+                    # Timeout: flush partial batch if any
+                    if batch:
+                        self._write_batch(batch)
+                        batch.clear()
+
         except asyncio.CancelledError:
-            _log_if_enabled(logging.DEBUG, "[AUDIT] Queue processing cancelled")
+            # Flush remaining batch on cancellation
+            if batch:
+                self._write_batch(batch)
             raise
         finally:
-            _log_if_enabled(logging.DEBUG, "[AUDIT] Queue processing stopped")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("[AUDIT] Queue processor stopped")
 
-    async def _get_queue_item(self) -> dict[str, object] | None:
-        """Get item from queue with timeout.
+    def _write_batch(self, batch: list[dict[str, Any]]) -> None:
+        """Write batch of log entries efficiently.
 
-        :return: Queue item or None on timeout/error
+        :param batch: Batch of log entries to write
         """
-        try:
-            item = await asyncio.wait_for(
-                self._queue.get() if self._queue else asyncio.sleep(1),
-                timeout=1.0,
-            )
-            return item if isinstance(item, dict) else None
-        except asyncio.TimeoutError:
-            return None
-        except Exception as e:
-            _log_if_enabled(
-                logging.ERROR,
-                f"[AUDIT] Error getting queue item: {e}",
-                exc_info=True,
-            )
-            return None
+        for entry in batch:
+            self._write_log(entry)
 
-    def _log_from_extra(self, extra: dict[str, object]) -> None:
-        """Log audit message from extra dict.
+    def _write_log(self, entry: dict[str, Any]) -> None:
+        """Write single log entry to logger.
 
-        :param extra: Extra data with audit info
+        :param entry: Log entry to write
         """
-        action = str(extra.get("action", "unknown"))
-        resource = str(extra.get("resource", "unknown"))
-        user = extra.get("user")
-        correlation_id = extra.get("correlation_id")
-        details = extra.get("details")
-
-        message = self._build_message(action, resource, user, correlation_id, details)
-        logger.info(message, extra=extra)
+        message = self._format_message(entry)
+        logger.info(message, extra=entry)
 
     @staticmethod
-    def _build_message(
+    def _build_entry(
         action: str,
         resource: str,
         user: str | None,
+        details: dict[str, Any] | None,
         correlation_id: str | None,
-        details: dict[str, object] | None,
-    ) -> str:
-        """Build audit log message efficiently.
+    ) -> dict[str, Any]:
+        """Build structured log entry with sanitization.
 
         :param action: Action being performed
         :param resource: Resource identifier
-        :param user: User performing action (optional)
-        :param correlation_id: Request correlation ID (optional)
-        :param details: Additional details (optional)
-        :return: Formatted message string
+        :param user: User performing action
+        :param details: Additional details
+        :param correlation_id: Correlation ID
+        :return: Structured log entry
         """
-        parts = ["[AUDIT]", action, "on", resource]
-
-        if user:
-            parts.extend(("by", user))
-        if correlation_id:
-            parts.append(f"[{correlation_id}]")
-        if details:
-            parts.append(f"| {details}")
-
-        return " ".join(parts)
-
-    async def shutdown(self, *, timeout: float = 5.0) -> None:
-        """Gracefully shutdown audit logger.
-
-        Waits for queue to drain before shutting down the background task.
-
-        :param timeout: Maximum time in seconds to wait for queue to drain
-        """
-        async with self._shutdown_lock:
-            if self._shutdown:
-                return
-
-            self._shutdown = True
-            _log_if_enabled(logging.DEBUG, "[AUDIT] Shutting down audit logger")
-
-            await self._drain_queue(timeout)
-            await self._cancel_task()
-
-            _log_if_enabled(logging.DEBUG, "[AUDIT] Audit logger shutdown complete")
-
-    async def _drain_queue(self, timeout: float) -> None:
-        """Drain remaining queue items.
-
-        :param timeout: Maximum time to wait
-        """
-        if not self._queue:
-            return
-
-        try:
-            await asyncio.wait_for(self._queue.join(), timeout=timeout)
-        except asyncio.TimeoutError:
-            remaining = self._queue.qsize()
-            _log_if_enabled(
-                logging.WARNING,
-                f"[AUDIT] Queue did not drain within {timeout}s, "
-                f"{remaining} items remaining",
-            )
-
-    async def _cancel_task(self) -> None:
-        """Cancel background processing task."""
-        if not self._task or self._task.done():
-            return
-
-        self._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._task
-
-    @staticmethod
-    def _prepare_extra(
-        action: str,
-        resource: str,
-        user: str | None,
-        details: dict[str, object] | None,
-        correlation_id: str | None,
-    ) -> dict[str, object]:
-        """Prepare structured logging context with sanitization.
-
-        :param action: Action being performed
-        :param resource: Resource identifier
-        :param user: User performing action (optional)
-        :param details: Additional details - will be sanitized (optional)
-        :param correlation_id: Request correlation ID (optional)
-        :return: Structured extra data for logger with is_audit flag
-        """
-        extra: dict[str, object] = {
+        entry: dict[str, Any] = {
             "action": action,
             "resource": resource,
             "timestamp": time.time(),
@@ -360,385 +464,341 @@ class DefaultAuditLogger:
         }
 
         if user is not None:
-            extra["user"] = user
+            entry["user"] = user
         if correlation_id is not None:
-            extra["correlation_id"] = correlation_id
+            entry["correlation_id"] = correlation_id
         if details is not None:
-            extra["details"] = AuditDecorator.sanitize_details(details)
+            entry["details"] = _sanitize_details(details)
 
-        return extra
+        return entry
+
+    @staticmethod
+    def _format_message(entry: dict[str, Any]) -> str:
+        """Format audit log message for human readability.
+
+        :param entry: Log entry
+        :return: Formatted message
+        """
+        action = entry["action"]
+        resource = entry["resource"]
+        user = entry.get("user")
+        correlation_id = entry.get("correlation_id")
+
+        parts = ["[AUDIT]", action, "on", resource]
+
+        if user:
+            parts.extend(["by", user])
+        if correlation_id:
+            parts.append(f"[{correlation_id}]")
+
+        return " ".join(parts)
+
+    async def shutdown(self, *, timeout: float = 5.0) -> None:
+        """Gracefully shutdown audit logger with queue draining.
+
+        :param timeout: Maximum time to wait for queue to drain (seconds)
+        """
+        async with self._lock:
+            if self._shutdown_event.is_set():
+                return
+
+            self._shutdown_event.set()
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("[AUDIT] Shutting down, draining queue")
+
+            # Wait for queue to drain
+            try:
+                await asyncio.wait_for(self._queue.join(), timeout=timeout)
+            except asyncio.TimeoutError:
+                remaining = self._queue.qsize()
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "[AUDIT] Queue did not drain within %ss, %d items remaining",
+                        timeout,
+                        remaining,
+                    )
+
+            # Cancel processing task
+            if self._task and not self._task.done():
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("[AUDIT] Shutdown complete")
 
 
 # ===== No-Op Implementation =====
 
 
 class NoOpAuditLogger:
-    """No-op audit logger for when auditing is disabled.
+    """Zero-overhead no-op audit logger.
 
-    Implements AuditLogger protocol but performs no actual logging.
-    Useful for disabling audit without code changes.
+    Implements AuditLogger protocol but performs no operations.
+    Useful for disabling audit without code changes or performance impact.
     """
 
     __slots__ = ()
 
-    def log_action(self, action: str, resource: str, **_kwargs: object) -> None:
-        """Do nothing - audit logging disabled."""
-
-    async def alog_action(self, action: str, resource: str, **_kwargs: object) -> None:
-        """Do nothing - audit logging disabled."""
-
-    async def shutdown(self, *, timeout: float = 5.0) -> None:
-        """Do nothing - no cleanup needed."""
-
-
-# ===== Audit Decorator =====
-
-
-class AuditDecorator:
-    """Universal audit logging decorator with modern Python patterns."""
-
-    __slots__ = ()
-
-    @staticmethod
-    def audit_action(
+    async def alog_action(
+        self,
         action: str,
+        resource: str,
         *,
-        resource_from: str | Callable[..., str] | None = None,
-        log_success: bool = True,
-        log_failure: bool = True,
-        extract_details: Callable[..., dict[str, object] | None] | None = None,
-    ) -> Callable[[Callable[P, T]], Callable[P, T]]:
-        """Decorator for automatic audit logging.
+        user: str | None = None,
+        details: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
+    ) -> None:
+        """No-op async log."""
 
-        Usage:
-            @AuditDecorator.audit_action(
-                "create_key",
-                resource_from="id",
-                extract_details=lambda result, *args, **kwargs: {"name": kwargs.get("name")}
-            )
-            async def create_access_key(self, name: str) -> AccessKey:
-                ...
+    def log_action(
+        self,
+        action: str,
+        resource: str,
+        *,
+        user: str | None = None,
+        details: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
+    ) -> None:
+        """No-op sync log."""
 
-        :param action: Action name to log (e.g., 'create_key', 'delete_key')
-        :param resource_from: How to extract resource identifier
-        :param log_success: Whether to log successful operations (default: True)
-        :param log_failure: Whether to log failed operations (default: True)
-        :param extract_details: Optional function to extract additional details
-        :return: Decorated function with automatic audit logging
-        """
+    async def shutdown(self) -> None:
+        """No-op shutdown."""
 
-        def decorator(func: Callable[P, T]) -> Callable[P, T]:
-            def _audit_log(
-                self: object,
-                result: object,
-                args: tuple[object, ...],
-                kwargs: dict[str, object],
-                success: bool,
-                exception: Exception | None,
-            ) -> None:
-                """Shared audit logging logic."""
-                # Guard clauses for early exit
-                if not hasattr(self, "_audit_logger"):
-                    return
 
-                if not ((success and log_success) or (not success and log_failure)):
-                    return
+# ===== Professional Audit Decorator =====
 
-                # Extract and log
-                resource = AuditDecorator._extract_resource(
-                    resource_from, result, args, kwargs, success, exception
-                )
 
-                details_dict = AuditDecorator._build_details(
-                    extract_details, result, args, kwargs, success, exception
-                )
+def audited(
+    *,
+    log_success: bool = True,
+    log_failure: bool = True,
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """Audit logging decorator with zero-config smart extraction.
 
-                correlation_id = getattr(self, "_correlation_id", None)
+    Automatically extracts ALL information from function signature and execution:
+    - Action name: from function name
+    - Resource: from result.id, first parameter, or function analysis
+    - Details: from function signature (excluding None and defaults)
+    - Correlation ID: from instance._correlation_id if available
+    - Success/failure: from exception handling
 
-                self._audit_logger.log_action(
-                    action=action,
-                    resource=resource,
-                    details=details_dict,
-                    correlation_id=correlation_id,
-                )
+    Usage:
+        @audited()
+        async def create_access_key(self, name: str, port: int = 8080) -> AccessKey:
+            # action: "create_access_key"
+            # resource: result.id
+            # details: {"name": "...", "port": 8080} (if not default)
+            ...
+
+        @audited(log_success=False)
+        async def critical_operation(self, resource_id: str) -> bool:
+            # Only logs failures for alerting
+            ...
+
+    :param log_success: Log successful operations (default: True)
+    :param log_failure: Log failed operations (default: True)
+    :return: Decorated function with automatic audit logging
+    """
+
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        # Determine if function is async at decoration time
+        is_async = inspect.iscoroutinefunction(func)
+
+        if is_async:
 
             @wraps(func)
-            async def async_wrapper(
-                self: object, *args: P.args, **kwargs: P.kwargs
-            ) -> T:
+            async def async_wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> T:
+                # Check for audit logger on instance
+                audit_logger = getattr(self, "_audit_logger", None)
+
+                # No logger? Execute without audit
+                if audit_logger is None:
+                    return await func(self, *args, **kwargs)
+
                 result: T | None = None
-                success = False
                 exception: Exception | None = None
 
                 try:
                     result = await func(self, *args, **kwargs)
-                    success = True
                     return result
                 except Exception as e:
                     exception = e
                     raise
                 finally:
-                    _audit_log(self, result, args, kwargs, success, exception)
+                    success = exception is None
+
+                    # Filter by success/failure flags
+                    if not ((success and log_success) or (not success and log_failure)):
+                        return None
+
+                    # Build context from execution
+                    ctx = AuditContext.from_call(
+                        func=func,
+                        instance=self,
+                        args=args,
+                        kwargs=kwargs,
+                        result=result,
+                        exception=exception,
+                    )
+
+                    # Async log (fire-and-forget for performance)
+                    asyncio.create_task(
+                        audit_logger.alog_action(
+                            action=ctx.action,
+                            resource=ctx.resource,
+                            details=ctx.details,
+                            correlation_id=ctx.correlation_id,
+                        )
+                    )
+
+            return async_wrapper
+
+        else:
 
             @wraps(func)
-            def sync_wrapper(self: object, *args: P.args, **kwargs: P.kwargs) -> T:
+            def sync_wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> T:
+                # Check for audit logger on instance
+                audit_logger = getattr(self, "_audit_logger", None)
+
+                # No logger? Execute without audit
+                if audit_logger is None:
+                    return func(self, *args, **kwargs)
+
                 result: T | None = None
-                success = False
                 exception: Exception | None = None
 
                 try:
                     result = func(self, *args, **kwargs)
-                    success = True
                     return result
                 except Exception as e:
                     exception = e
                     raise
                 finally:
-                    _audit_log(self, result, args, kwargs, success, exception)
+                    success = exception is None
 
-            return cast(
-                Callable[P, T],
-                async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper,
-            )
+                    # Filter by success/failure flags
+                    if not ((success and log_success) or (not success and log_failure)):
+                        return None
 
-        return decorator
+                    # Build context from execution
+                    ctx = AuditContext.from_call(
+                        func=func,
+                        instance=self,
+                        args=args,
+                        kwargs=kwargs,
+                        result=result,
+                        exception=exception,
+                    )
 
-    @staticmethod
-    def _build_details(
-        extract_details: Callable[..., dict[str, object] | None] | None,
-        result: object,
-        args: tuple[object, ...],
-        kwargs: dict[str, object],
-        success: bool,
-        exception: Exception | None,
-    ) -> dict[str, object]:
-        """Build details dict with success/failure info.
+                    # Sync log
+                    audit_logger.log_action(
+                        action=ctx.action,
+                        resource=ctx.resource,
+                        details=ctx.details,
+                        correlation_id=ctx.correlation_id,
+                    )
 
-        :param extract_details: Optional function to extract custom details
-        :param result: Function result (may be None if failed)
-        :param args: Function positional arguments
-        :param kwargs: Function keyword arguments
-        :param success: Whether operation succeeded
-        :param exception: Exception if operation failed (None if success)
-        :return: Details dictionary with at least 'success' key
-        """
-        details: dict[str, object] = {"success": success}
+            return sync_wrapper
 
-        # Add extracted details if available
-        if extract_details:
-            extracted = AuditDecorator._extract_details(
-                extract_details, result, args, kwargs, success, exception
-            )
-            if extracted:
-                details.update(extracted)
+    return decorator
 
-        # Add error info if present
-        if exception:
-            details["error"] = str(exception)
-            details["error_type"] = type(exception).__name__
 
+# ===== Sanitization =====
+
+
+def _sanitize_details(details: dict[str, Any]) -> dict[str, Any]:
+    """Recursively sanitize sensitive data using lazy copy-on-write.
+
+    :param details: Dictionary to sanitize
+    :return: Sanitized dictionary (maybe same instance if no changes)
+    """
+    if not details:
         return details
 
-    @staticmethod
-    def _extract_resource(
-        resource_from: str | Callable[..., str] | None,
-        result: object,
-        args: tuple[object, ...],
-        kwargs: dict[str, object],
-        success: bool,
-        exception: Exception | None,
-    ) -> str:
-        """Extract resource identifier using pattern matching.
+    # Pre-compute lowercase sensitive keys for performance
+    sensitive_keys = {k.lower() for k in DEFAULT_SENSITIVE_KEYS}
+    sanitized: dict[str, Any] | None = None
 
-        :param resource_from: Extraction strategy (str attribute name, callable, or None)
-        :param result: Function result (may be None if failed)
-        :param args: Function positional arguments
-        :param kwargs: Function keyword arguments
-        :param success: Whether operation succeeded
-        :param exception: Exception if operation failed
-        :return: Resource identifier string or 'unknown' if extraction fails
-        """
-        if resource_from is None:
-            return "unknown"
+    for key, value in details.items():
+        # Check if key contains sensitive pattern
+        if any(pattern in key.lower() for pattern in sensitive_keys):
+            # Lazy copy on first modification
+            if sanitized is None:
+                sanitized = dict(details)
+            sanitized[key] = "***REDACTED***"
+            continue
 
-        try:
-            # Pattern matching for extraction strategy
-            match resource_from:
-                case _ if callable(resource_from):
-                    return str(resource_from(result, *args, **kwargs))
-                case str(attr_name):
-                    return (
-                        AuditDecorator._extract_from_result(result, attr_name, success)
-                        or AuditDecorator._extract_from_args(args, kwargs, attr_name)
-                        or attr_name  # Fallback: use as literal
-                    )
-                case _:
-                    return "unknown"
+        # Recursively sanitize nested dicts
+        if isinstance(value, dict):
+            nested = _sanitize_details(value)
+            if nested is not value:  # Only copy if changed
+                if sanitized is None:
+                    sanitized = dict(details)
+                sanitized[key] = nested
 
-        except Exception as e:
-            _log_if_enabled(
-                logging.DEBUG,
-                f"Resource extraction failed: {e}",
-                exc_info=True,
-            )
-            return "unknown"
-
-    @staticmethod
-    def _extract_from_result(
-        result: object,
-        attr_name: str,
-        success: bool,
-    ) -> str | None:
-        """Extract resource from result object.
-
-        Only attempts extraction if operation was successful.
-
-        :param result: Function result object
-        :param attr_name: Attribute or dict key name to extract
-        :param success: Whether operation succeeded
-        :return: Extracted value as string, or None if extraction not possible
-        """
-        if not (success and result is not None):
-            return None
-
-        # Try attribute access
-        if hasattr(result, attr_name):
-            return str(getattr(result, attr_name))
-
-        # Try dict access
-        if isinstance(result, dict) and attr_name in result:
-            return str(result[attr_name])
-
-        return None
-
-    @staticmethod
-    def _extract_from_args(
-        args: tuple[object, ...],
-        kwargs: dict[str, object],
-        attr_name: str,
-    ) -> str | None:
-        """Extract resource from function arguments.
-
-        Tries kwargs first (more explicit), then falls back to first positional arg.
-
-        :param args: Function positional arguments
-        :param kwargs: Function keyword arguments
-        :param attr_name: Name to look up in kwargs
-        :return: Extracted value as string, or None if not found
-        """
-        # Try kwargs first (more explicit)
-        if attr_name in kwargs:
-            return str(kwargs[attr_name])
-
-        # Fallback to first positional arg
-        if args:
-            return str(args[0])
-
-        return None
-
-    @staticmethod
-    def _extract_details(
-        extract_details: Callable[..., dict[str, object] | None],
-        result: object,
-        args: tuple[object, ...],
-        kwargs: dict[str, object],
-        success: bool,
-        exception: Exception | None,
-    ) -> dict[str, object] | None:
-        """Extract additional details for audit log.
-
-        :param extract_details: User-provided extraction function
-        :param result: Function result
-        :param args: Function positional arguments
-        :param kwargs: Function keyword arguments
-        :param success: Whether operation succeeded
-        :param exception: Exception if failed
-        :return: Extracted details dict or None if extraction fails
-        """
-        try:
-            return extract_details(result, *args, **kwargs)
-        except Exception as e:
-            _log_if_enabled(
-                logging.DEBUG,
-                f"Details extraction failed: {e}",
-                exc_info=True,
-            )
-            return None
-
-    @staticmethod
-    def sanitize_details(details: dict[str, object]) -> dict[str, object]:
-        """Remove sensitive data from audit logs using lazy copying.
-
-        Recursively sanitizes nested dictionaries. Uses lazy copying for
-        performance - only creates new dict when modifications are needed.
-
-        Sensitive keys are matched case-insensitively against DEFAULT_SENSITIVE_KEYS
-        (e.g., 'password', 'token', 'secret', 'api_key', etc.)
-
-        :param details: Details dictionary to sanitize
-        :return: Sanitized dictionary (may be same object if no changes needed)
-        """
-        if not details:
-            return details
-
-        keys_lower = {k.lower() for k in DEFAULT_SENSITIVE_KEYS}
-        sanitized: dict[str, object] | None = None
-
-        for key, value in details.items():
-            # Check for sensitive key
-            if any(sensitive in key.lower() for sensitive in keys_lower):
-                sanitized = sanitized or dict(details)  # Lazy copy
-                sanitized[key] = "***REDACTED***"
-                continue
-
-            # Recursively sanitize nested dicts
-            if isinstance(value, dict):
-                nested = AuditDecorator.sanitize_details(value)
-                if nested is not value:  # Only copy if changed
-                    sanitized = sanitized or dict(details)
-                    sanitized[key] = nested
-
-        return sanitized or details
+    return sanitized or details
 
 
-# ===== Singleton Manager =====
+# ===== Context-based Logger Management =====
 
 
-_default_audit_logger: AuditLogger | None = None
+def set_audit_logger(logger_instance: AuditLogger) -> None:
+    """Set audit logger for current async context.
 
+    Thread-safe and async-safe using contextvars.
+    Preferred over global state for high-load applications.
 
-def get_default_audit_logger() -> AuditLogger:
-    """Get or create singleton default audit logger.
-
-    Thread-safe lazy initialization. Creates DefaultAuditLogger on first call.
-
-    :return: Default audit logger instance (singleton)
+    :param logger_instance: Audit logger instance
     """
-    global _default_audit_logger
-
-    if _default_audit_logger is None:
-        _default_audit_logger = DefaultAuditLogger()
-
-    return _default_audit_logger
+    _audit_logger_context.set(logger_instance)
 
 
-def set_default_audit_logger(logger_instance: AuditLogger) -> None:
-    """Set custom default audit logger globally.
+def get_audit_logger() -> AuditLogger | None:
+    """Get audit logger from current context.
 
-    Use this to replace the default audit logger with a custom implementation
-    for all clients that don't explicitly specify an audit logger.
-
-    :param logger_instance: Custom audit logger instance
+    :return: Audit logger instance or None
     """
-    global _default_audit_logger
-    _default_audit_logger = logger_instance
+    return _audit_logger_context.get()
+
+
+def get_or_create_audit_logger(instance_id: int | None = None) -> AuditLogger:
+    """Get or create audit logger with weak reference caching.
+
+    :param instance_id: Instance ID for caching (optional)
+    :return: Audit logger instance
+    """
+    # Try context first
+    ctx_logger = _audit_logger_context.get()
+    if ctx_logger is not None:
+        return ctx_logger
+
+    # Try cache if instance_id provided
+    if instance_id is not None:
+        cached = _logger_cache.get(instance_id)
+        if cached is not None:
+            return cached
+
+    # Create new logger
+    logger_instance = DefaultAuditLogger()
+
+    # Cache if instance_id provided
+    if instance_id is not None:
+        _logger_cache[instance_id] = cast(AuditLogger, logger_instance)
+
+    return cast(AuditLogger, logger_instance)
 
 
 __all__ = [
-    "AuditDecorator",
+    "AuditContext",
     "AuditLogger",
     "DefaultAuditLogger",
     "NoOpAuditLogger",
-    "get_default_audit_logger",
-    "set_default_audit_logger",
+    "audited",
+    "get_audit_logger",
+    "get_or_create_audit_logger",
+    "set_audit_logger",
 ]

@@ -1,41 +1,61 @@
-"""PyOutlineAPI: A modern, async-first Python client for the Outline VPN Server API.
+"""Exception hierarchy for PyOutlineAPI.
 
-Copyright (c) 2025 Denis Rozhnovskiy <pytelemonbot@mail.ru>
-All rights reserved.
+Provides structured exceptions with rich error context, retry guidance,
+and credential sanitization for secure error handling.
 
-This software is licensed under the MIT License.
-You can find the full license text at:
-    https://opensource.org/licenses/MIT
+Classes:
+    OutlineError: Base exception with context and retry support
+    APIError: HTTP API failures with status codes
+    CircuitOpenError: Circuit breaker open state
+    ConfigurationError: Invalid configuration
+    ValidationError: Data validation failures
+    OutlineConnectionError: Network connection issues
+    OutlineTimeoutError: Operation timeouts
 
-Source code repository:
+Functions:
+    get_retry_delay: Get suggested retry delay for an error
+    is_retryable: Check if error should be retried
+    get_safe_error_dict: Extract safe error info for logging
+    format_error_chain: Format exception chain for structured logging
+
+License:
+    MIT License - Copyright (c) 2025 Denis Rozhnovskiy
+
+Repository:
     https://github.com/orenlab/pyoutlineapi
 """
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import Any, ClassVar, Final
 
-# Import sanitizer from common_types (DRY!)
 from .common_types import CredentialSanitizer
 
 # Maximum length for error messages to prevent DoS
 _MAX_MESSAGE_LENGTH: Final[int] = 1024
 
+_EMPTY_DICT: Final[MappingProxyType[str, Any]] = MappingProxyType({})
+
 
 class OutlineError(Exception):
     """Base exception for all PyOutlineAPI errors.
 
-    Provides rich error context, retry guidance, and safe serialization.
+    Provides rich error context, retry guidance, and safe serialization
+    with automatic credential sanitization.
 
-    Security features:
-    - Automatic credential sanitization in messages (NEW 2025)
-    - Separate internal and safe details
-    - Message length limits
-    - No sensitive data in string representations
-    - Immutable details after creation
+    Attributes:
+        is_retryable: Whether this error type should be retried
+        default_retry_delay: Suggested delay before retry in seconds
+
+    Example:
+        >>> try:
+        ...     raise OutlineError("Connection failed", details={"host": "server"})
+        ... except OutlineError as e:
+        ...     print(e.safe_details)  # {'host': 'server'}
     """
 
-    __slots__ = ("_details", "_message", "_safe_details")
+    __slots__ = ("_details", "_message", "_safe_details", "_cached_str")
 
     is_retryable: ClassVar[bool] = False
     default_retry_delay: ClassVar[float] = 1.0
@@ -49,12 +69,15 @@ class OutlineError(Exception):
     ) -> None:
         """Initialize exception with automatic credential sanitization.
 
-        :param message: Error message (will be sanitized automatically)
-        :param details: Internal details (may contain sensitive data)
-        :param safe_details: Safe details for logging/display
-        :raises ValueError: If message is too long
+        Args:
+            message: Error message (automatically sanitized)
+            details: Internal details (may contain sensitive data)
+            safe_details: Safe details for logging/display
+
+        Raises:
+            ValueError: If message exceeds maximum length after sanitization
         """
-        # Validate and sanitize message (HIGH-004)
+        # Validate and sanitize message
         if not isinstance(message, str):
             message = str(message)
 
@@ -68,26 +91,39 @@ class OutlineError(Exception):
         self._message = sanitized_message
         super().__init__(sanitized_message)
 
-        # Store immutable copies of details
-        self._details: dict[str, Any] = dict(details) if details else {}
-        self._safe_details: dict[str, Any] = dict(safe_details) if safe_details else {}
+        self._details: dict[str, Any] | MappingProxyType[str, Any] = (
+            dict(details) if details else _EMPTY_DICT
+        )
+        self._safe_details: dict[str, Any] | MappingProxyType[str, Any] = (
+            dict(safe_details) if safe_details else _EMPTY_DICT
+        )
+
+        self._cached_str: str | None = None
 
     @property
     def details(self) -> dict[str, Any]:
-        """Get internal details (read-only).
+        """Get internal error details (may contain sensitive data).
 
-        WARNING: Use with caution, may contain sensitive data.
+        Warning:
+            Use with caution - may contain credentials or sensitive information.
+            For logging, use ``safe_details`` instead.
 
-        :return: Internal details dictionary (copy for safety)
+        Returns:
+            Copy of internal details dictionary
         """
+        if self._details is _EMPTY_DICT:
+            return {}
         return self._details.copy()
 
     @property
     def safe_details(self) -> dict[str, Any]:
-        """Get safe details for logging/display (read-only).
+        """Get sanitized error details safe for logging.
 
-        :return: Safe details dictionary (copy for safety)
+        Returns:
+            Copy of safe details dictionary
         """
+        if self._safe_details is _EMPTY_DICT:
+            return {}
         return self._safe_details.copy()
 
     def _format_details(self) -> str:
@@ -104,9 +140,13 @@ class OutlineError(Exception):
     def __str__(self) -> str:
         """Safe string representation using safe_details.
 
+        Cached for performance on repeated access.
+
         :return: String representation
         """
-        return f"{self._message}{self._format_details()}"
+        if self._cached_str is None:
+            self._cached_str = f"{self._message}{self._format_details()}"
+        return self._cached_str
 
     def __repr__(self) -> str:
         """Safe repr without sensitive data.
@@ -118,9 +158,19 @@ class OutlineError(Exception):
 
 
 class APIError(OutlineError):
-    """API request failure.
+    """HTTP API request failure.
 
     Automatically determines retry eligibility based on HTTP status code.
+
+    Attributes:
+        status_code: HTTP status code (if available)
+        endpoint: API endpoint that failed
+        response_data: Raw response data (may contain sensitive info)
+
+    Example:
+        >>> error = APIError("Not found", status_code=404, endpoint="/server")
+        >>> error.is_client_error  # True
+        >>> error.is_retryable  # False
     """
 
     __slots__ = ("endpoint", "response_data", "status_code")
@@ -135,12 +185,12 @@ class APIError(OutlineError):
     ) -> None:
         """Initialize API error with sanitized endpoint.
 
-        :param message: Error message
-        :param status_code: HTTP status code
-        :param endpoint: API endpoint
-        :param response_data: Response data (may contain sensitive info)
+        Args:
+            message: Error message
+            status_code: HTTP status code
+            endpoint: API endpoint (will be sanitized)
+            response_data: Response data (may contain sensitive info)
         """
-        # Import here to avoid circular dependency
         from .common_types import Constants, Validators
 
         # Sanitize endpoint for safe logging
@@ -148,62 +198,77 @@ class APIError(OutlineError):
             Validators.sanitize_endpoint_for_logging(endpoint) if endpoint else None
         )
 
-        # Build safe details
-        safe_details: dict[str, Any] = {}
-        if status_code is not None:
-            safe_details["status_code"] = status_code
-        if safe_endpoint is not None:
-            safe_details["endpoint"] = safe_endpoint
+        # Build safe details (optimization: avoid dict creation if all None)
+        safe_details: dict[str, Any] | None = None
+        if status_code is not None or safe_endpoint is not None:
+            safe_details = {}
+            if status_code is not None:
+                safe_details["status_code"] = status_code
+            if safe_endpoint is not None:
+                safe_details["endpoint"] = safe_endpoint
 
-        # Build internal details
-        details: dict[str, Any] = {}
-        if status_code is not None:
-            details["status_code"] = status_code
-        if endpoint is not None:
-            details["endpoint"] = endpoint
+        # Build internal details (optimization: avoid dict creation if all None)
+        details: dict[str, Any] | None = None
+        if status_code is not None or endpoint is not None:
+            details = {}
+            if status_code is not None:
+                details["status_code"] = status_code
+            if endpoint is not None:
+                details["endpoint"] = endpoint
 
         super().__init__(message, details=details, safe_details=safe_details)
 
-        # Store attributes
+        # Store attributes directly (faster access than dict lookups)
         self.status_code = status_code
         self.endpoint = endpoint
         self.response_data = response_data
 
-        # Determine retry eligibility
+        # Pre-compute retry eligibility (avoid repeated lookups)
         self.is_retryable = (
             status_code in Constants.RETRY_STATUS_CODES if status_code else False
         )
 
     @property
     def is_client_error(self) -> bool:
-        """Check if this is a client error (4xx).
+        """Check if error is a client error (4xx status).
 
-        :return: True if client error
+        Returns:
+            True if status code is 400-499
         """
         return self.status_code is not None and 400 <= self.status_code < 500
 
     @property
     def is_server_error(self) -> bool:
-        """Check if this is a server error (5xx).
+        """Check if error is a server error (5xx status).
 
-        :return: True if server error
+        Returns:
+            True if status code is 500-599
         """
         return self.status_code is not None and 500 <= self.status_code < 600
 
     @property
     def is_rate_limit_error(self) -> bool:
-        """Check if this is a rate limit error (429).
+        """Check if error is a rate limit error (429 status).
 
-        :return: True if rate limit error
+        Returns:
+            True if status code is 429
         """
         return self.status_code == 429
 
 
 class CircuitOpenError(OutlineError):
-    """Circuit breaker is open.
+    """Circuit breaker is open due to repeated failures.
 
-    Indicates the circuit breaker has opened due to repeated failures.
-    Clients should wait for retry_after seconds before retrying.
+    Indicates temporary service unavailability. Clients should wait
+    for ``retry_after`` seconds before retrying.
+
+    Attributes:
+        retry_after: Seconds to wait before retry
+
+    Example:
+        >>> error = CircuitOpenError("Circuit open", retry_after=60.0)
+        >>> error.is_retryable  # True
+        >>> error.retry_after  # 60.0
     """
 
     __slots__ = ("retry_after",)
@@ -213,14 +278,19 @@ class CircuitOpenError(OutlineError):
     def __init__(self, message: str, *, retry_after: float = 60.0) -> None:
         """Initialize circuit open error.
 
-        :param message: Error message
-        :param retry_after: Seconds to wait before retry
-        :raises ValueError: If retry_after is negative
+        Args:
+            message: Error message
+            retry_after: Seconds to wait before retry
+
+        Raises:
+            ValueError: If retry_after is negative
         """
         if retry_after < 0:
             raise ValueError("retry_after must be non-negative")
 
-        safe_details = {"retry_after": round(retry_after, 2)}
+        # Pre-round for safe_details (avoid repeated rounding)
+        rounded_retry = round(retry_after, 2)
+        safe_details = {"retry_after": rounded_retry}
         super().__init__(message, safe_details=safe_details)
 
         self.retry_after = retry_after
@@ -228,9 +298,16 @@ class CircuitOpenError(OutlineError):
 
 
 class ConfigurationError(OutlineError):
-    """Configuration validation error.
+    """Invalid or missing configuration.
 
-    Raised when configuration is invalid or missing required fields.
+    Attributes:
+        field: Configuration field name that failed
+        security_issue: Whether this is a security-related issue
+
+    Example:
+        >>> error = ConfigurationError(
+        ...     "Missing API URL", field="api_url", security_issue=True
+        ... )
     """
 
     __slots__ = ("field", "security_issue")
@@ -244,15 +321,18 @@ class ConfigurationError(OutlineError):
     ) -> None:
         """Initialize configuration error.
 
-        :param message: Error message
-        :param field: Configuration field name
-        :param security_issue: Whether this is a security issue
+        Args:
+            message: Error message
+            field: Configuration field name
+            security_issue: Whether this is a security issue
         """
-        safe_details: dict[str, Any] = {}
-        if field:
-            safe_details["field"] = field
-        if security_issue:
-            safe_details["security_issue"] = True
+        safe_details: dict[str, Any] | None = None
+        if field or security_issue:
+            safe_details = {}
+            if field:
+                safe_details["field"] = field
+            if security_issue:
+                safe_details["security_issue"] = True
 
         super().__init__(message, safe_details=safe_details)
 
@@ -261,9 +341,18 @@ class ConfigurationError(OutlineError):
 
 
 class ValidationError(OutlineError):
-    """Data validation error.
+    """Data validation failure.
 
     Raised when data fails validation against expected schema.
+
+    Attributes:
+        field: Field name that failed validation
+        model: Model name
+
+    Example:
+        >>> error = ValidationError(
+        ...     "Invalid port number", field="port", model="ServerConfig"
+        ... )
     """
 
     __slots__ = ("field", "model")
@@ -277,15 +366,18 @@ class ValidationError(OutlineError):
     ) -> None:
         """Initialize validation error.
 
-        :param message: Error message
-        :param field: Field name that failed validation
-        :param model: Model name
+        Args:
+            message: Error message
+            field: Field name that failed validation
+            model: Model name
         """
-        safe_details: dict[str, Any] = {}
-        if field:
-            safe_details["field"] = field
-        if model:
-            safe_details["model"] = model
+        safe_details: dict[str, Any] | None = None
+        if field or model:
+            safe_details = {}
+            if field:
+                safe_details["field"] = field
+            if model:
+                safe_details["model"] = model
 
         super().__init__(message, safe_details=safe_details)
 
@@ -293,10 +385,18 @@ class ValidationError(OutlineError):
         self.model = model
 
 
-class ConnectionError(OutlineError):
-    """Connection failure.
+class OutlineConnectionError(OutlineError):
+    """Network connection failure.
 
-    Raised when unable to establish connection to the server.
+    Attributes:
+        host: Host that failed
+        port: Port that failed
+
+    Example:
+        >>> error = OutlineConnectionError(
+        ...     "Connection refused", host="server.com", port=443
+        ... )
+        >>> error.is_retryable  # True
     """
 
     __slots__ = ("host", "port")
@@ -313,15 +413,18 @@ class ConnectionError(OutlineError):
     ) -> None:
         """Initialize connection error.
 
-        :param message: Error message
-        :param host: Host that failed
-        :param port: Port that failed
+        Args:
+            message: Error message
+            host: Host that failed
+            port: Port that failed
         """
-        safe_details: dict[str, Any] = {}
-        if host:
-            safe_details["host"] = host
-        if port is not None:
-            safe_details["port"] = port
+        safe_details: dict[str, Any] | None = None
+        if host or port is not None:
+            safe_details = {}
+            if host:
+                safe_details["host"] = host
+            if port is not None:
+                safe_details["port"] = port
 
         super().__init__(message, safe_details=safe_details)
 
@@ -329,10 +432,18 @@ class ConnectionError(OutlineError):
         self.port = port
 
 
-class TimeoutError(OutlineError):
+class OutlineTimeoutError(OutlineError):
     """Operation timeout.
 
-    Raised when an operation exceeds its allocated time.
+    Attributes:
+        timeout: Timeout value in seconds
+        operation: Operation that timed out
+
+    Example:
+        >>> error = OutlineTimeoutError(
+        ...     "Request timeout", timeout=30.0, operation="get_server_info"
+        ... )
+        >>> error.is_retryable  # True
     """
 
     __slots__ = ("operation", "timeout")
@@ -349,15 +460,18 @@ class TimeoutError(OutlineError):
     ) -> None:
         """Initialize timeout error.
 
-        :param message: Error message
-        :param timeout: Timeout value in seconds
-        :param operation: Operation that timed out
+        Args:
+            message: Error message
+            timeout: Timeout value in seconds
+            operation: Operation that timed out
         """
-        safe_details: dict[str, Any] = {}
-        if timeout is not None:
-            safe_details["timeout"] = round(timeout, 2)
-        if operation:
-            safe_details["operation"] = operation
+        safe_details: dict[str, Any] | None = None
+        if timeout is not None or operation:
+            safe_details = {}
+            if timeout is not None:
+                safe_details["timeout"] = round(timeout, 2)
+            if operation:
+                safe_details["operation"] = operation
 
         super().__init__(message, safe_details=safe_details)
 
@@ -371,21 +485,35 @@ class TimeoutError(OutlineError):
 def get_retry_delay(error: Exception) -> float | None:
     """Get suggested retry delay for an error.
 
-    :param error: Exception to check
-    :return: Retry delay in seconds or None if not retryable
+    Args:
+        error: Exception to check
+
+    Returns:
+        Retry delay in seconds, or None if not retryable
+
+    Example:
+        >>> error = OutlineTimeoutError("Timeout")
+        >>> get_retry_delay(error)  # 2.0
     """
     if not isinstance(error, OutlineError):
         return None
     if not error.is_retryable:
         return None
-    return getattr(error, "default_retry_delay", 1.0)
+    return error.default_retry_delay
 
 
 def is_retryable(error: Exception) -> bool:
-    """Check if error is retryable.
+    """Check if error should be retried.
 
-    :param error: Exception to check
-    :return: True if retryable
+    Args:
+        error: Exception to check
+
+    Returns:
+        True if error is retryable
+
+    Example:
+        >>> error = APIError("Server error", status_code=503)
+        >>> is_retryable(error)  # True
     """
     if isinstance(error, OutlineError):
         return error.is_retryable
@@ -393,63 +521,65 @@ def is_retryable(error: Exception) -> bool:
 
 
 def get_safe_error_dict(error: Exception) -> dict[str, Any]:
-    """Get safe error dictionary for logging/monitoring.
+    """Extract safe error information for logging.
 
     Returns only safe information without sensitive data.
 
-    :param error: Exception to convert
-    :return: Safe error dictionary
+    Args:
+        error: Exception to convert
+
+    Returns:
+        Safe error dictionary suitable for logging
+
+    Example:
+        >>> error = APIError("Not found", status_code=404)
+        >>> get_safe_error_dict(error)
+        {'type': 'APIError', 'message': 'Not found', 'status_code': 404, ...}
     """
     result: dict[str, Any] = {
         "type": type(error).__name__,
         "message": str(error),
     }
 
-    if isinstance(error, OutlineError):
-        result["retryable"] = error.is_retryable
-        result["retry_delay"] = error.default_retry_delay
-        result["safe_details"] = error.safe_details
+    if not isinstance(error, OutlineError):
+        return result
 
-        # Add specific error attributes using pattern matching
-        match error:
-            case APIError():
-                result.update(
-                    {
-                        "status_code": error.status_code,
-                        "is_client_error": error.is_client_error,
-                        "is_server_error": error.is_server_error,
-                    }
-                )
-            case CircuitOpenError():
-                result["retry_after"] = error.retry_after
-            case ConfigurationError():
-                result.update(
-                    {
-                        "field": error.field,
-                        "security_issue": error.security_issue,
-                    }
-                )
-            case ValidationError():
-                result.update(
-                    {
-                        "field": error.field,
-                        "model": error.model,
-                    }
-                )
-            case ConnectionError():
-                result.update(
-                    {
-                        "host": error.host,
-                        "port": error.port,
-                    }
-                )
-            case TimeoutError():
-                result.update(
-                    {
-                        "timeout": error.timeout,
-                        "operation": error.operation,
-                    }
-                )
+    result.update(
+        {
+            "retryable": error.is_retryable,
+            "retry_delay": error.default_retry_delay,
+            "safe_details": error.safe_details,
+        }
+    )
+
+    match error:
+        case APIError():
+            result["status_code"] = error.status_code
+            # Only compute these if status_code is not None
+            if error.status_code is not None:
+                result["is_client_error"] = error.is_client_error
+                result["is_server_error"] = error.is_server_error
+        case CircuitOpenError():
+            result["retry_after"] = error.retry_after
+        case ConfigurationError():
+            if error.field is not None:
+                result["field"] = error.field
+            result["security_issue"] = error.security_issue
+        case ValidationError():
+            if error.field is not None:
+                result["field"] = error.field
+            if error.model is not None:
+                result["model"] = error.model
+        case OutlineConnectionError():
+            if error.host is not None:
+                result["host"] = error.host
+            if error.port is not None:
+                result["port"] = error.port
+        case OutlineTimeoutError():
+            if error.timeout is not None:
+                result["timeout"] = error.timeout
+            if error.operation is not None:
+                result["operation"] = error.operation
 
     return result
 
@@ -457,9 +587,20 @@ def get_safe_error_dict(error: Exception) -> dict[str, Any]:
 def format_error_chain(error: Exception) -> list[dict[str, Any]]:
     """Format exception chain for structured logging.
 
-    :param error: Exception to format
-    :return: List of error dictionaries (root to leaf)
+    Args:
+        error: Exception to format
+
+    Returns:
+        List of error dictionaries ordered from root to leaf
+
+    Example:
+        >>> try:
+        ...     raise ValueError("Inner") from KeyError("Outer")
+        ... except Exception as e:
+        ...     chain = format_error_chain(e)
+        ...     len(chain)  # 2
     """
+    # Pre-allocate with reasonable size hint (most chains are 1-3 errors)
     chain: list[dict[str, Any]] = []
     current: Exception | None = error
 
@@ -474,9 +615,9 @@ __all__ = [
     "APIError",
     "CircuitOpenError",
     "ConfigurationError",
-    "ConnectionError",
+    "OutlineConnectionError",
     "OutlineError",
-    "TimeoutError",
+    "OutlineTimeoutError",
     "ValidationError",
     "format_error_chain",
     "get_retry_delay",
