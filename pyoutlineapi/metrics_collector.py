@@ -27,6 +27,7 @@ from .common_types import Constants
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
     from typing_extensions import Self
 
     from .client import AsyncOutlineClient
@@ -308,9 +309,9 @@ class MetricsCollector:
         "_running",
         "_shutdown_event",
         "_start_time",
-        "_task",
         "_stats_cache",
         "_stats_cache_time",
+        "_task",
     )
 
     def __init__(

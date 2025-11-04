@@ -1104,4 +1104,4 @@ class BaseHTTPClient:
         }
 
 
-__all__ = ["BaseHTTPClient", "MetricsCollector", "correlation_id", "NoOpMetrics"]
+__all__ = ["BaseHTTPClient", "MetricsCollector", "NoOpMetrics", "correlation_id"]

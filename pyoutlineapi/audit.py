@@ -21,13 +21,13 @@ import time
 from dataclasses import dataclass, field
 from functools import wraps
 from typing import (
+    TYPE_CHECKING,
     Any,
     ParamSpec,
     Protocol,
     TypeVar,
-    runtime_checkable,
     cast,
-    TYPE_CHECKING,
+    runtime_checkable,
 )
 from weakref import WeakValueDictionary
 
@@ -272,13 +272,13 @@ class DefaultAuditLogger:
     """Async audit logger with batching and backpressure handling."""
 
     __slots__ = (
-        "_queue",
-        "_queue_size",
         "_batch_size",
         "_batch_timeout",
-        "_task",
-        "_shutdown_event",
         "_lock",
+        "_queue",
+        "_queue_size",
+        "_shutdown_event",
+        "_task",
     )
 
     def __init__(

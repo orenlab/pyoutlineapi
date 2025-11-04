@@ -22,7 +22,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .circuit_breaker import CircuitConfig
-from .common_types import ConfigOverrides, Validators, Constants
+from .common_types import ConfigOverrides, Constants, Validators
 from .exceptions import ConfigurationError
 
 if TYPE_CHECKING:
@@ -71,7 +71,7 @@ def _log_if_enabled(level: int, message: str) -> None:
 
 
 class OutlineClientConfig(BaseSettings):
-    """Main configuration with enhanced security and performance."""
+    """Main configuration"""
 
     model_config = SettingsConfigDict(
         env_prefix=_ENV_PREFIX,

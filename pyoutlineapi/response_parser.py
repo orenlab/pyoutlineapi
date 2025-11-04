@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Final, TypeVar, overload
 
 from pydantic import BaseModel, ValidationError
 
-from .common_types import JsonDict, Constants
+from .common_types import Constants, JsonDict
 from .exceptions import ValidationError as OutlineValidationError
 
 if TYPE_CHECKING:

@@ -35,7 +35,6 @@ from .models import (
 )
 from .response_parser import JsonDict, ResponseParser
 
-
 # ===== Mixins for Audit Support =====
 
 
@@ -583,7 +582,7 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
 
         sanitized_since = since.strip()
 
-        if not sanitized_since[-1] in self._VALID_SINCE_SUFFIXES:
+        if sanitized_since[-1] not in self._VALID_SINCE_SUFFIXES:
             msg = (
                 f"'since' must end with h/d/m/s (e.g., '24h', '7d'), "
                 f"got: {sanitized_since}"

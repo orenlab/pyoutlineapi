@@ -55,7 +55,7 @@ class OutlineError(Exception):
         ...     print(e.safe_details)  # {'host': 'server'}
     """
 
-    __slots__ = ("_details", "_message", "_safe_details", "_cached_str")
+    __slots__ = ("_cached_str", "_details", "_message", "_safe_details")
 
     is_retryable: ClassVar[bool] = False
     default_retry_delay: ClassVar[float] = 1.0
