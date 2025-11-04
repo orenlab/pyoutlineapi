@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
-from . import Constants
+from .common_types import Constants
 from .exceptions import CircuitOpenError
 
 if TYPE_CHECKING:

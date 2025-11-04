@@ -21,9 +21,8 @@ from typing import TYPE_CHECKING, Final, TypeAlias
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from . import Constants
 from .circuit_breaker import CircuitConfig
-from .common_types import ConfigOverrides, Validators
+from .common_types import ConfigOverrides, Validators, Constants
 from .exceptions import ConfigurationError
 
 if TYPE_CHECKING:
