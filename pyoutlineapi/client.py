@@ -22,13 +22,16 @@ from weakref import WeakValueDictionary
 from .api_mixins import AccessKeyMixin, DataLimitMixin, MetricsMixin, ServerMixin
 from .audit import AuditLogger
 from .base_client import BaseHTTPClient, MetricsCollector
-from .common_types import Validators, build_config_overrides
+from .common_types import ConfigOverrides, Validators, build_config_overrides
 from .config import OutlineClientConfig
 from .exceptions import ConfigurationError
+from .models import AccessKeyList, MetricsStatusResponse
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
     from pathlib import Path
+
+    from typing_extensions import Unpack
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +65,7 @@ class AsyncOutlineClient(
         cert_sha256: str | None = None,
         audit_logger: AuditLogger | None = None,
         metrics: MetricsCollector | None = None,
-        **overrides: int | str | bool,
+        **overrides: Unpack[ConfigOverrides],
     ) -> None:
         """Initialize Outline client with modern configuration approach.
 
@@ -77,11 +80,7 @@ class AsyncOutlineClient(
         :raises ConfigurationError: If configuration is invalid
 
         Example:
-            >>> async with AsyncOutlineClient.create(
-            ...     api_url="https://server.com/path",
-            ...     cert_sha256="abc123...",
-            ...     timeout=20,
-            ... ) as client:
+            >>> async with AsyncOutlineClient.from_env() as client:
             ...     info = await client.get_server_info()
         """
         # Build config_kwargs using utility function (DRY)
@@ -107,6 +106,8 @@ class AsyncOutlineClient(
             enable_logging=resolved_config.enable_logging,
             circuit_config=resolved_config.circuit_config,
             rate_limit=resolved_config.rate_limit,
+            allow_private_networks=resolved_config.allow_private_networks,
+            resolve_dns_for_ssrf=resolved_config.resolve_dns_for_ssrf,
             audit_logger=audit_logger,
             metrics=metrics,
         )
@@ -182,11 +183,12 @@ class AsyncOutlineClient(
     @property
     def get_sanitized_config(self) -> dict[str, Any]:
         """Delegate to config's sanitized representation.
-        See: OutlineClientConfig.get_sanitized_config()
+
+        See: OutlineClientConfig.get_sanitized_config().
 
         :return: Sanitized configuration from underlying config object
         """
-        return self._config.get_sanitized_config()
+        return self._config.get_sanitized_config
 
     @property
     def json_format(self) -> bool:
@@ -208,7 +210,7 @@ class AsyncOutlineClient(
         config: OutlineClientConfig | None = None,
         audit_logger: AuditLogger | None = None,
         metrics: MetricsCollector | None = None,
-        **overrides: int | str | bool,
+        **overrides: Unpack[ConfigOverrides],
     ) -> AsyncGenerator[AsyncOutlineClient, None]:
         """Create and initialize client as async context manager.
 
@@ -225,11 +227,7 @@ class AsyncOutlineClient(
         :raises ConfigurationError: If configuration is invalid
 
         Example:
-            >>> async with AsyncOutlineClient.create(
-            ...     api_url="https://server.com/path",
-            ...     cert_sha256="abc123...",
-            ...     timeout=20,
-            ... ) as client:
+            >>> async with AsyncOutlineClient.from_env() as client:
             ...     keys = await client.get_access_keys()
         """
         if config is not None:
@@ -253,7 +251,7 @@ class AsyncOutlineClient(
         env_file: str | Path | None = None,
         audit_logger: AuditLogger | None = None,
         metrics: MetricsCollector | None = None,
-        **overrides: int | str | bool,
+        **overrides: Unpack[ConfigOverrides],
     ) -> AsyncOutlineClient:
         """Create client from environment variables.
 
@@ -284,7 +282,7 @@ class AsyncOutlineClient(
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: object | None,
-    ) -> bool:
+    ) -> None:
         """Async context manager exit with comprehensive cleanup.
 
         Ensures graceful shutdown even on exceptions. Uses ordered cleanup
@@ -344,7 +342,7 @@ class AsyncOutlineClient(
             )
 
         # Always propagate the original exception
-        return False
+        return None
 
     # ===== Utility Methods =====
 
@@ -378,9 +376,9 @@ class AsyncOutlineClient(
         }
 
         try:
-            start_time = asyncio.get_event_loop().time()
+            start_time = time.monotonic()
             await self.get_server_info()
-            duration = asyncio.get_event_loop().time() - start_time
+            duration = time.monotonic() - start_time
 
             health_data["healthy"] = True
             health_data["response_time_ms"] = round(duration * 1000, 2)
@@ -444,8 +442,15 @@ class AsyncOutlineClient(
             summary["errors"].append(f"Access keys error: {keys_result}")
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Failed to fetch access keys: %s", keys_result)
+        elif isinstance(keys_result, dict):
+            keys_list = keys_result.get("accessKeys", [])
+            summary["access_keys_count"] = (
+                len(keys_list) if isinstance(keys_list, list) else 0
+            )
+        elif isinstance(keys_result, AccessKeyList):
+            summary["access_keys_count"] = len(keys_result.access_keys)
         else:
-            summary["access_keys_count"] = len(keys_result.get("accessKeys", []))
+            summary["access_keys_count"] = 0
 
         # Process metrics status
         if isinstance(metrics_status_result, Exception):
@@ -454,13 +459,12 @@ class AsyncOutlineClient(
                 logger.debug(
                     "Failed to fetch metrics status: %s", metrics_status_result
                 )
-        else:
-            summary["metrics_enabled"] = metrics_status_result.get(
-                "metricsEnabled", False
-            )
+        elif isinstance(metrics_status_result, dict):
+            metrics_enabled = bool(metrics_status_result.get("metricsEnabled", False))
+            summary["metrics_enabled"] = metrics_enabled
 
             # Fetch transfer metrics if enabled (dependent call - sequential)
-            if metrics_status_result.get("metricsEnabled"):
+            if metrics_enabled:
                 try:
                     transfer = await self.get_transfer_metrics(as_json=True)
                     summary["transfer_metrics"] = transfer
@@ -468,6 +472,18 @@ class AsyncOutlineClient(
                     summary["errors"].append(f"Transfer metrics error: {e}")
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug("Failed to fetch transfer metrics: %s", e)
+        elif isinstance(metrics_status_result, MetricsStatusResponse):
+            summary["metrics_enabled"] = metrics_status_result.metrics_enabled
+            if metrics_status_result.metrics_enabled:
+                try:
+                    transfer = await self.get_transfer_metrics(as_json=True)
+                    summary["transfer_metrics"] = transfer
+                except Exception as e:
+                    summary["errors"].append(f"Transfer metrics error: {e}")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Failed to fetch transfer metrics: %s", e)
+        else:
+            summary["metrics_enabled"] = False
 
         # Add client status (synchronous, no API call)
         summary["client_status"] = {
@@ -775,7 +791,7 @@ class MultiServerManager:
         for (server_id, _), result in zip(
             self._clients.items(), results_list, strict=False
         ):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 results[server_id] = {
                     "healthy": False,
                     "error": str(result),
@@ -878,7 +894,7 @@ def create_client(
     *,
     audit_logger: AuditLogger | None = None,
     metrics: MetricsCollector | None = None,
-    **overrides: int | str | bool,
+    **overrides: Unpack[ConfigOverrides],
 ) -> AsyncOutlineClient:
     """Create client with minimal parameters.
 
@@ -893,12 +909,8 @@ def create_client(
     :return: Configured client instance (use with async context manager)
     :raises ConfigurationError: If parameters are invalid
 
-    Example:
-        >>> async with create_client(
-        ...     api_url="https://server.com/path",
-        ...     cert_sha256="abc123...",
-        ...     timeout=20,
-        ... ) as client:
+    Example (advanced, prefer from_env for production):
+        >>> async with AsyncOutlineClient.from_env() as client:
         ...     info = await client.get_server_info()
     """
     return AsyncOutlineClient(
@@ -930,8 +942,8 @@ def create_multi_server_manager(
 
     Example:
         >>> configs = [
-        ...     OutlineClientConfig.create_minimal("https://s1.com/path", "cert1..."),
-        ...     OutlineClientConfig.create_minimal("https://s2.com/path", "cert2..."),
+        ...     OutlineClientConfig.create_minimal("https://s1.com/path", "a" * 64),
+        ...     OutlineClientConfig.create_minimal("https://s2.com/path", "b" * 64),
         ... ]
         >>> async with create_multi_server_manager(configs) as manager:
         ...     health = await manager.health_check_all()

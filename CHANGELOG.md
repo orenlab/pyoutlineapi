@@ -5,17 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2025-10-XX
+## [0.4.0] - 2026-01-30
 
-### 🎯 Major Release - Enterprise-Grade Refactoring
+### Changed
 
-Version 0.4.0 represents a complete architectural overhaul of PyOutlineAPI, transforming it from a basic API client into
-a production-ready, enterprise-grade library with advanced resilience patterns, comprehensive monitoring, and
-professional-grade code quality.
-
----
-
-### ✨ Added
+### Added
 
 #### **Enterprise Features**
 
@@ -49,7 +43,7 @@ professional-grade code quality.
 
 - **Metrics Collection** (`metrics_collector.py`)
     - Advanced `MetricsCollector` with automatic periodic collection
-    - Memory-efficient storage using SortedList (binary search optimized)
+    - Memory-efficient storage using `collections.deque` (binary search optimized via `bisect`)
     - Prometheus export format with extensive metrics:
         - Traffic metrics (bytes, megabytes, gigabytes transferred)
         - Rate metrics (bytes/second, megabytes/second)
@@ -61,6 +55,7 @@ professional-grade code quality.
     - Configurable history limits (1-100,000 snapshots)
     - Size validation to prevent memory exhaustion (max 10MB per snapshot)
     - Context manager support for automatic lifecycle management
+    - `experimental_since` option for `MetricsCollector` to control experimental metrics range.
 
 - **Batch Operations** (`batch_operations.py`)
     - Generic `BatchProcessor` with concurrency control
@@ -93,6 +88,9 @@ professional-grade code quality.
     - `get_sanitized_config()` for safe logging
     - `create_env_template()` utility for quick setup
     - Factory methods: `from_env()`, `create_minimal()`
+    - `allow_private_networks` configuration flag (defaults to true).
+    - `resolve_dns_for_ssrf` strict SSRF mode (DNS resolution with rebinding guard).
+    - Production config now defaults to stricter SSRF settings (blocks private networks, DNS recheck enabled).
 
 #### **Type System & Validation**
 
@@ -104,6 +102,7 @@ professional-grade code quality.
     - `Constants` class with security limits and defaults
     - Enhanced `Validators` utility class with DRY optimizations
     - Security utilities: `secure_compare()`, `mask_sensitive_data()`
+    - Strict SSRF DNS validation to block private/reserved IPs in hostnames
     - `ConfigOverrides` and `ClientDependencies` TypedDict for type safety
     - Comprehensive sensitive key detection (32+ patterns)
 
@@ -177,9 +176,14 @@ professional-grade code quality.
 
 ---
 
-### 🔄 Changed
+### Changed
 
 #### **Breaking Changes**
+
+- Migrated tooling from Poetry to uv (PEP 621 metadata + dependency groups).
+- Data-limit endpoints now send the schema-conformant payload (`{\"bytes\": ...}`).
+- Experimental metrics `since` now accepts ISO-8601 timestamps in addition to relative durations.
+- Monotonic time is used for internal timers to improve Python 3.14 compatibility.
 
 - **Client Constructor Signature**:
   ```python
@@ -237,7 +241,7 @@ professional-grade code quality.
 
 ---
 
-### 🐛 Fixed
+### Fixed
 
 - **Validation Issues**:
     - Fixed empty name handling in `AccessKey` validation
@@ -265,7 +269,7 @@ professional-grade code quality.
 
 ---
 
-### 🗑️ Removed
+### Removed
 
 - **Deprecated Features**:
     - Removed direct dictionary usage in internal methods
@@ -281,46 +285,11 @@ professional-grade code quality.
 ### 📦 Dependencies
 
 - **New Dependencies**:
-    - `sortedcontainers` - For efficient metrics storage
     - `pydantic-settings` - For configuration management
 
 - **Updated Dependencies**:
     - `pydantic` - Now requires v2.0+
     - `aiohttp` - Updated for better async support
-
----
-
-### 🔧 Technical Improvements
-
-#### **Code Organization**
-
-- Modular architecture with clear separation of concerns
-- 14 specialized modules vs. 3 in v0.3.0
-- Over 5,000 lines of production-ready code
-- Comprehensive inline documentation
-
-#### **Testing & Quality**
-
-- Type hints coverage: ~100%
-- Docstring coverage: ~95%
-- Protocol-based design for easy mocking
-- Immutable data structures for thread safety
-
-#### **Security**
-
-- Automatic sensitive data masking
-- Secure comparison for certificates
-- Rate limiting to prevent abuse
-- Certificate pinning for TLS connections
-- No secrets in logs or string representations
-
-#### **Observability**
-
-- Structured logging with correlation IDs
-- Comprehensive metrics collection
-- Health check framework
-- Audit trail for all operations
-- Prometheus export format
 
 ---
 

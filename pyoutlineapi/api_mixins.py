@@ -13,7 +13,7 @@ Source code repository:
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from .audit import AuditLogger, audited, get_or_create_audit_logger
 from .common_types import JsonPayload, QueryParams, ResponseData, Validators
@@ -23,7 +23,6 @@ from .models import (
     AccessKeyList,
     AccessKeyNameRequest,
     DataLimit,
-    DataLimitRequest,
     ExperimentalMetrics,
     HostnameRequest,
     MetricsEnabledRequest,
@@ -49,7 +48,7 @@ class AuditableMixin:
         """
         instance_dict = self.__dict__
         if "_audit_logger_instance" in instance_dict:
-            return instance_dict["_audit_logger_instance"]
+            return cast(AuditLogger, instance_dict["_audit_logger_instance"])
         return get_or_create_audit_logger()
 
 
@@ -148,9 +147,6 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
         :raises ValueError: If name is empty
         """
         validated_name = Validators.validate_name(name)
-        if validated_name is None:
-            msg = "Server name cannot be empty"
-            raise ValueError(msg)
 
         request = ServerNameRequest(name=validated_name)
         data = await self._request(
@@ -188,7 +184,7 @@ class ServerMixin(AuditableMixin, JsonFormattingMixin):
 
         Based on OpenAPI: PUT /server/port-for-new-access-keys
 
-        :param port: Port number (1025-65535)
+        :param port: Port number (1-65535)
         :return: True if successful
         :raises ValueError: If port is invalid
         """
@@ -383,10 +379,6 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         validated_key_id = Validators.validate_key_id(key_id)
         validated_name = Validators.validate_name(name)
 
-        if validated_name is None:
-            msg = "Name cannot be empty"
-            raise ValueError(msg)
-
         request = AccessKeyNameRequest(name=validated_name)
         data = await self._request(
             "PUT",
@@ -412,12 +404,10 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         """
         validated_key_id = Validators.validate_key_id(key_id)
 
-        request = DataLimitRequest(limit=limit)
-
         data = await self._request(
             "PUT",
             f"access-keys/{validated_key_id}/data-limit",
-            json=request.model_dump(by_alias=True),
+            json=limit.model_dump(by_alias=True),
         )
         return ResponseParser.parse_simple(data)
 
@@ -467,12 +457,10 @@ class DataLimitMixin(AuditableMixin):
         :param limit: Data transfer limit
         :return: True if successful
         """
-        request = DataLimitRequest(limit=limit)
-
         data = await self._request(
             "PUT",
             "server/access-key-data-limit",
-            json=request.model_dump(by_alias=True),
+            json=limit.model_dump(by_alias=True),
         )
         return ResponseParser.parse_simple(data)
 
@@ -503,8 +491,6 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
 
     __slots__ = ()
 
-    _VALID_SINCE_SUFFIXES: frozenset[str] = frozenset({"h", "d", "m", "s"})
-
     async def get_metrics_status(
         self: HTTPClientProtocol,
         *,
@@ -530,12 +516,8 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
 
         :param enabled: True to enable, False to disable
         :return: True if successful
-        :raises ValueError: If enabled is not boolean
+        :raises ValueError: If enabled is invalid
         """
-        if not isinstance(enabled, bool):
-            msg = f"enabled must be bool, got {type(enabled).__name__}"
-            raise ValueError(msg)
-
         request = MetricsEnabledRequest(metricsEnabled=enabled)
         data = await self._request(
             "PUT",
@@ -571,23 +553,12 @@ class MetricsMixin(AuditableMixin, JsonFormattingMixin):
 
         Based on OpenAPI: GET /experimental/server/metrics
 
-        :param since: Time period (e.g., '24h', '7d')
+        :param since: Time period (e.g., '24h', '7d') or ISO-8601 timestamp
         :param as_json: Return raw JSON instead of model
         :return: Experimental metrics
         :raises ValueError: If since parameter is invalid
         """
-        if not since or not since.strip():
-            msg = "'since' parameter cannot be empty"
-            raise ValueError(msg)
-
-        sanitized_since = since.strip()
-
-        if sanitized_since[-1] not in self._VALID_SINCE_SUFFIXES:
-            msg = (
-                f"'since' must end with h/d/m/s (e.g., '24h', '7d'), "
-                f"got: {sanitized_since}"
-            )
-            raise ValueError(msg)
+        sanitized_since = Validators.validate_since(since)
 
         data = await self._request(
             "GET",

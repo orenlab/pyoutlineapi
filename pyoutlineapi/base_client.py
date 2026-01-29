@@ -20,22 +20,26 @@ import secrets
 import ssl
 import time
 from asyncio import Semaphore
+from contextlib import suppress
 from contextvars import ContextVar
-from functools import lru_cache
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
+from urllib.parse import urlparse
 
 import aiohttp
-from aiohttp import ClientResponse, TraceRequestStartParams
+from aiohttp import ClientResponse
 
 from .audit import AuditLogger, NoOpAuditLogger
 from .common_types import (
     Constants,
     CredentialSanitizer,
+    JsonDict,  # noqa: F401
+    JsonList,  # noqa: F401
     JsonPayload,
     MetricsTags,
     QueryParams,
     ResponseData,
     SecureIDGenerator,
+    SSRFProtection,
     Validators,
 )
 from .exceptions import (
@@ -47,8 +51,13 @@ from .exceptions import (
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from types import SimpleNamespace
 
-    from aiohttp import ClientSession, TraceConfig
+    from aiohttp import (
+        ClientSession,
+        TraceConnectionCreateEndParams,
+        TraceConnectionReuseconnParams,
+    )
     from pydantic import SecretStr
 
     from .circuit_breaker import CircuitBreaker, CircuitConfig
@@ -128,7 +137,7 @@ class TokenBucketRateLimiter:
         self._rate: float = rate
         self._capacity: int = capacity
         self._tokens: float = float(capacity)
-        self._last_update: float = asyncio.get_event_loop().time()
+        self._last_update: float = time.monotonic()
         self._lock: asyncio.Lock = asyncio.Lock()
 
     async def acquire(self, tokens: float = 1.0) -> None:
@@ -140,8 +149,7 @@ class TokenBucketRateLimiter:
         """
         async with self._lock:
             # Cache loop reference (minor optimization)
-            loop = asyncio.get_event_loop()
-            now = loop.time()
+            now = time.monotonic()
             elapsed = now - self._last_update
 
             # Refill tokens based on elapsed time (O(1) calculation)
@@ -164,7 +172,7 @@ class TokenBucketRateLimiter:
 
         :return: Number of available tokens
         """
-        now = asyncio.get_event_loop().time()
+        now = time.monotonic()
         elapsed = now - self._last_update
         return min(self._capacity, self._tokens + elapsed * self._rate)
 
@@ -373,11 +381,11 @@ class SSLFingerprintValidator:
         Validators.validate_cert_fingerprint() before calling this.
         SecretStr maintained for memory protection.
         """
-        self._expected_fingerprint_secret: SecretStr = cert_sha256
+        self._expected_fingerprint_secret: SecretStr | None = cert_sha256
 
         # Create SSL context WITHOUT CA verification (self-signed certs)
         # Security is ensured by strict fingerprint pinning
-        self._ssl_context = ssl.create_default_context()
+        self._ssl_context: ssl.SSLContext | None = ssl.create_default_context()
         self._ssl_context.check_hostname = False  # We verify via fingerprint
         self._ssl_context.verify_mode = ssl.CERT_NONE  # Accept self-signed
 
@@ -385,10 +393,8 @@ class SSLFingerprintValidator:
         self._ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
 
         # Enable TLS 1.3 if available
-        try:
+        with suppress(AttributeError):
             self._ssl_context.maximum_version = ssl.TLSVersion.TLSv1_3
-        except AttributeError:
-            pass  # TLS 1.3 not available, TLS 1.2 is acceptable
 
     def __exit__(
         self,
@@ -402,12 +408,12 @@ class SSLFingerprintValidator:
         self._ssl_context = None
 
     @property
-    @lru_cache(maxsize=1)  # Cache single SSL context (always same)
     def ssl_context(self) -> ssl.SSLContext:
-        """Get SSL context for aiohttp (cached)."""
+        """Get SSL context for aiohttp."""
+        if self._ssl_context is None:
+            raise RuntimeError("SSL context is no longer available")
         return self._ssl_context
 
-    @lru_cache(maxsize=512)  # Cache verified fingerprints
     def _verify_cert_fingerprint(self, cert_der: bytes) -> None:
         """Verify certificate fingerprint matches expected.
 
@@ -420,6 +426,8 @@ class SSLFingerprintValidator:
         actual_fingerprint = hashlib.sha256(cert_der).hexdigest()
 
         # Get expected fingerprint from secure storage
+        if self._expected_fingerprint_secret is None:
+            raise RuntimeError("Expected fingerprint is no longer available")
         expected_fingerprint = self._expected_fingerprint_secret.get_secret_value()
 
         # SECURITY: Constant-time comparison prevents timing attacks
@@ -431,8 +439,8 @@ class SSLFingerprintValidator:
     async def verify_connection(
         self,
         session: ClientSession,
-        trace_config_ctx: TraceConfig,
-        params: TraceRequestStartParams,
+        trace_config_ctx: SimpleNamespace,
+        params: TraceConnectionCreateEndParams | TraceConnectionReuseconnParams,
     ) -> None:
         """Verify certificate fingerprint during connection.
 
@@ -441,12 +449,11 @@ class SSLFingerprintValidator:
         :param params: Request parameters
         :raises ValueError: If fingerprint doesn't match (MITM detected)
         """
-        # Get peer certificate from connection
-        connection = getattr(params, "connection", None)
-        if connection is None:
-            return
-
-        transport = getattr(connection, "transport", None)
+        # Get peer certificate from transport (create/reuse hooks)
+        transport = getattr(params, "transport", None)
+        if transport is None:
+            connection = getattr(params, "connection", None)
+            transport = getattr(connection, "transport", None) if connection else None
         if transport is None:
             return
 
@@ -467,6 +474,8 @@ class BaseHTTPClient:
     __slots__ = (
         "_active_requests",
         "_active_requests_lock",
+        "_allow_private_networks",
+        "_api_hostname",
         "_api_url",
         "_audit_logger",
         "_cert_sha256",
@@ -476,6 +485,7 @@ class BaseHTTPClient:
         "_metrics",
         "_rate_limiter",
         "_rate_limiter_tps",
+        "_resolve_dns_for_ssrf",
         "_retry_attempts",
         "_retry_helper",
         "_session",
@@ -498,6 +508,8 @@ class BaseHTTPClient:
         enable_logging: bool = False,
         circuit_config: CircuitConfig | None = None,
         rate_limit: int = 100,
+        allow_private_networks: bool = True,
+        resolve_dns_for_ssrf: bool = False,
         audit_logger: AuditLogger | None = None,
         metrics: MetricsCollector | None = None,
     ) -> None:
@@ -512,12 +524,21 @@ class BaseHTTPClient:
         :param enable_logging: Enable debug logging
         :param circuit_config: Circuit breaker configuration
         :param rate_limit: Maximum concurrent requests
+        :param allow_private_networks: Allow private/local network api_url
+        :param resolve_dns_for_ssrf: Resolve DNS for SSRF checks (strict mode)
         :param audit_logger: Custom audit logger
         :param metrics: Custom metrics collector
         :raises ValueError: If parameters are invalid
         """
         # Validate and sanitize URL (removes trailing slash)
-        self._api_url = Validators.validate_url(api_url).rstrip("/")
+        self._api_url = Validators.validate_url(
+            api_url,
+            allow_private_networks=allow_private_networks,
+            resolve_dns=False,
+        ).rstrip("/")
+        self._api_hostname = urlparse(self._api_url).hostname
+        self._allow_private_networks = allow_private_networks
+        self._resolve_dns_for_ssrf = resolve_dns_for_ssrf
 
         # SECURITY: Validate fingerprint and keep as SecretStr
         # Never expose as plain string - SecretStr protects memory
@@ -584,7 +605,8 @@ class BaseHTTPClient:
         from .circuit_breaker import CircuitBreaker, CircuitConfig
 
         # Calculate maximum possible request time including retries
-        max_retry_time = self._timeout.total * (self._retry_attempts + 1)
+        total_timeout = self._timeout.total or 0.0
+        max_retry_time = total_timeout * (self._retry_attempts + 1)
         max_delays = sum(
             Constants.DEFAULT_RETRY_DELAY * (i + 1) for i in range(self._retry_attempts)
         )
@@ -641,7 +663,12 @@ class BaseHTTPClient:
 
             # Verifies certificate on every request (MITM prevention)
             trace_config = aiohttp.TraceConfig()
-            trace_config.on_request_start.append(self._ssl_validator.verify_connection)
+            trace_config.on_connection_create_end.append(
+                self._ssl_validator.verify_connection
+            )
+            trace_config.on_connection_reuseconn.append(
+                self._ssl_validator.verify_connection
+            )
 
             self._session = aiohttp.ClientSession(
                 connector=connector,
@@ -681,6 +708,17 @@ class BaseHTTPClient:
         :raises TimeoutError: If request times out
         :raises ConnectionError: If connection fails
         """
+        # Strict SSRF re-check at request time (DNS rebinding protection)
+        if (
+            self._resolve_dns_for_ssrf
+            and not self._allow_private_networks
+            and self._api_hostname
+            and SSRFProtection.is_blocked_hostname_uncached(self._api_hostname)
+        ):
+            raise ValueError(
+                f"Access to {self._api_hostname} is blocked (SSRF protection)"
+            )
+
         await self._ensure_session()
 
         # SECURITY: Generate secure correlation ID for distributed tracing
@@ -764,7 +802,11 @@ class BaseHTTPClient:
                         "Accept": "application/json",
                     }
 
-                    assert self._session is not None
+                    if self._session is None:
+                        raise APIError(
+                            "HTTP session not initialized", endpoint=endpoint
+                        )
+
                     async with self._session.request(
                         method, url, json=json, params=params, headers=headers
                     ) as response:
@@ -904,19 +946,28 @@ class BaseHTTPClient:
         """
         # Check Content-Length header
         content_length = response.headers.get("Content-Length")
-        if content_length and int(content_length) > Constants.MAX_RESPONSE_SIZE:
-            raise APIError(
-                f"Response too large: {content_length} bytes "
-                f"(max {Constants.MAX_RESPONSE_SIZE})",
-                status_code=response.status,
-                endpoint=endpoint,
-            )
+        if content_length:
+            try:
+                length_value = int(content_length)
+            except ValueError:
+                length_value = None
+
+            if length_value is not None and length_value > Constants.MAX_RESPONSE_SIZE:
+                raise APIError(
+                    f"Response too large: {length_value} bytes "
+                    f"(max {Constants.MAX_RESPONSE_SIZE})",
+                    status_code=response.status,
+                    endpoint=endpoint,
+                )
 
         # Validate Content-Type
         content_type = response.headers.get("Content-Type", "").lower()
-        if content_type and "application/json" not in content_type:
-            if logger.isEnabledFor(Constants.LOG_LEVEL_WARNING):
-                logger.warning("Unexpected Content-Type: %s", content_type)
+        if (
+            content_type
+            and "application/json" not in content_type
+            and logger.isEnabledFor(Constants.LOG_LEVEL_WARNING)
+        ):
+            logger.warning("Unexpected Content-Type: %s", content_type)
 
         # Read response in chunks with size limit
         chunks = []
@@ -938,7 +989,16 @@ class BaseHTTPClient:
 
         # Parse JSON
         try:
-            return json.loads(data)
+            parsed = json.loads(data)
+            if isinstance(parsed, dict):
+                return cast(ResponseData, parsed)
+            if 200 <= response.status < 300:
+                return {"success": True}
+            raise APIError(
+                f"Expected JSON object from {endpoint}, got {type(parsed).__name__}",
+                status_code=response.status,
+                endpoint=endpoint,
+            )
         except (json.JSONDecodeError, ValueError) as e:
             # Success status but invalid JSON - return generic success
             if 200 <= response.status < 300:
@@ -949,7 +1009,6 @@ class BaseHTTPClient:
                 endpoint=endpoint,
             ) from e
 
-    @lru_cache(maxsize=50)
     def _build_url(self, endpoint: str) -> str:
         """Build full URL from endpoint.
 

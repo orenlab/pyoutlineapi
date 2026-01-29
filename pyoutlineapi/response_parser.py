@@ -14,15 +14,15 @@ Source code repository:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Final, TypeVar, overload
+from typing import TYPE_CHECKING, Final, Literal, TypeVar, cast, overload
 
 from pydantic import BaseModel, ValidationError
 
-from .common_types import Constants, JsonDict
+from .common_types import Constants, JsonDict, JsonList, JsonValue  # noqa: F401
 from .exceptions import ValidationError as OutlineValidationError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -42,24 +42,33 @@ class ResponseParser:
     @staticmethod
     @overload
     def parse(
-        data: dict[str, object],
+        data: dict[str, JsonValue],
         model: type[T],
         *,
-        as_json: bool = True,
+        as_json: Literal[True] = True,
     ) -> JsonDict: ...
 
     @staticmethod
     @overload
     def parse(
-        data: dict[str, object],
+        data: dict[str, JsonValue],
         model: type[T],
         *,
-        as_json: bool = False,
+        as_json: Literal[False] = False,
     ) -> T: ...
 
     @staticmethod
+    @overload
     def parse(
-        data: dict[str, object],
+        data: dict[str, JsonValue],
+        model: type[T],
+        *,
+        as_json: bool,
+    ) -> T | JsonDict: ...
+
+    @staticmethod
+    def parse(
+        data: dict[str, JsonValue],
         model: type[T],
         *,
         as_json: bool = False,
@@ -91,12 +100,13 @@ class ResponseParser:
             logger.debug("Parsing empty dict for model %s", model.__name__)
 
         try:
-            data_dict = data if isinstance(data, dict) else dict(data)
-            validated = model.model_validate(data_dict)
+            validated = model.model_validate(data)
 
             if as_json:
-                return validated.model_dump(by_alias=True)
-            return validated
+                return cast(  # type: ignore[redundant-cast, unused-ignore]
+                    JsonDict, validated.model_dump(by_alias=True)
+                )
+            return cast(T, validated)  # type: ignore[redundant-cast, unused-ignore]
 
         except ValidationError as e:
             errors = e.errors()
@@ -153,7 +163,7 @@ class ResponseParser:
             ) from e
 
     @staticmethod
-    def parse_simple(data: dict[str, object]) -> bool:
+    def parse_simple(data: Mapping[str, JsonValue] | object) -> bool:
         """Parse simple success/error responses efficiently.
 
         Handles various response formats with minimal overhead:
@@ -196,7 +206,7 @@ class ResponseParser:
 
     @staticmethod
     def validate_response_structure(
-        data: dict[str, object],
+        data: Mapping[str, JsonValue] | object,
         required_fields: Sequence[str] | None = None,
     ) -> bool:
         """Validate response structure without full parsing.
@@ -227,7 +237,7 @@ class ResponseParser:
         return all(field in data for field in required_fields)
 
     @staticmethod
-    def extract_error_message(data: dict[str, object]) -> str | None:
+    def extract_error_message(data: Mapping[str, JsonValue] | object) -> str | None:
         """Extract error message from response data efficiently.
 
         Checks common error field names in order of preference.
@@ -259,7 +269,7 @@ class ResponseParser:
         return None
 
     @staticmethod
-    def is_error_response(data: dict[str, object]) -> bool:
+    def is_error_response(data: Mapping[str, object] | object) -> bool:
         """Check if response indicates an error efficiently.
 
         Fast boolean check for error indicators in response.

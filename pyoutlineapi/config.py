@@ -14,9 +14,9 @@ Source code repository:
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -71,7 +71,7 @@ def _log_if_enabled(level: int, message: str) -> None:
 
 
 class OutlineClientConfig(BaseSettings):
-    """Main configuration"""
+    """Main configuration."""
 
     model_config = SettingsConfigDict(
         env_prefix=_ENV_PREFIX,
@@ -135,6 +135,14 @@ class OutlineClientConfig(BaseSettings):
     json_format: bool = Field(
         default=False,
         description="Return raw JSON",
+    )
+    allow_private_networks: bool = Field(
+        default=True,
+        description="Allow private or local network addresses in api_url",
+    )
+    resolve_dns_for_ssrf: bool = Field(
+        default=False,
+        description="Resolve DNS for SSRF checks (strict mode)",
     )
 
     # ===== Circuit Breaker Settings =====
@@ -220,6 +228,13 @@ class OutlineClientConfig(BaseSettings):
                     "This is insecure and should only be used for testing.",
                 )
 
+        # Optional SSRF protection for private networks (no DNS resolution)
+        Validators.validate_url(
+            self.api_url,
+            allow_private_networks=self.allow_private_networks,
+            resolve_dns=False,
+        )
+
         # Circuit breaker timeout adjustment with caching
         if self.enable_circuit_breaker:
             max_request_time = self._get_max_request_time()
@@ -262,14 +277,14 @@ class OutlineClientConfig(BaseSettings):
 
         if isinstance(value, str):
             raise TypeError(
-                "cert_sha256 must be SecretStr, not str. " "Use: SecretStr('your_cert')"
+                "cert_sha256 must be SecretStr, not str. Use: SecretStr('your_cert')"
             )
 
         super().__setattr__(name, value)
 
     # ===== Helper Methods =====
 
-    @lru_cache(maxsize=1)
+    @cached_property
     def get_sanitized_config(self) -> ConfigDict:
         """Get configuration with sensitive data masked (cached).
 
@@ -291,6 +306,7 @@ class OutlineClientConfig(BaseSettings):
             "enable_circuit_breaker": self.enable_circuit_breaker,
             "enable_logging": self.enable_logging,
             "json_format": self.json_format,
+            "allow_private_networks": self.allow_private_networks,
             "circuit_failure_threshold": self.circuit_failure_threshold,
             "circuit_recovery_timeout": self.circuit_recovery_timeout,
             "circuit_success_threshold": self.circuit_success_threshold,
@@ -319,7 +335,9 @@ class OutlineClientConfig(BaseSettings):
             )
 
         # Pydantic's model_copy is already optimized
-        return self.model_copy(deep=True, update=overrides)
+        return cast(  # type: ignore[redundant-cast, unused-ignore]
+            OutlineClientConfig, self.model_copy(deep=True, update=overrides)
+        )
 
     @property
     def circuit_config(self) -> CircuitConfig | None:
@@ -364,10 +382,15 @@ class OutlineClientConfig(BaseSettings):
         """
         # Fast path: validate overrides early
         valid_keys = frozenset(ConfigOverrides.__annotations__.keys())
-        filtered_overrides = {k: v for k, v in overrides.items() if k in valid_keys}
+        filtered_overrides = cast(
+            ConfigOverrides,
+            {k: v for k, v in overrides.items() if k in valid_keys},
+        )
 
         if not env_file:
-            return cls(**filtered_overrides)
+            return cls(  # type: ignore[call-arg, unused-ignore]
+                **filtered_overrides
+            )
 
         match env_file:
             case str():
@@ -385,17 +408,10 @@ class OutlineClientConfig(BaseSettings):
                 field="env_file",
             )
 
-        # Optimized: Reuse base config with custom env_file
-        class TempConfig(cls):
-            model_config = SettingsConfigDict(
-                env_prefix=_ENV_PREFIX,
-                env_file=str(env_path),
-                env_file_encoding="utf-8",
-                case_sensitive=False,
-                extra="forbid",
-            )
-
-        return TempConfig(**filtered_overrides)
+        return cls(  # type: ignore[call-arg, unused-ignore]
+            _env_file=str(env_path),
+            **filtered_overrides,
+        )
 
     @classmethod
     def create_minimal(
@@ -415,7 +431,7 @@ class OutlineClientConfig(BaseSettings):
         Example:
             >>> config = OutlineClientConfig.create_minimal(
             ...     api_url="https://server.com/path",
-            ...     cert_sha256="abc123...",
+            ...     cert_sha256="a" * 64,
             ...     timeout=20
             ... )
         """
@@ -431,9 +447,16 @@ class OutlineClientConfig(BaseSettings):
                 )
 
         valid_keys = frozenset(ConfigOverrides.__annotations__.keys())
-        filtered_overrides = {k: v for k, v in overrides.items() if k in valid_keys}
+        filtered_overrides = cast(
+            ConfigOverrides,
+            {k: v for k, v in overrides.items() if k in valid_keys},
+        )
 
-        return cls(api_url=api_url, cert_sha256=cert, **filtered_overrides)
+        return cls(
+            api_url=api_url,
+            cert_sha256=cert,
+            **filtered_overrides,
+        )
 
 
 class DevelopmentConfig(OutlineClientConfig):
@@ -476,6 +499,8 @@ class ProductionConfig(OutlineClientConfig):
 
     enable_circuit_breaker: bool = True
     enable_logging: bool = False
+    allow_private_networks: bool = False
+    resolve_dns_for_ssrf: bool = True
 
     @model_validator(mode="after")
     def enforce_security(self) -> Self:
@@ -543,6 +568,12 @@ OUTLINE_CERT_SHA256=your-64-character-sha256-fingerprint
 # Return raw JSON instead of models
 # OUTLINE_JSON_FORMAT=false
 
+# Allow private/local network addresses in api_url
+# OUTLINE_ALLOW_PRIVATE_NETWORKS=true
+
+# Resolve DNS for SSRF checks (strict mode)
+# OUTLINE_RESOLVE_DNS_FOR_SSRF=false
+
 # ===== Circuit Breaker Settings =====
 # Failures before opening circuit (1-100)
 # OUTLINE_CIRCUIT_FAILURE_THRESHOLD=5
@@ -606,6 +637,7 @@ def load_config(
         raise ValueError(f"Invalid environment '{environment}'. Valid: {valid_envs}")
 
     # Pattern matching for config selection (Python 3.10+)
+    config_class: type[OutlineClientConfig]
     match env_lower:
         case "development" | "dev":
             config_class = DevelopmentConfig
@@ -618,9 +650,14 @@ def load_config(
 
     # Optimized override filtering
     valid_keys = frozenset(ConfigOverrides.__annotations__.keys())
-    filtered_overrides = {k: v for k, v in overrides.items() if k in valid_keys}
+    filtered_overrides = cast(
+        ConfigOverrides,
+        {k: v for k, v in overrides.items() if k in valid_keys},
+    )
 
-    return config_class(**filtered_overrides)
+    return config_class(  # type: ignore[call-arg, unused-ignore]
+        **filtered_overrides
+    )
 
 
 __all__ = [

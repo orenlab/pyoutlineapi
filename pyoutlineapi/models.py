@@ -14,7 +14,7 @@ Source code repository:
 from __future__ import annotations
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from pydantic import Field, field_validator
 
@@ -154,6 +154,8 @@ class AccessKey(BaseValidatedModel):
         :param v: Name value
         :return: Validated name or None
         """
+        if v is None:
+            return None
         return Validators.validate_name(v)
 
     @field_validator("id")
@@ -250,7 +252,7 @@ class Server(BaseValidatedModel):
     SCHEMA: Based on GET /server response
     """
 
-    name: str
+    name: str | None = None
     server_id: str = Field(alias="serverId")
     metrics_enabled: bool = Field(alias="metricsEnabled")
     created_timestamp_ms: TimestampMs = Field(alias="createdTimestampMs")
@@ -484,7 +486,7 @@ class AccessKeyCreateRequest(BaseValidatedModel):
     SCHEMA: Based on POST /access-keys request body
     """
 
-    name: str
+    name: str | None = Field(default=None, min_length=1, max_length=255)
     method: str | None = None
     password: str | None = None
     port: Port | None = None
@@ -530,10 +532,19 @@ class AccessKeyNameRequest(BaseValidatedModel):
 class DataLimitRequest(BaseValidatedModel):
     """Request model for setting data limit.
 
-    SCHEMA: Based on PUT /access-keys/{id}/data-limit request body
+    Note:
+        The API expects the DataLimit object directly.
+        Use to_payload() to produce the correct request body.
     """
 
     limit: DataLimit
+
+    def to_payload(self) -> dict[str, int]:
+        """Convert to API request payload.
+
+        :return: Payload dict with bytes field
+        """
+        return cast(dict[str, int], self.limit.model_dump(by_alias=True))
 
 
 class MetricsEnabledRequest(BaseValidatedModel):

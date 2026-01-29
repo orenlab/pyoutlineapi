@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "0.4.0" ]
   pull_request:
     branches: [ "main" ]
   schedule:
@@ -14,6 +14,38 @@ permissions:
   security-events: write  # Required for security findings
 
 jobs:
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: 'pip'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.9.18"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Lint with Ruff
+        run: uv run ruff check .
+
+      - name: Check formatting with Ruff
+        run: uv run ruff format --check .
+
+      - name: Type check with MyPy
+        run: uv run mypy
+
+      - name: Security check with Bandit
+        run: uv run bandit -c pyproject.toml -r pyoutlineapi
+
   test:
     name: Run Tests
     runs-on: ubuntu-latest
@@ -21,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
 
     steps:
       - uses: actions/checkout@v4
@@ -32,27 +64,25 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
         with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-          installer-parallel: true
+          version: "0.9.18"
 
       - name: Load cached venv
-        id: cached-poetry-dependencies
+        id: cached-uv-dependencies
         uses: actions/cache@v4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+          key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/uv.lock', '**/pyproject.toml') }}
 
       - name: Install dependencies
-        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-        run: poetry install --no-interaction --with dev
+        if: steps.cached-uv-dependencies.outputs.cache-hit != 'true'
+        run: uv sync --dev
 
       - name: Run tests
         run: |
-          poetry run pytest --cov=./ --cov-report=xml
+          uv run pytest --cov=./ --cov-report=xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

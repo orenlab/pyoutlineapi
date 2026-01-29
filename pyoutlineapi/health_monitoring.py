@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
-from functools import cached_property, lru_cache
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
@@ -61,9 +62,9 @@ class HealthStatus:
     checks: dict[str, dict[str, Any]] = field(default_factory=dict)
     metrics: dict[str, float] = field(default_factory=dict)
 
-    @cached_property
+    @property
     def failed_checks(self) -> list[str]:
-        """Get failed checks (cached for repeated access).
+        """Get failed checks.
 
         :return: List of failed check names
         """
@@ -73,9 +74,9 @@ class HealthStatus:
             if result.get("status") == "unhealthy"
         ]
 
-    @cached_property
+    @property
     def is_degraded(self) -> bool:
-        """Check if service is degraded (cached).
+        """Check if service is degraded.
 
         :return: True if any check is degraded
         """
@@ -83,9 +84,9 @@ class HealthStatus:
             result.get("status") == "degraded" for result in self.checks.values()
         )
 
-    @cached_property
+    @property
     def warning_checks(self) -> list[str]:
-        """Get warning checks (cached).
+        """Get warning checks.
 
         :return: List of warning check names
         """
@@ -95,17 +96,17 @@ class HealthStatus:
             if result.get("status") == "warning"
         ]
 
-    @cached_property
+    @property
     def total_checks(self) -> int:
-        """Get total check count (cached).
+        """Get total check count.
 
         :return: Total check count
         """
         return len(self.checks)
 
-    @cached_property
+    @property
     def passed_checks(self) -> int:
-        """Get passed check count (cached).
+        """Get passed check count.
 
         :return: Passed check count
         """
@@ -139,7 +140,7 @@ class PerformanceMetrics:
     successful_requests: int = 0
     failed_requests: int = 0
     avg_response_time: float = 0.0
-    start_time: float = field(default_factory=lambda: asyncio.get_event_loop().time())
+    start_time: float = field(default_factory=time.monotonic)
 
     @property
     def success_rate(self) -> float:
@@ -165,7 +166,7 @@ class PerformanceMetrics:
 
         :return: Uptime in seconds
         """
-        return asyncio.get_event_loop().time() - self.start_time
+        return time.monotonic() - self.start_time
 
 
 class HealthCheckHelper:
@@ -261,8 +262,7 @@ class HealthMonitor:
                 self._cache_ttl = ttl
             case _:
                 raise ValueError(
-                    f"cache_ttl must be between {_MIN_CACHE_TTL} "
-                    f"and {_MAX_CACHE_TTL}"
+                    f"cache_ttl must be between {_MIN_CACHE_TTL} and {_MAX_CACHE_TTL}"
                 )
 
         self._client = client
@@ -282,10 +282,12 @@ class HealthMonitor:
         """
         # Fast path: return cached result if valid
         if use_cache and self.cache_valid:
-            return self._cached_result
+            cached = self._cached_result
+            if cached is not None:
+                return cached
 
         # Perform full health check
-        current_time = asyncio.get_event_loop().time()
+        current_time = time.monotonic()
         status_data: dict[str, Any] = {
             "healthy": True,
             "timestamp": current_time,
@@ -323,12 +325,14 @@ class HealthMonitor:
         """
         # Fast path: use cached result if available
         if self.cache_valid:
-            return self._cached_result.healthy
+            cached = self._cached_result
+            if cached is not None:
+                return cached.healthy
 
         try:
-            start = asyncio.get_event_loop().time()
+            start = time.monotonic()
             await self._client.get_server_info()
-            duration = asyncio.get_event_loop().time() - start
+            duration = time.monotonic() - start
 
             # Determine status using helper
             status = self._helper.determine_status_by_time(duration)
@@ -343,9 +347,9 @@ class HealthMonitor:
         :param status_data: Status data to update
         """
         try:
-            start = asyncio.get_event_loop().time()
+            start = time.monotonic()
             await self._client.get_server_info()
-            duration = asyncio.get_event_loop().time() - start
+            duration = time.monotonic() - start
 
             # Determine status using helper (pattern matching)
             check_status = self._helper.determine_status_by_time(duration)
@@ -379,8 +383,14 @@ class HealthMonitor:
             }
             return
 
-        cb_state = metrics["state"]
-        success_rate = metrics["success_rate"]
+        cb_state_raw = metrics.get("state", "unknown")
+        cb_state = str(cb_state_raw)
+
+        success_rate_raw = metrics.get("success_rate", 0.0)
+        try:
+            success_rate = float(success_rate_raw)
+        except (TypeError, ValueError):
+            success_rate = 0.0
 
         # Determine status using helper (pattern matching)
         cb_status = self._helper.determine_circuit_status(cb_state, success_rate)
@@ -557,9 +567,9 @@ class HealthMonitor:
             case (_, i) if i <= 0:
                 raise ValueError("Check interval must be positive")
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
-        while asyncio.get_event_loop().time() - start_time < timeout:
+        while time.monotonic() - start_time < timeout:
             try:
                 if await self.quick_check():
                     return True
@@ -589,7 +599,7 @@ class HealthMonitor:
             return False
 
         # Check TTL
-        current_time = asyncio.get_event_loop().time()
+        current_time = time.monotonic()
         return current_time - self._last_check_time < self._cache_ttl
 
 

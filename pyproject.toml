@@ -1,14 +1,10 @@
-[tool.poetry]
+[project]
 name = "pyoutlineapi"
 version = "0.4.0"
 description = "Production-ready async Python client for Outline VPN Server API with enterprise features: circuit breaker, health monitoring, audit logging, and comprehensive type safety."
-authors = ["Denis Rozhnovskiy <pytelemonbot@mail.ru>"]
 readme = "README.md"
-license = "MIT"
-homepage = "https://github.com/orenlab/pyoutlineapi"
-repository = "https://github.com/orenlab/pyoutlineapi"
-documentation = "https://orenlab.github.io/pyoutlineapi/"
-packages = [{ include = "pyoutlineapi" }]
+license = { file = "LICENSE" }
+authors = [{ name = "Denis Rozhnovskiy", email = "pytelemonbot@mail.ru" }]
 keywords = [
     "outline",
     "vpn",
@@ -26,15 +22,11 @@ keywords = [
     "audit-logging",
 ]
 classifiers = [
-    # Development Status
     "Development Status :: 5 - Production/Stable",
-    # Intended Audience
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "Intended Audience :: Information Technology",
-    # License
     "License :: OSI Approved :: MIT License",
-    # Programming Language
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -42,66 +34,52 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3 :: Only",
-    # Framework
     "Framework :: AsyncIO",
     "Framework :: aiohttp",
     "Framework :: Pydantic",
     "Framework :: Pydantic :: 2",
-    # Topic
     "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
     "Topic :: Security",
     "Topic :: Internet :: Proxy Servers",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Networking",
     "Topic :: System :: Systems Administration",
-    # Operating System
     "Operating System :: OS Independent",
-    # Typing
     "Typing :: Typed",
-    # Environment
     "Environment :: Console",
     "Environment :: Web Environment",
-    # Natural Language
     "Natural Language :: English",
 ]
+requires-python = ">=3.10,<4.0"
+dependencies = [
+    "aiohttp>=3.13.2",
+    "pydantic>=2.12.3",
+    "pydantic-settings>=2.11.0",
+]
 
-[tool.poetry.urls]
-"Homepage" = "https://github.com/orenlab/pyoutlineapi"
-"Repository" = "https://github.com/orenlab/pyoutlineapi"
-"Documentation" = "https://orenlab.github.io/pyoutlineapi/"
-"Changelog" = "https://github.com/orenlab/pyoutlineapi/blob/main/CHANGELOG.md"
+[project.urls]
+Homepage = "https://github.com/orenlab/pyoutlineapi"
+Repository = "https://github.com/orenlab/pyoutlineapi"
+Documentation = "https://orenlab.github.io/pyoutlineapi/"
+Changelog = "https://github.com/orenlab/pyoutlineapi/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/orenlab/pyoutlineapi/issues"
-"Discussions" = "https://github.com/orenlab/pyoutlineapi/discussions"
+Discussions = "https://github.com/orenlab/pyoutlineapi/discussions"
 
-[tool.poetry.dependencies]
-python = ">=3.10,<4.0"
-# Core dependencies
-aiohttp = "^3.13.2"
-pydantic = "^2.12.3"
-pydantic-settings = "^2.11.0"
-poetry-core = ">=2.1.3"
-
-[tool.poetry.group.dev.dependencies]
-# Testing
-pytest = "^8.4.2"
-pytest-asyncio = "^0.25.3"
-pytest-cov = "^6.0.0"
-pytest-timeout = "^2.3.1"
-pytest-xdist = "^3.6.1"
-aioresponses = "^0.7.8"
-
-# Type checking
-mypy = "^1.13.0"
-types-aiofiles = "^24.1.0"
-
-# Linting and formatting
-ruff = "^0.8.6"
-
-# Documentation
-pdoc = "^15.0.4"
-rich = "^14.2.0"
-
-# Metrics (optional, for development)
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=0.25.3",
+    "pytest-cov>=6.0.0",
+    "pytest-timeout>=2.3.1",
+    "pytest-xdist>=3.6.1",
+    "aioresponses>=0.7.8",
+    "mypy>=1.13.0",
+    "types-aiofiles>=24.1.0",
+    "ruff>=0.14.4",
+    "pdoc>=15.0.4",
+    "rich>=14.2.0",
+    "bandit>=1.8.2",
+]
 
 # ===== Pdoc Configuration =====
 
@@ -111,7 +89,6 @@ math = true
 search = true
 show_source = true
 
-# Настройки для модулей
 [tool.pdoc.pdoc]
 docformat = "google"
 include_undocumented = false
@@ -202,71 +179,53 @@ exclude = [
 ]
 
 [tool.ruff.lint]
-# Базовый набор правил для начала
 select = [
-    # Pyflakes - критические ошибки
     "F",
-    # pycodestyle - стиль кода
     "E",
     "W",
-    # isort - импорты
     "I",
-    # pep8-naming - именование
     "N",
-    # pyupgrade - современный Python
     "UP",
-    # flake8-bugbear - частые ошибки
     "B",
-    # flake8-comprehensions - списковые выражения
     "C4",
-    # flake8-simplify - упрощение кода
     "SIM",
-    # Ruff-specific rules
     "RUF",
-    "D", # pydocstyle - после написания документации
-    "ANN", # flake8-annotations - когда типизируете весь код
-    "S", # flake8-bandit - для security audit
-    "ASYNC", # async правила
-    "PT", # pytest-style
+    "D",
+    "ANN",
+    "S",
+    "ASYNC",
+    "PT",
 ]
-
-# Более мягкий ignore список
 ignore = [
-    # Line too long (handled by formatter)
     "E501",
-    # Too many arguments (часто нужно в API)
     "PLR0913",
-    # Too many branches
     "PLR0912",
-    # Too many statements
     "PLR0915",
-    # Magic value comparison
     "PLR2004",
-    # Module level import not at top (иногда нужно)
     "E402",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
-    "S101", # Assert allowed in tests
-    "ARG", # Unused arguments OK in tests
-    "PLR2004", # Magic values OK in tests
-    "ANN", # Type annotations not required in tests
-    "D", # Docstrings not required in tests
-    "E501", # Long lines OK in tests
+    "S101",
+    "ARG",
+    "PLR2004",
+    "ANN",
+    "D",
+    "E501",
 ]
 "__init__.py" = [
-    "F401", # Imported but unused (re-exports)
-    "D104", # Missing docstring in __init__
-    "E402", # Module level import not at top
+    "F401",
+    "D104",
+    "E402",
 ]
 "demo.py" = [
-    "T201", # Print statements OK in demo
-    "INP001", # Not a package
+    "T201",
+    "INP001",
 ]
 "examples/*" = [
-    "T201", # Print statements OK in examples
-    "INP001", # Not a package
+    "T201",
+    "INP001",
 ]
 
 [tool.ruff.lint.isort]
@@ -292,7 +251,7 @@ line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.10"
-# Базовые проверки
+files = ["pyoutlineapi"]
 warn_return_any = true
 warn_unused_configs = true
 check_untyped_defs = true
@@ -323,12 +282,27 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = [
+    "pydantic",
+    "pydantic.*",
+    "pydantic_settings",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
 check_untyped_defs = false
 
-# ===== Build System =====
+# ===== Bandit Configuration =====
+
+[tool.bandit]
+exclude_dirs = ["tests", "docs", "examples"]
+skips = ["B101"]  # Skip assert check (used in type narrowing occasionally)
 
 [build-system]
-requires = ["poetry-core>=2.1.3"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pyoutlineapi"]

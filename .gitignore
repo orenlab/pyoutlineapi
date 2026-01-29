@@ -133,3 +133,4 @@ tmp/
 temp/
 
 main.py
+/.uv-cache/

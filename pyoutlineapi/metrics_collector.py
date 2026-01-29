@@ -17,13 +17,14 @@ import asyncio
 import bisect
 import logging
 import sys
+import time
 from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass, field
-from functools import cached_property, lru_cache
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Final
 
-from .common_types import Constants
+from .common_types import Constants, Validators
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -51,6 +52,37 @@ def _log_if_enabled(level: int, message: str) -> None:
         logger.log(level, message)
 
 
+def _estimate_size(obj: object, *, max_bytes: int | None = None) -> int:
+    """Estimate deep size of an object graph (best-effort).
+
+    :param obj: Object to size
+    :param max_bytes: Optional early-exit threshold
+    :return: Estimated size in bytes
+    """
+    seen: set[int] = set()
+    stack: list[object] = [obj]
+    total = 0
+
+    while stack:
+        current = stack.pop()
+        obj_id = id(current)
+        if obj_id in seen:
+            continue
+        seen.add(obj_id)
+
+        total += sys.getsizeof(current)
+        if max_bytes is not None and total > max_bytes:
+            return total
+
+        if isinstance(current, dict):
+            stack.extend(current.keys())
+            stack.extend(current.values())
+        elif isinstance(current, (list, tuple, set, frozenset)):
+            stack.extend(current)
+
+    return total
+
+
 @dataclass(slots=True, frozen=True)
 class MetricsSnapshot:
     """Immutable metrics snapshot with size validation."""
@@ -67,13 +99,15 @@ class MetricsSnapshot:
 
         :raises ValueError: If snapshot exceeds size limit
         """
-        total_size = (
-            sys.getsizeof(self.server_info)
-            + sys.getsizeof(self.transfer_metrics)
-            + sys.getsizeof(self.experimental_metrics)
-        )
-
         max_bytes = Constants.MAX_SNAPSHOT_SIZE_MB * 1024 * 1024
+        total_size = _estimate_size(
+            {
+                "server": self.server_info,
+                "transfer": self.transfer_metrics,
+                "experimental": self.experimental_metrics,
+            },
+            max_bytes=max_bytes,
+        )
 
         if total_size > max_bytes:
             msg = (
@@ -82,11 +116,11 @@ class MetricsSnapshot:
             )
             raise ValueError(msg)
 
-    @cached_property
+    @property
     def _dict_cache(self) -> dict[str, Any]:
-        """Cached dictionary representation for performance.
+        """Dictionary representation.
 
-        :return: Dictionary representation
+        Note: slots + frozen dataclasses cannot use cached_property safely.
         """
         return {
             "timestamp": self.timestamp,
@@ -120,7 +154,7 @@ class UsageStats:
     peak_bytes: int
     active_keys: frozenset[str] = field(default_factory=frozenset)
 
-    @cached_property
+    @property
     def duration(self) -> float:
         """Get period duration in seconds (cached).
 
@@ -128,7 +162,7 @@ class UsageStats:
         """
         return max(0.0, self.period_end - self.period_start)
 
-    @cached_property
+    @property
     def bytes_per_second(self) -> float:
         """Calculate average bytes per second (cached).
 
@@ -137,27 +171,27 @@ class UsageStats:
         duration = self.duration
         return 0.0 if duration == 0 else self.total_bytes_transferred / duration
 
-    @cached_property
+    @property
     def megabytes_transferred(self) -> float:
-        """Get total in megabytes (cached).
+        """Get total in megabytes.
 
         :return: Total MB transferred
         """
         return self.total_bytes_transferred / (1024**2)
 
-    @cached_property
+    @property
     def gigabytes_transferred(self) -> float:
-        """Get total in gigabytes (cached).
+        """Get total in gigabytes.
 
         :return: Total GB transferred
         """
         return self.total_bytes_transferred / (1024**3)
 
-    @cached_property
+    @property
     def _dict_cache(self) -> dict[str, Any]:
-        """Cached dictionary representation.
+        """Dictionary representation.
 
-        :return: Dictionary representation
+        Note: slots + frozen dataclasses cannot use cached_property safely.
         """
         return {
             "period_start": self.period_start,
@@ -267,7 +301,7 @@ class PrometheusExporter:
         """
         # Check cache if key provided
         if cache_key:
-            current_time = asyncio.get_event_loop().time()
+            current_time = time.monotonic()
             if cache_key in self._cache:
                 cache_age = current_time - self._cache_time.get(cache_key, 0)
                 if cache_age < self._cache_ttl:
@@ -287,7 +321,7 @@ class PrometheusExporter:
         # Update cache if key provided
         if cache_key:
             self._cache[cache_key] = result
-            self._cache_time[cache_key] = asyncio.get_event_loop().time()
+            self._cache_time[cache_key] = time.monotonic()
 
         return result
 
@@ -302,6 +336,7 @@ class MetricsCollector:
 
     __slots__ = (
         "_client",
+        "_experimental_since",
         "_history",
         "_interval",
         "_max_history",
@@ -320,12 +355,14 @@ class MetricsCollector:
         *,
         interval: float = 60.0,
         max_history: int = 1440,
+        experimental_since: str = "24h",
     ) -> None:
         """Initialize metrics collector.
 
         :param client: AsyncOutlineClient instance
         :param interval: Collection interval in seconds
         :param max_history: Maximum snapshots to keep
+        :param experimental_since: Time range for experimental metrics
         :raises ValueError: If parameters invalid
         """
         if not _MIN_INTERVAL <= interval <= _MAX_INTERVAL:
@@ -339,6 +376,7 @@ class MetricsCollector:
         self._client = client
         self._interval = interval
         self._max_history = max_history
+        self._experimental_since = Validators.validate_since(experimental_since)
 
         # Use deque for O(1) append/popleft operations
         self._history: deque[MetricsSnapshot] = deque(maxlen=max_history)
@@ -360,9 +398,13 @@ class MetricsCollector:
         """
         try:
             # Gather all metrics concurrently
-            server_task = asyncio.create_task(self._client.get_server_info())
-            transfer_task = asyncio.create_task(self._client.get_transfer_metrics())
-            keys_task = asyncio.create_task(self._client.get_access_keys())
+            server_task = asyncio.create_task(
+                self._client.get_server_info(as_json=True)
+            )
+            transfer_task = asyncio.create_task(
+                self._client.get_transfer_metrics(as_json=True)
+            )
+            keys_task = asyncio.create_task(self._client.get_access_keys(as_json=True))
 
             # Use gather with return_exceptions for resilience
             results = await asyncio.gather(
@@ -375,36 +417,38 @@ class MetricsCollector:
             server_info, transfer_metrics, keys = results
 
             # Handle errors gracefully
-            server_dict = (
-                server_info.to_dict() if not isinstance(server_info, Exception) else {}
-            )
+            server_dict = server_info if isinstance(server_info, dict) else {}
             transfer_dict = (
-                transfer_metrics.to_dict()
-                if not isinstance(transfer_metrics, Exception)
-                else {}
+                transfer_metrics if isinstance(transfer_metrics, dict) else {}
             )
-            keys_list = keys if not isinstance(keys, Exception) else []
+            keys_list = keys.get("accessKeys", []) if isinstance(keys, dict) else []
 
             # Try to get experimental metrics (optional)
             experimental_dict: dict[str, Any] = {}
             with suppress(Exception):
-                exp_metrics = await self._client.get_experimental_metrics()
-                experimental_dict = exp_metrics.to_dict()
+                exp_metrics = await self._client.get_experimental_metrics(
+                    self._experimental_since,
+                    as_json=True,
+                )
+                experimental_dict = exp_metrics if isinstance(exp_metrics, dict) else {}
 
             # Calculate total bytes
             total_bytes = transfer_dict.get("bytesTransferredByUserId", {})
-            total_bytes_sum = (
-                sum(total_bytes.values()) if isinstance(total_bytes, dict) else 0
-            )
+            if isinstance(total_bytes, dict):
+                total_bytes_sum = sum(
+                    value for value in total_bytes.values() if isinstance(value, int)
+                )
+            else:
+                total_bytes_sum = 0
 
-            timestamp = asyncio.get_event_loop().time()
+            timestamp = time.monotonic()
 
             return MetricsSnapshot(
                 timestamp=timestamp,
                 server_info=server_dict,
                 transfer_metrics=transfer_dict,
                 experimental_metrics=experimental_dict,
-                key_count=len(keys_list),
+                key_count=len(keys_list) if isinstance(keys_list, list) else 0,
                 total_bytes_transferred=total_bytes_sum,
             )
 
@@ -474,7 +518,7 @@ class MetricsCollector:
 
         self._running = True
         self._shutdown_event.clear()
-        self._start_time = asyncio.get_event_loop().time()
+        self._start_time = time.monotonic()
         self._task = asyncio.create_task(self._collect_loop())
 
         _log_if_enabled(
@@ -567,7 +611,7 @@ class MetricsCollector:
         """
         # Check cache (only for full history queries)
         if start_time is None and end_time is None:
-            current_time = asyncio.get_event_loop().time()
+            current_time = time.monotonic()
             cache_age = current_time - self._stats_cache_time
 
             if self._stats_cache is not None and cache_age < 5.0:
@@ -617,7 +661,7 @@ class MetricsCollector:
         # Update cache for full history queries
         if start_time is None and end_time is None:
             self._stats_cache = stats
-            self._stats_cache_time = asyncio.get_event_loop().time()
+            self._stats_cache_time = time.monotonic()
 
         return stats
 
@@ -931,7 +975,7 @@ class MetricsCollector:
         """
         if not self._running or self._start_time == 0:
             return 0.0
-        return asyncio.get_event_loop().time() - self._start_time
+        return time.monotonic() - self._start_time
 
     async def __aenter__(self) -> Self:
         """Context manager entry.

@@ -2,6 +2,15 @@
 
 Complete guide to managing Outline VPN server configuration with PyOutlineAPI.
 
+## Setup
+
+```python
+from pyoutlineapi import AsyncOutlineClient
+
+async with AsyncOutlineClient.from_env() as client:
+    pass
+```
+
 ## Table of Contents
 
 - [Server Information](#server-information)
@@ -187,14 +196,15 @@ asyncio.run(update_all_ports())
 ### Set Global Limit
 
 ```python
+from pyoutlineapi import AsyncOutlineClient
 from pyoutlineapi.models import DataLimit
 
 
 async def set_global_limit():
     async with AsyncOutlineClient.from_env() as client:
         # Set 100 GB global limit
-        limit_bytes = DataLimit.from_gigabytes(100).bytes
-        await client.set_global_data_limit(limit_bytes)
+        limit = DataLimit.from_gigabytes(100)
+        await client.set_global_data_limit(limit)
 
         print(f"✅ Global limit set: 100 GB")
         print("This affects all keys without individual limits")
@@ -445,7 +455,7 @@ async def apply_template(template: ServerTemplate):
         await client.set_metrics_status(template["metrics_enabled"])
 
         if template["global_limit_gb"]:
-            limit = DataLimit.from_gigabytes(template["global_limit_gb"]).bytes
+            limit = DataLimit.from_gigabytes(template["global_limit_gb"])
             await client.set_global_data_limit(limit)
         else:
             await client.remove_global_data_limit()
@@ -502,7 +512,7 @@ class ServerManager:
 
             # Set global limit if specified
             if global_limit_gb:
-                limit = DataLimit.from_gigabytes(global_limit_gb).bytes
+                limit = DataLimit.from_gigabytes(global_limit_gb)
                 await self.client.set_global_data_limit(limit)
                 logger.info(f"✅ Global limit: {global_limit_gb} GB")
 
@@ -544,7 +554,7 @@ class ServerManager:
             metrics = await self.client.get_transfer_metrics()
             status["usage"] = {
                 "total_gb": metrics.total_gigabytes,
-                "active_keys": metrics.key_count,
+                "active_keys": metrics.user_count,
             }
 
         return status

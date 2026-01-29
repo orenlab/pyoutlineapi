@@ -16,10 +16,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from functools import cached_property
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypedDict, TypeVar, cast
 
 from .common_types import Validators
+from .models import DataLimit
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -31,6 +31,16 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
+
+
+class AccessKeyCreateConfig(TypedDict, total=False):
+    """Typed configuration for creating access keys in batch."""
+
+    name: str | None
+    password: str | None
+    port: int | None
+    method: str | None
+    limit: DataLimit | None
 
 
 def _log_if_enabled(level: int, message: str) -> None:
@@ -54,11 +64,11 @@ class BatchResult(Generic[R]):
     total: int
     successful: int
     failed: int
-    results: tuple[R | Exception, ...] = field(default_factory=tuple)
+    results: tuple[R | BaseException, ...] = field(default_factory=tuple)
     errors: tuple[str, ...] = field(default_factory=tuple)
     validation_errors: tuple[str, ...] = field(default_factory=tuple)
 
-    @cached_property
+    @property
     def success_rate(self) -> float:
         """Calculate success rate (cached).
 
@@ -68,7 +78,7 @@ class BatchResult(Generic[R]):
             return 1.0
         return self.successful / self.total
 
-    @cached_property
+    @property
     def has_errors(self) -> bool:
         """Check if any operations failed (cached).
 
@@ -76,7 +86,7 @@ class BatchResult(Generic[R]):
         """
         return self.failed > 0
 
-    @cached_property
+    @property
     def has_validation_errors(self) -> bool:
         """Check if any validation errors occurred (cached).
 
@@ -89,16 +99,16 @@ class BatchResult(Generic[R]):
 
         :return: List of successful results
         """
-        return [r for r in self.results if not isinstance(r, Exception)]
+        return [r for r in self.results if not isinstance(r, BaseException)]
 
-    def get_failures(self) -> list[Exception]:
+    def get_failures(self) -> list[BaseException]:
         """Get only failures.
 
         :return: List of exceptions
         """
-        return [r for r in self.results if isinstance(r, Exception)]
+        return [r for r in self.results if isinstance(r, BaseException)]
 
-    @cached_property
+    @property
     def _dict_cache(self) -> dict[str, object]:
         """Cached dictionary representation.
 
@@ -148,7 +158,7 @@ class BatchProcessor(Generic[T, R]):
         processor: Callable[[T], Awaitable[R]],
         *,
         fail_fast: bool = False,
-    ) -> list[R | Exception]:
+    ) -> list[R | BaseException]:
         """Process items in batch with concurrency control.
 
         :param items: Items to process
@@ -177,12 +187,14 @@ class BatchProcessor(Generic[T, R]):
                         raise
                     return e
 
-        tasks = [process_single(item, i) for i, item in enumerate(items)]
+        tasks = [
+            asyncio.create_task(process_single(item, i)) for i, item in enumerate(items)
+        ]
 
         try:
             results = await asyncio.gather(*tasks, return_exceptions=not fail_fast)
 
-            return list(results) if isinstance(results, tuple) else results
+            return list(results)
         except Exception:
             for task in tasks:
                 if isinstance(task, asyncio.Task) and not task.done():
@@ -242,11 +254,6 @@ class ValidationHelper:
 
             if config.get("name"):
                 validated_name = Validators.validate_name(config["name"])
-                if validated_name is None:
-                    error_msg = f"Config {index}: name cannot be empty"
-                    if fail_fast:
-                        raise ValueError(error_msg)
-                    return None
                 validated_config["name"] = validated_name
 
             if "port" in config and config["port"] is not None:
@@ -354,7 +361,7 @@ class BatchOperations:
         configs: list[dict[str, object]],
         *,
         fail_fast: bool = False,
-    ) -> BatchResult[object] | BatchResult[AccessKey]:
+    ) -> BatchResult[AccessKey | BaseException]:
         """Create multiple access keys in batch.
 
         :param configs: List of key configuration dictionaries
@@ -377,7 +384,9 @@ class BatchOperations:
                 valid_configs.append(validated)
 
         async def create_key(config: dict[str, object]) -> AccessKey:
-            result = await self._client.create_access_key(**config)
+            result = await self._client.create_access_key(
+                **cast(AccessKeyCreateConfig, config)
+            )
             if TYPE_CHECKING:
                 assert isinstance(result, AccessKey)
             return result
@@ -460,14 +469,6 @@ class BatchOperations:
             try:
                 validated_id = Validators.validate_key_id(key_id)
                 validated_name = Validators.validate_name(name)
-
-                if validated_name is None:
-                    error_msg = "Name cannot be empty"
-                    if fail_fast:
-                        raise ValueError(error_msg)
-                    validation_errors.append(f"Pair {i}: name cannot be empty")
-                    continue
-
                 validated_pairs.append((validated_id, validated_name))
 
             except ValueError as e:
@@ -535,7 +536,9 @@ class BatchOperations:
 
         async def set_limit(pair: tuple[str, int]) -> bool:
             key_id, bytes_limit = pair
-            return await self._client.set_access_key_data_limit(key_id, bytes_limit)
+            return await self._client.set_access_key_data_limit(
+                key_id, DataLimit(bytes=bytes_limit)
+            )
 
         processor: BatchProcessor[tuple[str, int], bool] = BatchProcessor(
             self._max_concurrent
@@ -551,7 +554,7 @@ class BatchOperations:
         key_ids: list[str],
         *,
         fail_fast: bool = False,
-    ) -> BatchResult[object] | BatchResult[AccessKey]:
+    ) -> BatchResult[AccessKey | BaseException]:
         """Fetch multiple access keys in batch.
 
         :param key_ids: List of key IDs to fetch
@@ -600,13 +603,7 @@ class BatchOperations:
         validation_errors: list[str] = []
         valid_operations: list[Callable[[], Awaitable[object]]] = []
 
-        for i, op in enumerate(operations):
-            if not callable(op):
-                error_msg = f"Operation {i}: must be callable, got {type(op).__name__}"
-                if fail_fast:
-                    raise ValueError(error_msg)
-                validation_errors.append(error_msg)
-                continue
+        for op in operations:
             valid_operations.append(op)
 
         async def execute_op(op: Callable[[], Awaitable[object]]) -> object:
@@ -632,7 +629,7 @@ class BatchOperations:
 
     @staticmethod
     def _build_result(
-        results: list[R | Exception],
+        results: list[R | BaseException],
         validation_errors: list[str],
     ) -> BatchResult[R]:
         """Build BatchResult from results list.
@@ -645,7 +642,7 @@ class BatchOperations:
         errors_list: list[str] = []
 
         for r in results:
-            if isinstance(r, Exception):
+            if isinstance(r, BaseException):
                 errors_list.append(str(r))
             else:
                 successful += 1
@@ -662,18 +659,21 @@ class BatchOperations:
         )
 
     @staticmethod
-    def _build_empty_result() -> BatchResult[object]:
+    def _build_empty_result() -> BatchResult[R]:
         """Build empty BatchResult for empty input.
 
         :return: Empty batch result
         """
-        return BatchResult(
-            total=0,
-            successful=0,
-            failed=0,
-            results=(),
-            errors=(),
-            validation_errors=(),
+        return cast(
+            BatchResult[R],
+            BatchResult(
+                total=0,
+                successful=0,
+                failed=0,
+                results=(),
+                errors=(),
+                validation_errors=(),
+            ),
         )
 
 

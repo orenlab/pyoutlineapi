@@ -17,9 +17,11 @@ import ipaddress
 import logging
 import re
 import secrets
+import socket
 import sys
 import time
 import urllib.parse
+from datetime import datetime
 from functools import lru_cache
 from typing import (
     TYPE_CHECKING,
@@ -44,7 +46,7 @@ if TYPE_CHECKING:
 # ===== Type Aliases - Core Types =====
 
 Port: TypeAlias = Annotated[
-    int, Field(ge=1025, le=65535, description="Port number (1025-65535)")
+    int, Field(ge=1, le=65535, description="Port number (1-65535)")
 ]
 Bytes: TypeAlias = Annotated[int, Field(ge=0, description="Size in bytes")]
 
@@ -83,7 +85,7 @@ class Constants:
     """Application-wide constants with security limits."""
 
     # Port constraints
-    MIN_PORT: Final[int] = 1025
+    MIN_PORT: Final[int] = 1
     MAX_PORT: Final[int] = 65535
 
     # Length limits
@@ -185,6 +187,96 @@ class SSRFProtection:
             # Not an IP address, hostname is OK at this stage
             # DNS resolution happens at connection time
             return False
+
+    @classmethod
+    @lru_cache(maxsize=256)
+    def _resolve_hostname(cls, hostname: str) -> tuple[ipaddress._BaseAddress, ...]:
+        """Resolve hostname to IPs (cached).
+
+        :param hostname: Hostname to resolve
+        :return: Tuple of resolved IP addresses
+        :raises ValueError: If resolution fails
+        """
+        try:
+            infos = socket.getaddrinfo(hostname, None)
+        except socket.gaierror as e:
+            raise ValueError(f"Unable to resolve hostname: {hostname}") from e
+
+        addresses: list[ipaddress._BaseAddress] = []
+        for info in infos:
+            ip_str = info[4][0]
+            try:
+                addresses.append(ipaddress.ip_address(ip_str))
+            except ValueError:
+                continue
+
+        if not addresses:
+            raise ValueError(f"Unable to resolve hostname: {hostname}")
+
+        return tuple(addresses)
+
+    @classmethod
+    def _resolve_hostname_uncached(
+        cls, hostname: str
+    ) -> tuple[ipaddress._BaseAddress, ...]:
+        """Resolve hostname to IPs (uncached).
+
+        :param hostname: Hostname to resolve
+        :return: Tuple of resolved IP addresses
+        :raises ValueError: If resolution fails
+        """
+        try:
+            infos = socket.getaddrinfo(hostname, None)
+        except socket.gaierror as e:
+            raise ValueError(f"Unable to resolve hostname: {hostname}") from e
+
+        addresses: list[ipaddress._BaseAddress] = []
+        for info in infos:
+            ip_str = info[4][0]
+            try:
+                addresses.append(ipaddress.ip_address(ip_str))
+            except ValueError:
+                continue
+
+        if not addresses:
+            raise ValueError(f"Unable to resolve hostname: {hostname}")
+
+        return tuple(addresses)
+
+    @classmethod
+    def is_blocked_hostname(cls, hostname: str) -> bool:
+        """Resolve hostname and check if any IP is blocked.
+
+        Blocks if any resolved IP is in a private/reserved range to guard against
+        DNS rebinding and mixed public/private records.
+
+        :param hostname: Hostname to resolve and validate
+        :return: True if blocked
+        :raises ValueError: If resolution fails
+        """
+        if hostname in cls.ALLOWED_LOCALHOST:
+            return False
+
+        for ip in cls._resolve_hostname(hostname):
+            if any(ip in blocked for blocked in cls.BLOCKED_IP_RANGES):
+                return True
+        return False
+
+    @classmethod
+    def is_blocked_hostname_uncached(cls, hostname: str) -> bool:
+        """Resolve hostname without cache and check if any IP is blocked.
+
+        :param hostname: Hostname to resolve and validate
+        :return: True if blocked
+        :raises ValueError: If resolution fails
+        """
+        if hostname in cls.ALLOWED_LOCALHOST:
+            return False
+
+        for ip in cls._resolve_hostname_uncached(hostname):
+            if any(ip in blocked for blocked in cls.BLOCKED_IP_RANGES):
+                return True
+        return False
 
 
 # ===== Credential Sanitization =====
@@ -302,7 +394,7 @@ DEFAULT_SENSITIVE_KEYS: Final[frozenset[str]] = frozenset(
 # ===== Type Guards =====
 
 
-def is_valid_port(value: Any) -> TypeGuard[int]:
+def is_valid_port(value: object) -> TypeGuard[int]:
     """Type guard for valid port numbers.
 
     :param value: Value to check
@@ -311,7 +403,7 @@ def is_valid_port(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and Constants.MIN_PORT <= value <= Constants.MAX_PORT
 
 
-def is_valid_bytes(value: Any) -> TypeGuard[int]:
+def is_valid_bytes(value: object) -> TypeGuard[int]:
     """Type guard for valid byte counts.
 
     :param value: Value to check
@@ -320,7 +412,7 @@ def is_valid_bytes(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and value >= 0
 
 
-def is_json_serializable(value: Any) -> TypeGuard[JsonValue]:
+def is_json_serializable(value: object) -> TypeGuard[JsonValue]:
     """Type guard for JSON-serializable values.
 
     :param value: Value to check
@@ -348,7 +440,7 @@ class Validators:
     @staticmethod
     @lru_cache(maxsize=64)
     def validate_cert_fingerprint(fingerprint: SecretStr) -> SecretStr:
-        """Validate and normalize certificate fingerprint&
+        """Validate and normalize certificate fingerprint.
 
         :param fingerprint: SHA-256 fingerprint
         :return: Normalized fingerprint (lowercase, no separators)
@@ -403,10 +495,17 @@ class Validators:
         return name
 
     @staticmethod
-    def validate_url(url: str) -> str:
+    def validate_url(
+        url: str,
+        *,
+        allow_private_networks: bool = True,
+        resolve_dns: bool = False,
+    ) -> str:
         """Validate and sanitize URL.
 
         :param url: URL to validate
+        :param allow_private_networks: Allow private/local network addresses
+        :param resolve_dns: Resolve hostname and block private/reserved IPs
         :return: Validated URL
         :raises ValueError: If URL is invalid
         """
@@ -432,9 +531,36 @@ class Validators:
         except Exception as e:
             raise ValueError(f"Invalid URL: {e}") from e
 
-        # SSRF protection
-        if SSRFProtection.is_blocked_ip(parsed.netloc):
-            raise ValueError(f"Access to {parsed.netloc} is blocked (SSRF protection)")
+        # SSRF protection for raw IPs in hostname (does not resolve DNS)
+        if (
+            not allow_private_networks
+            and parsed.hostname
+            and SSRFProtection.is_blocked_ip(parsed.hostname)
+        ):
+            raise ValueError(
+                f"Access to {parsed.hostname} is blocked (SSRF protection)"
+            )
+
+        # Explicitly block localhost when private networks are disallowed
+        if (
+            not allow_private_networks
+            and parsed.hostname in SSRFProtection.ALLOWED_LOCALHOST
+        ):
+            raise ValueError(
+                f"Access to {parsed.hostname} is blocked (SSRF protection)"
+            )
+
+        # Strict SSRF protection with DNS resolution (guards against rebinding)
+        if (
+            resolve_dns
+            and not allow_private_networks
+            and parsed.hostname
+            and not SSRFProtection.is_blocked_ip(parsed.hostname)
+            and SSRFProtection.is_blocked_hostname(parsed.hostname)
+        ):
+            raise ValueError(
+                f"Access to {parsed.hostname} is blocked (SSRF protection)"
+            )
 
         return url
 
@@ -483,9 +609,46 @@ class Validators:
         :return: Validated value
         :raises ValueError: If value is negative
         """
-        if value < 0:
-            raise ValueError(f"{name} must be non-negative, got {value}")
-        return value
+        from .models import DataLimit
+
+        raw_value = value.bytes if isinstance(value, DataLimit) else value
+        if raw_value < 0:
+            raise ValueError(f"{name} must be non-negative, got {raw_value}")
+        return raw_value
+
+    @staticmethod
+    def validate_since(value: str) -> str:
+        """Validate experimental metrics 'since' parameter.
+
+        Accepts:
+        - Relative durations: 24h, 7d, 30m, 15s
+        - ISO-8601 timestamps (e.g., 2024-01-01T00:00:00Z)
+
+        :param value: Since parameter
+        :return: Sanitized since value
+        :raises ValueError: If value is invalid
+        """
+        if not value or not value.strip():
+            raise ValueError("'since' parameter cannot be empty")
+
+        sanitized = value.strip()
+
+        # Relative format (number + suffix)
+        if len(sanitized) >= 2 and sanitized[-1] in {"h", "d", "m", "s"}:
+            number = sanitized[:-1]
+            if number.isdigit():
+                return sanitized
+
+        # ISO-8601 timestamp (allow trailing Z)
+        iso_value = sanitized.replace("Z", "+00:00")
+        try:
+            datetime.fromisoformat(iso_value)
+            return sanitized
+        except ValueError:
+            raise ValueError(
+                "'since' must be a relative duration (e.g., '24h', '7d') "
+                "or ISO-8601 timestamp"
+            ) from None
 
     @classmethod
     @lru_cache(maxsize=256)
@@ -525,7 +688,7 @@ class Validators:
     @staticmethod
     @lru_cache(maxsize=256)
     def sanitize_url_for_logging(url: str) -> str:
-        """Remove secret path from URL for safe logging
+        """Remove secret path from URL for safe logging.
 
         :param url: URL to sanitize
         :return: Sanitized URL
@@ -585,8 +748,14 @@ class ConfigOverrides(TypedDict, total=False):
     rate_limit: int
     user_agent: str
     enable_circuit_breaker: bool
+    circuit_failure_threshold: int
+    circuit_recovery_timeout: float
+    circuit_success_threshold: int
+    circuit_call_timeout: float
     enable_logging: bool
     json_format: bool
+    allow_private_networks: bool
+    resolve_dns_for_ssrf: bool
 
 
 class ClientDependencies(TypedDict, total=False):
@@ -603,8 +772,8 @@ class ClientDependencies(TypedDict, total=False):
 
 
 def build_config_overrides(
-    **kwargs: int | str | bool | None,
-) -> dict[str, int | str | bool | None]:
+    **kwargs: int | str | bool | float | None,
+) -> dict[str, int | str | bool | float | None]:
     """Build configuration overrides dictionary from kwargs.
 
     DRY implementation - single source of truth for config building.

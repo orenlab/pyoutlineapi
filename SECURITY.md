@@ -1778,12 +1778,12 @@ Incident ID: INC-{datetime.now().strftime('%Y%m%d-%H%M%S')}
 
 | Version | Date       | Changes                            |
 |---------|------------|------------------------------------|
-| 1.0.0   | 2025-10-20 | Initial security policy for v0.4.0 |
+| 1.0.0   | 2026-01-30 | Initial security policy for v0.4.0 |
 
 ---
 
-**Last Updated**: 2025-10-20  
-**Next Review**: 2026-01-20 (Quarterly review)
+**Last Updated**: 2026-01-30  
+**Next Review**: 2026-04-30 (Quarterly review)
 
 For security questions or to report vulnerabilities, contact: `pytelemonbot@mail.ru`
 

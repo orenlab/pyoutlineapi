@@ -30,7 +30,7 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Any, ClassVar, Final
 
-from .common_types import CredentialSanitizer
+from .common_types import Constants, CredentialSanitizer
 
 # Maximum length for error messages to prevent DoS
 _MAX_MESSAGE_LENGTH: Final[int] = 1024
@@ -57,12 +57,12 @@ class OutlineError(Exception):
 
     __slots__ = ("_cached_str", "_details", "_message", "_safe_details")
 
-    is_retryable: ClassVar[bool] = False
-    default_retry_delay: ClassVar[float] = 1.0
+    _is_retryable: ClassVar[bool] = False
+    _default_retry_delay: ClassVar[float] = 1.0
 
     def __init__(
         self,
-        message: str,
+        message: object,
         *,
         details: dict[str, Any] | None = None,
         safe_details: dict[str, Any] | None = None,
@@ -156,6 +156,16 @@ class OutlineError(Exception):
         class_name = self.__class__.__name__
         return f"{class_name}({self._message!r})"
 
+    @property
+    def is_retryable(self) -> bool:
+        """Return whether this error type should be retried."""
+        return self._is_retryable
+
+    @property
+    def default_retry_delay(self) -> float:
+        """Return suggested delay before retry in seconds."""
+        return self._default_retry_delay
+
 
 class APIError(OutlineError):
     """HTTP API request failure.
@@ -191,7 +201,7 @@ class APIError(OutlineError):
             endpoint: API endpoint (will be sanitized)
             response_data: Response data (may contain sensitive info)
         """
-        from .common_types import Constants, Validators
+        from .common_types import Validators
 
         # Sanitize endpoint for safe logging
         safe_endpoint = (
@@ -223,9 +233,13 @@ class APIError(OutlineError):
         self.endpoint = endpoint
         self.response_data = response_data
 
-        # Pre-compute retry eligibility (avoid repeated lookups)
-        self.is_retryable = (
-            status_code in Constants.RETRY_STATUS_CODES if status_code else False
+    @property
+    def is_retryable(self) -> bool:
+        """Check if error is retryable based on status code."""
+        return (
+            self.status_code in Constants.RETRY_STATUS_CODES
+            if self.status_code
+            else False
         )
 
     @property
@@ -273,7 +287,7 @@ class CircuitOpenError(OutlineError):
 
     __slots__ = ("retry_after",)
 
-    is_retryable: ClassVar[bool] = True
+    _is_retryable: ClassVar[bool] = True
 
     def __init__(self, message: str, *, retry_after: float = 60.0) -> None:
         """Initialize circuit open error.
@@ -294,7 +308,11 @@ class CircuitOpenError(OutlineError):
         super().__init__(message, safe_details=safe_details)
 
         self.retry_after = retry_after
-        self.default_retry_delay = retry_after
+
+    @property
+    def default_retry_delay(self) -> float:
+        """Suggested delay before retry."""
+        return self.retry_after
 
 
 class ConfigurationError(OutlineError):
@@ -401,8 +419,8 @@ class OutlineConnectionError(OutlineError):
 
     __slots__ = ("host", "port")
 
-    is_retryable: ClassVar[bool] = True
-    default_retry_delay: ClassVar[float] = 2.0
+    _is_retryable: ClassVar[bool] = True
+    _default_retry_delay: ClassVar[float] = 2.0
 
     def __init__(
         self,
@@ -448,8 +466,8 @@ class OutlineTimeoutError(OutlineError):
 
     __slots__ = ("operation", "timeout")
 
-    is_retryable: ClassVar[bool] = True
-    default_retry_delay: ClassVar[float] = 2.0
+    _is_retryable: ClassVar[bool] = True
+    _default_retry_delay: ClassVar[float] = 2.0
 
     def __init__(
         self,
@@ -520,7 +538,7 @@ def is_retryable(error: Exception) -> bool:
     return False
 
 
-def get_safe_error_dict(error: Exception) -> dict[str, Any]:
+def get_safe_error_dict(error: BaseException) -> dict[str, Any]:
     """Extract safe error information for logging.
 
     Returns only safe information without sensitive data.
@@ -602,7 +620,7 @@ def format_error_chain(error: Exception) -> list[dict[str, Any]]:
     """
     # Pre-allocate with reasonable size hint (most chains are 1-3 errors)
     chain: list[dict[str, Any]] = []
-    current: Exception | None = error
+    current: BaseException | None = error
 
     while current is not None:
         chain.append(get_safe_error_dict(current))

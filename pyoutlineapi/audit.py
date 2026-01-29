@@ -18,6 +18,7 @@ import contextvars
 import inspect
 import logging
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 from functools import wraps
 from typing import (
@@ -34,13 +35,13 @@ from weakref import WeakValueDictionary
 from .common_types import DEFAULT_SENSITIVE_KEYS
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
 # Type variables
 P = ParamSpec("P")
-T = TypeVar("T")
+R = TypeVar("R")
 
 _audit_logger_context: contextvars.ContextVar[AuditLogger | None] = (
     contextvars.ContextVar("audit_logger", default=None)
@@ -69,10 +70,10 @@ class AuditContext:
     def from_call(
         cls,
         func: Callable[..., Any],
-        instance: Any,
+        instance: object,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
-        result: Any = None,
+        result: object = None,
         exception: Exception | None = None,
     ) -> AuditContext:
         """Build audit context from function call with intelligent extraction.
@@ -112,7 +113,7 @@ class AuditContext:
         func: Callable[..., Any],
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
-        result: Any,
+        result: object,
         success: bool,
     ) -> str:
         """Smart resource extraction using structural pattern matching.
@@ -171,7 +172,7 @@ class AuditContext:
         func: Callable[..., Any],
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
-        result: Any,
+        result: object,
         exception: Exception | None,
         success: bool,
     ) -> dict[str, Any]:
@@ -522,10 +523,8 @@ class DefaultAuditLogger:
             # Cancel processing task
             if self._task and not self._task.done():
                 self._task.cancel()
-                try:
+                with suppress(asyncio.CancelledError):
                     await self._task
-                except asyncio.CancelledError:
-                    pass
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("[AUDIT] Shutdown complete")
@@ -576,7 +575,7 @@ def audited(
     *,
     log_success: bool = True,
     log_failure: bool = True,
-) -> Callable[[Callable[P, T]], Callable[P, T]]:
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Audit logging decorator with zero-config smart extraction.
 
     Automatically extracts ALL information from function signature and execution:
@@ -604,105 +603,123 @@ def audited(
     :return: Decorated function with automatic audit logging
     """
 
-    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         # Determine if function is async at decoration time
         is_async = inspect.iscoroutinefunction(func)
 
         if is_async:
+            async_func = cast("Callable[P, Awaitable[object]]", func)
 
             @wraps(func)
-            async def async_wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> T:
+            async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> object:
                 # Check for audit logger on instance
-                audit_logger = getattr(self, "_audit_logger", None)
+                instance = args[0] if args else None
+                audit_logger = getattr(instance, "_audit_logger", None)
 
                 # No logger? Execute without audit
                 if audit_logger is None:
-                    return await func(self, *args, **kwargs)
+                    return await async_func(*args, **kwargs)
 
-                result: T | None = None
-                exception: Exception | None = None
+                result: object | None = None
 
                 try:
-                    result = await func(self, *args, **kwargs)
-                    return result
+                    result = await async_func(*args, **kwargs)
                 except Exception as e:
-                    exception = e
+                    if log_failure:
+                        ctx = AuditContext.from_call(
+                            func=func,
+                            instance=instance,
+                            args=args,
+                            kwargs=kwargs,
+                            result=result,
+                            exception=e,
+                        )
+                        task = asyncio.create_task(
+                            audit_logger.alog_action(
+                                action=ctx.action,
+                                resource=ctx.resource,
+                                details=ctx.details,
+                                correlation_id=ctx.correlation_id,
+                            )
+                        )
+                        task.add_done_callback(lambda t: t.exception())
                     raise
-                finally:
-                    success = exception is None
+                else:
+                    if log_success:
+                        ctx = AuditContext.from_call(
+                            func=func,
+                            instance=instance,
+                            args=args,
+                            kwargs=kwargs,
+                            result=result,
+                            exception=None,
+                        )
+                        task = asyncio.create_task(
+                            audit_logger.alog_action(
+                                action=ctx.action,
+                                resource=ctx.resource,
+                                details=ctx.details,
+                                correlation_id=ctx.correlation_id,
+                            )
+                        )
+                        task.add_done_callback(lambda t: t.exception())
+                    return result
 
-                    # Filter by success/failure flags
-                    if not ((success and log_success) or (not success and log_failure)):
-                        return None
+            return cast("Callable[P, R]", async_wrapper)
 
-                    # Build context from execution
-                    ctx = AuditContext.from_call(
-                        func=func,
-                        instance=self,
-                        args=args,
-                        kwargs=kwargs,
-                        result=result,
-                        exception=exception,
-                    )
+        else:
+            sync_func = cast("Callable[P, object]", func)
 
-                    # Async log (fire-and-forget for performance)
-                    asyncio.create_task(
-                        audit_logger.alog_action(
+            @wraps(func)
+            def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> object:
+                # Check for audit logger on instance
+                instance = args[0] if args else None
+                audit_logger = getattr(instance, "_audit_logger", None)
+
+                # No logger? Execute without audit
+                if audit_logger is None:
+                    return sync_func(*args, **kwargs)
+
+                result: object | None = None
+
+                try:
+                    result = sync_func(*args, **kwargs)
+                except Exception as e:
+                    if log_failure:
+                        ctx = AuditContext.from_call(
+                            func=func,
+                            instance=instance,
+                            args=args,
+                            kwargs=kwargs,
+                            result=result,
+                            exception=e,
+                        )
+                        audit_logger.log_action(
                             action=ctx.action,
                             resource=ctx.resource,
                             details=ctx.details,
                             correlation_id=ctx.correlation_id,
                         )
-                    )
-
-            return async_wrapper
-
-        else:
-
-            @wraps(func)
-            def sync_wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> T:
-                # Check for audit logger on instance
-                audit_logger = getattr(self, "_audit_logger", None)
-
-                # No logger? Execute without audit
-                if audit_logger is None:
-                    return func(self, *args, **kwargs)
-
-                result: T | None = None
-                exception: Exception | None = None
-
-                try:
-                    result = func(self, *args, **kwargs)
-                    return result
-                except Exception as e:
-                    exception = e
                     raise
-                finally:
-                    success = exception is None
+                else:
+                    if log_success:
+                        ctx = AuditContext.from_call(
+                            func=func,
+                            instance=instance,
+                            args=args,
+                            kwargs=kwargs,
+                            result=result,
+                            exception=None,
+                        )
+                        audit_logger.log_action(
+                            action=ctx.action,
+                            resource=ctx.resource,
+                            details=ctx.details,
+                            correlation_id=ctx.correlation_id,
+                        )
+                    return result
 
-                    # Filter by success/failure flags
-                    if not ((success and log_success) or (not success and log_failure)):
-                        return None
-
-                    # Build context from execution
-                    ctx = AuditContext.from_call(
-                        func=func,
-                        instance=self,
-                        args=args,
-                        kwargs=kwargs,
-                        result=result,
-                        exception=exception,
-                    )
-
-                    # Sync log
-                    audit_logger.log_action(
-                        action=ctx.action,
-                        resource=ctx.resource,
-                        details=ctx.details,
-                        correlation_id=ctx.correlation_id,
-                    )
-
-            return sync_wrapper
+            return cast("Callable[P, R]", sync_wrapper)
 
     return decorator
 

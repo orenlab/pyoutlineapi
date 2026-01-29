@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
@@ -222,18 +223,19 @@ class CircuitBreaker:
         """
         current_state = self._state  # Atomic read
 
-        if current_state == CircuitState.CLOSED:
+        if (
+            current_state == CircuitState.CLOSED
+            and self._failure_count < self._config.failure_threshold
+        ):
             # Fast path: no state checking needed for closed circuit
-            # Only check failure count (lock-free read)
-            if self._failure_count < self._config.failure_threshold:
-                return await self._execute_call(func, args, kwargs)
+            return await self._execute_call(func, args, kwargs)
 
         # Slow path: need state checking/transition
         await self._check_state()
 
         if self._state == CircuitState.OPEN:
             # Calculate time until recovery
-            current_time = asyncio.get_event_loop().time()
+            current_time = time.monotonic()
             time_since_failure = current_time - self._last_failure_time
             retry_after = max(0.0, self._config.recovery_timeout - time_since_failure)
 
@@ -260,9 +262,7 @@ class CircuitBreaker:
         :return: Function result
         :raises TimeoutError: If call exceeds timeout
         """
-        # Cache loop reference (avoid repeated lookups)
-        loop = asyncio.get_event_loop()
-        start_time = loop.time()
+        start_time = time.monotonic()
 
         try:
             # Use wait_for for timeout enforcement
@@ -271,13 +271,13 @@ class CircuitBreaker:
                 timeout=self._config.call_timeout,
             )
 
-            duration = loop.time() - start_time
+            duration = time.monotonic() - start_time
             await self._record_success(duration)
 
             return result
 
         except asyncio.TimeoutError as e:
-            duration = loop.time() - start_time
+            duration = time.monotonic() - start_time
 
             if logger.isEnabledFor(Constants.LOG_LEVEL_WARNING):
                 logger.warning(
@@ -298,7 +298,7 @@ class CircuitBreaker:
             ) from e
 
         except Exception as e:
-            duration = loop.time() - start_time
+            duration = time.monotonic() - start_time
             await self._record_failure(duration, e)
             raise
 
@@ -310,7 +310,7 @@ class CircuitBreaker:
         """
         async with self._lock:
             # Cache time calculation
-            current_time = asyncio.get_event_loop().time()
+            current_time = time.monotonic()
 
             match self._state:
                 case CircuitState.OPEN:
@@ -349,7 +349,7 @@ class CircuitBreaker:
         # Always update metrics (atomic operations on integers are safe)
         self._metrics.total_calls += 1
         self._metrics.successful_calls += 1
-        self._metrics.last_success_time = asyncio.get_event_loop().time()
+        self._metrics.last_success_time = time.monotonic()
 
         # Fast path: CLOSED state with no failures
         if self._state == CircuitState.CLOSED and self._failure_count == 0:
@@ -396,7 +396,7 @@ class CircuitBreaker:
             self._failure_count += 1
 
             # Cache time calculation
-            current_time = asyncio.get_event_loop().time()
+            current_time = time.monotonic()
             self._last_failure_time = current_time
             self._metrics.last_failure_time = current_time
 
@@ -430,7 +430,7 @@ class CircuitBreaker:
         old_state = self._state
         self._state = new_state
         self._metrics.state_changes += 1
-        self._last_state_change = asyncio.get_event_loop().time()
+        self._last_state_change = time.monotonic()
 
         if logger.isEnabledFor(Constants.LOG_LEVEL_INFO):
             logger.info(
@@ -494,7 +494,7 @@ class CircuitBreaker:
 
         :return: Time in seconds
         """
-        return asyncio.get_event_loop().time() - self._last_state_change
+        return time.monotonic() - self._last_state_change
 
 
 __all__ = [

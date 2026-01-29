@@ -11,47 +11,48 @@ Source code repository:
     https://github.com/orenlab/pyoutlineapi
 
 Quick Start:
-    >>> from pyoutlineapi import AsyncOutlineClient
-    >>>
-    >>> # From environment variables
-    >>> async with AsyncOutlineClient.from_env() as client:
-    ...     server = await client.get_server_info()
-    ...     print(f"Server: {server.name}")
-    >>>
-    >>> # With direct parameters
-    >>> async with AsyncOutlineClient.create(
-    ...     api_url="https://server.com:12345/secret",
-    ...     cert_sha256="abc123...",
-    ... ) as client:
-    ...     keys = await client.get_access_keys()
+
+```python
+from pyoutlineapi import AsyncOutlineClient
+
+# From environment variables
+async with AsyncOutlineClient.from_env() as client:
+    server = await client.get_server_info()
+    print(f"Server: {server.name}")
+
+# Prefer from_env for production usage
+async with AsyncOutlineClient.from_env() as client:
+    keys = await client.get_access_keys()
+```
 
 Advanced Usage - Type Hints:
-    >>> from pyoutlineapi import (
-    ...     AsyncOutlineClient,
-    ...     AuditLogger,
-    ...     AuditDetails,
-    ...     MetricsCollector,
-    ...     MetricsTags,
-    ... )
-    >>>
-    >>> class CustomAuditLogger:
-    ...     def log_action(
-    ...         self,
-    ...         action: str,
-    ...         resource: str,
-    ...         *,
-    ...         user: str | None = None,
-    ...         details: AuditDetails | None = None,
-    ...         correlation_id: str | None = None,
-    ...     ) -> None:
-    ...         print(f"[AUDIT] {action} on {resource}")
-    >>>
-    >>> async with AsyncOutlineClient.create(
-    ...     api_url="...",
-    ...     cert_sha256="...",
-    ...     audit_logger=CustomAuditLogger(),
-    ... ) as client:
-    ...     await client.create_access_key(name="test")
+
+```python
+from pyoutlineapi import (
+    AsyncOutlineClient,
+    AuditLogger,
+    AuditDetails,
+    MetricsCollector,
+    MetricsTags,
+)
+
+class CustomAuditLogger:
+    def log_action(
+        self,
+        action: str,
+        resource: str,
+        *,
+        user: str | None = None,
+        details: AuditDetails | None = None,
+        correlation_id: str | None = None,
+    ) -> None:
+        print(f"[AUDIT] {action} on {resource}")
+
+async with AsyncOutlineClient.from_env(
+    audit_logger=CustomAuditLogger(),
+) as client:
+    await client.create_access_key(name="test")
+```
 """
 
 from __future__ import annotations
@@ -161,113 +162,92 @@ __license__: Final[str] = "MIT"
 
 # Public API
 __all__: Final[list[str]] = [
-    # Core client classes
+    "DEFAULT_SENSITIVE_KEYS",
+    "APIError",
+    "AccessKey",
+    "AccessKeyCreateRequest",
+    "AccessKeyList",
+    "AccessKeyMetric",
+    "AccessKeyNameRequest",
     "AsyncOutlineClient",
-    "MultiServerManager",
-    # Audit
     "AuditContext",
     "AuditLogger",
-    "DefaultAuditLogger",
-    "NoOpAuditLogger",
-    # Circuit breaker
+    "BandwidthData",
+    "BandwidthDataValue",
+    "BandwidthInfo",
     "CircuitConfig",
     "CircuitMetrics",
     "CircuitOpenError",
     "CircuitState",
-    # Configuration
     "ConfigOverrides",
     "ConfigurationError",
     "Constants",
-    "DevelopmentConfig",
-    "OutlineClientConfig",
-    "ProductionConfig",
-    # Common types and utilities
     "CredentialSanitizer",
-    "DEFAULT_SENSITIVE_KEYS",
+    "DataLimit",
+    "DataLimitRequest",
+    "DataTransferred",
+    "DefaultAuditLogger",
+    "DevelopmentConfig",
+    "ErrorResponse",
+    "ExperimentalMetrics",
+    "HealthCheckResult",
+    "HostnameRequest",
     "JsonDict",
     "JsonPayload",
+    "LocationMetric",
+    "MetricsCollector",
+    "MetricsEnabledRequest",
+    "MetricsStatusResponse",
     "MetricsTags",
-    "QueryParams",
-    "ResponseData",
-    "SecureIDGenerator",
-    "TimestampMs",
-    "TimestampSec",
-    "Validators",
-    # Exceptions
-    "APIError",
+    "MultiServerManager",
+    "NoOpAuditLogger",
+    "NoOpMetrics",
+    "OutlineClientConfig",
     "OutlineConnectionError",
     "OutlineError",
     "OutlineTimeoutError",
-    "ValidationError",
-    # Metrics
-    "MetricsCollector",
-    "NoOpMetrics",
-    # Models - Core
-    "AccessKey",
-    "AccessKeyCreateRequest",
-    "AccessKeyList",
-    "DataLimit",
-    "DataLimitRequest",
-    "Server",
-    # Models - Request models
-    "AccessKeyNameRequest",
-    "HostnameRequest",
-    "MetricsEnabledRequest",
-    "PortRequest",
-    "ServerNameRequest",
-    # Models - Response models
-    "ErrorResponse",
-    "MetricsStatusResponse",
-    "ServerMetrics",
-    # Models - Experimental metrics
-    "AccessKeyMetric",
-    "BandwidthData",
-    "BandwidthDataValue",
-    "BandwidthInfo",
-    "ConnectionInfo",
-    "DataTransferred",
-    "ExperimentalMetrics",
-    "LocationMetric",
     "PeakDeviceCount",
-    "ServerExperimentalMetric",
-    "TunnelTime",
-    # Models - Utility models
-    "HealthCheckResult",
-    "ServerSummary",
-    # Response parser
+    "PortRequest",
+    "ProductionConfig",
+    "QueryParams",
+    "ResponseData",
     "ResponseParser",
-    # Package metadata
+    "SecureIDGenerator",
+    "Server",
+    "ServerExperimentalMetric",
+    "ServerMetrics",
+    "ServerNameRequest",
+    "ServerSummary",
+    "TimestampMs",
+    "TimestampSec",
+    "TunnelTime",
+    "ValidationError",
+    "Validators",
     "__author__",
     "__email__",
     "__license__",
     "__version__",
-    # Context variables
-    "correlation_id",
-    # Factory functions
-    "create_client",
-    "create_multi_server_manager",
-    # Configuration utilities
-    "build_config_overrides",
-    "create_env_template",
-    "load_config",
-    # Audit utilities
     "audited",
+    "build_config_overrides",
+    "correlation_id",
+    "create_client",
+    "create_env_template",
+    "create_multi_server_manager",
+    "format_error_chain",
     "get_audit_logger",
     "get_or_create_audit_logger",
-    "set_audit_logger",
-    # Exception utilities
-    "format_error_chain",
     "get_retry_delay",
     "get_safe_error_dict",
-    "is_retryable",
-    # Common utilities
     "get_version",
     "is_json_serializable",
+    "is_retryable",
     "is_valid_bytes",
     "is_valid_port",
+    "load_config",
     "mask_sensitive_data",
     "print_type_info",
     "quick_setup",
+    "set_audit_logger",
 ]
 
 
@@ -384,7 +364,7 @@ def __getattr__(name: str) -> NoReturn:
         "OutlineClient": "Use 'AsyncOutlineClient' instead",
         "OutlineSettings": "Use 'OutlineClientConfig' instead",
         "create_resilient_client": (
-            "Use 'AsyncOutlineClient.create()' with 'enable_circuit_breaker=True'"
+            "Use 'AsyncOutlineClient.from_env()' with 'enable_circuit_breaker=True'"
         ),
     }
 

@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+
+import pytest
+from pydantic import SecretStr
+
+from pyoutlineapi.base_client import BaseHTTPClient, RateLimiter, SSLFingerprintValidator
+from pyoutlineapi.exceptions import APIError
+
+
+class DummyResponse:
+    def __init__(self, status: int, reason: str = "Bad"):  # type: ignore[no-untyped-def]
+        self.status = status
+        self.reason = reason
+
+    async def json(self):  # type: ignore[no-untyped-def]
+        raise TypeError("bad")
+
+
+class _TestClient(BaseHTTPClient):
+    async def _ensure_session(self) -> None:  # override to prevent real session
+        return None
+
+
+def test_rate_limiter_available_attribute_error(caplog):
+    limiter = RateLimiter(limit=1)
+
+    class BrokenSemaphore:
+        def __getattribute__(self, _name: str):  # type: ignore[no-untyped-def]
+            raise AttributeError("missing")
+
+    limiter._semaphore = BrokenSemaphore()  # type: ignore[assignment]
+    with caplog.at_level(logging.WARNING, logger="pyoutlineapi.base_client"):
+        assert limiter.available == 0
+
+
+def test_ssl_fingerprint_validator_expected_secret_missing():
+    validator = SSLFingerprintValidator(SecretStr("a" * 64))
+    validator.__exit__(None, None, None)
+    with pytest.raises(RuntimeError):
+        validator._verify_cert_fingerprint(b"cert")
+
+
+@pytest.mark.asyncio
+async def test_ssl_fingerprint_validator_verify_connection_no_ssl_object():
+    validator = SSLFingerprintValidator(SecretStr("a" * 64))
+
+    class DummyTransport:
+        def get_extra_info(self, name: str):  # type: ignore[no-untyped-def]
+            return None
+
+    class DummyParams:
+        transport = DummyTransport()
+
+    await validator.verify_connection(None, None, DummyParams())  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_ssl_fingerprint_validator_verify_connection_empty_cert():
+    validator = SSLFingerprintValidator(SecretStr("a" * 64))
+
+    class DummySSL:
+        def getpeercert(self, *, binary_form: bool = False):  # type: ignore[no-untyped-def]
+            return b""
+
+    class DummyTransport:
+        def get_extra_info(self, name: str):  # type: ignore[no-untyped-def]
+            if name == "ssl_object":
+                return DummySSL()
+            return None
+
+    class DummyParams:
+        transport = DummyTransport()
+
+    await validator.verify_connection(None, None, DummyParams())  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_handle_error_type_error():
+    with pytest.raises(APIError):
+        await BaseHTTPClient._handle_error(DummyResponse(500), "/bad")
+
+
+@pytest.mark.asyncio
+async def test_shutdown_already_in_progress():
+    client = _TestClient(
+        api_url="https://example.com/secret",
+        cert_sha256=SecretStr("a" * 64),
+        timeout=1,
+        retry_attempts=0,
+        max_connections=1,
+        rate_limit=1,
+    )
+    client._shutdown_event.set()
+    await client.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_logs_and_cancels(caplog):
+    client = _TestClient(
+        api_url="https://example.com/secret",
+        cert_sha256=SecretStr("a" * 64),
+        timeout=1,
+        retry_attempts=0,
+        max_connections=1,
+        rate_limit=1,
+    )
+
+    async def sleeper():  # type: ignore[no-untyped-def]
+        await asyncio.sleep(1)
+
+    task = asyncio.create_task(sleeper())
+    async with client._active_requests_lock:
+        client._active_requests.add(task)
+
+    class DummySession:
+        closed = False
+
+        async def close(self):  # type: ignore[no-untyped-def]
+            self.closed = True
+
+    client._session = DummySession()  # type: ignore[assignment]
+
+    with caplog.at_level(logging.DEBUG, logger="pyoutlineapi.base_client"):
+        await client.shutdown(timeout=0.01)
+    assert any("Shutdown timeout" in r.message for r in caplog.records)
+    assert any("HTTP client shutdown complete" in r.message for r in caplog.records)
