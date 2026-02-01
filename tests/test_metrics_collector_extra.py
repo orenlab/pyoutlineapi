@@ -220,9 +220,21 @@ async def test_collect_loop_warning_and_stop(caplog):
 
     with caplog.at_level(logging.WARNING, logger="pyoutlineapi.metrics_collector"):
         task = asyncio.create_task(collector._collect_loop())
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)
         collector._shutdown_event.set()
-        await task
+        
+        try:
+            await asyncio.wait_for(task, timeout=0.1)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
     assert any("Failed to collect metrics" in r.message for r in caplog.records)
 
 

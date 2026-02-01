@@ -128,7 +128,7 @@ def test_validation_helper_key_id():
 
 
 def test_batch_result_properties():
-    result = BatchResult[int](
+    result = BatchResult(
         total=2,
         successful=1,
         failed=1,
