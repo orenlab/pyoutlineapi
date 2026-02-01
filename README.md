@@ -53,9 +53,6 @@ uv add pyoutlineapi
 **Optional dependencies:**
 
 ```bash
-# Metrics collection support
-pip install pyoutlineapi[metrics]
-
 # Development tools
 pip install pyoutlineapi[dev]
 ```

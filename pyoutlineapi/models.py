@@ -23,6 +23,7 @@ from .common_types import (
     Bytes,
     BytesPerUserDict,
     ChecksDict,
+    Constants,
     Port,
     TimestampMs,
     TimestampSec,
@@ -149,14 +150,20 @@ class AccessKey(BaseValidatedModel):
     @field_validator("name", mode="before")
     @classmethod
     def validate_name(cls, v: str | None) -> str | None:
-        """Handle empty names from API.
-
-        :param v: Name value
-        :return: Validated name or None
-        """
+        """Validate and normalize name from API."""
         if v is None:
             return None
-        return Validators.validate_name(v)
+
+        if isinstance(v, str):
+            stripped = v.strip()
+            if not stripped:
+                return None
+
+            if len(stripped) > Constants.MAX_NAME_LENGTH:
+                raise ValueError(
+                    f"Name too long: {len(stripped)} (max {Constants.MAX_NAME_LENGTH})"
+                )
+            return stripped
 
     @field_validator("id")
     @classmethod
@@ -539,12 +546,12 @@ class DataLimitRequest(BaseValidatedModel):
 
     limit: DataLimit
 
-    def to_payload(self) -> dict[str, int]:
+    def to_payload(self) -> dict[str, dict[str, int]]:
         """Convert to API request payload.
 
-        :return: Payload dict with bytes field
+        :return: Payload dict with limit object
         """
-        return cast(dict[str, int], self.limit.model_dump(by_alias=True))
+        return {"limit": cast(dict[str, int], self.limit.model_dump(by_alias=True))}
 
 
 class MetricsEnabledRequest(BaseValidatedModel):

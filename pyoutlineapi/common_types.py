@@ -289,13 +289,15 @@ class CredentialSanitizer:
     PATTERNS: Final[list[tuple[re.Pattern[str], str]]] = [
         (
             re.compile(
-                r'api[_-]?key["\']?\s*[:=]\s*["\']?([a-zA-Z0-9]{20,})',
+                r'api[_-]?key["\']?\s*[:=]\s*["\']?([a-zA-Z0-9_\-\.]{20,})',
                 re.IGNORECASE,
             ),
             "***API_KEY***",
         ),
         (
-            re.compile(r'token["\']?\s*[:=]\s*["\']?([a-zA-Z0-9]{20,})', re.IGNORECASE),
+            re.compile(
+                r'token["\']?\s*[:=]\s*["\']?([a-zA-Z0-9_\-\.]{20,})', re.IGNORECASE
+            ),
             "***TOKEN***",
         ),
         (

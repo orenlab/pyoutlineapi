@@ -151,7 +151,7 @@ def test_error_response_and_requests():
     assert str(err) == "x: oops"
 
     payload = DataLimitRequest(limit=DataLimit(bytes=123)).to_payload()
-    assert payload == {"bytes": 123}
+    assert payload == {"limit": {"bytes": 123}}
 
     time = TunnelTime(seconds=120)
     assert time.minutes == 2

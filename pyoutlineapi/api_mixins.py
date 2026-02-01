@@ -404,10 +404,13 @@ class AccessKeyMixin(AuditableMixin, JsonFormattingMixin):
         """
         validated_key_id = Validators.validate_key_id(key_id)
 
+        # Fix: Wrap payload in "limit" key as required by API
+        payload = cast(JsonDict, {"limit": limit.model_dump(by_alias=True)})
+
         data = await self._request(
             "PUT",
             f"access-keys/{validated_key_id}/data-limit",
-            json=limit.model_dump(by_alias=True),
+            json=payload,
         )
         return ResponseParser.parse_simple(data)
 
@@ -457,10 +460,13 @@ class DataLimitMixin(AuditableMixin):
         :param limit: Data transfer limit
         :return: True if successful
         """
+        # Fix: Wrap payload in "limit" key as required by API
+        payload = cast(JsonDict, {"limit": limit.model_dump(by_alias=True)})
+
         data = await self._request(
             "PUT",
             "server/access-key-data-limit",
-            json=limit.model_dump(by_alias=True),
+            json=payload,
         )
         return ResponseParser.parse_simple(data)
 
