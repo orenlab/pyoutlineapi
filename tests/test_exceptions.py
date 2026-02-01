@@ -26,6 +26,17 @@ def test_outline_error_sanitizes_and_truncates_message():
     assert "field=x" in text
 
 
+def test_outline_error_non_string_message_and_details_copy():
+    err = OutlineError(123, details={"secret": "x"}, safe_details={"safe": "y"})
+    assert "123" in str(err)
+    details = err.details
+    details["secret"] = "changed"
+    assert err.details["secret"] == "x"
+    safe = err.safe_details
+    safe["safe"] = "changed"
+    assert err.safe_details["safe"] == "y"
+
+
 def test_outline_error_details_properties():
     err = OutlineError("oops")
     assert err.details == {}
@@ -60,6 +71,17 @@ def test_configuration_and_validation_errors():
     assert val_err.safe_details["field"] == "port"
     assert val_err.safe_details["model"] == "Server"
 
+    config_err2 = ConfigurationError("bad", field="only")
+    assert config_err2.safe_details["field"] == "only"
+    val_err2 = ValidationError("bad", model="OnlyModel")
+    assert val_err2.safe_details["model"] == "OnlyModel"
+
+    config_err3 = ConfigurationError("bad", security_issue=True)
+    assert config_err3.safe_details["security_issue"] is True
+
+    val_err3 = ValidationError("bad", field="field-only")
+    assert val_err3.safe_details["field"] == "field-only"
+
 
 def test_connection_and_timeout_errors():
     conn_err = OutlineConnectionError("down", host="example.com", port=443)
@@ -67,10 +89,22 @@ def test_connection_and_timeout_errors():
     assert conn_err.safe_details["host"] == "example.com"
     assert conn_err.safe_details["port"] == 443
 
+    conn_err2 = OutlineConnectionError("down")
+    assert conn_err2.safe_details == {}
+
+    conn_err3 = OutlineConnectionError("down", port=80)
+    assert conn_err3.safe_details["port"] == 80
+
     timeout_err = OutlineTimeoutError("slow", timeout=1.23, operation="get")
     assert timeout_err.is_retryable is True
     assert timeout_err.safe_details["timeout"] == 1.23
     assert timeout_err.safe_details["operation"] == "get"
+
+    timeout_err2 = OutlineTimeoutError("slow")
+    assert timeout_err2.safe_details == {}
+
+    timeout_err3 = OutlineTimeoutError("slow", operation="op")
+    assert timeout_err3.safe_details["operation"] == "op"
 
 
 def test_retry_helpers_and_safe_error_dict():
@@ -94,6 +128,24 @@ def test_retry_helpers_and_safe_error_dict():
     data3 = get_safe_error_dict(OutlineConnectionError("down", host="h", port=1))
     assert data3["host"] == "h"
     assert data3["port"] == 1
+
+    timeout_err = OutlineTimeoutError("slow")
+    assert get_retry_delay(timeout_err) == timeout_err.default_retry_delay
+
+    circuit_err = CircuitOpenError("open", retry_after=5.0)
+    data4 = get_safe_error_dict(circuit_err)
+    assert data4["retry_after"] == 5.0
+
+    config_err = ConfigurationError("bad", security_issue=False)
+    data5 = get_safe_error_dict(config_err)
+    assert data5["security_issue"] is False
+
+    validation_err = ValidationError("bad")
+    data6 = get_safe_error_dict(validation_err)
+    assert "field" not in data6
+
+    data7 = get_safe_error_dict(OutlineTimeoutError("slow", timeout=2.0))
+    assert data7["timeout"] == 2.0
 
 
 def test_format_error_chain_uses_cause_or_context():

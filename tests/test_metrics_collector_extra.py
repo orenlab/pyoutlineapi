@@ -63,6 +63,32 @@ def _make_snapshot(timestamp: float, total_bytes: int) -> MetricsSnapshot:
     )
 
 
+def _make_snapshot_with_experimental(timestamp: float) -> MetricsSnapshot:
+    return MetricsSnapshot(
+        timestamp=timestamp,
+        server_info={"metricsEnabled": True, "portForNewAccessKeys": 1234},
+        transfer_metrics={"bytesTransferredByUserId": {"a": 1024}},
+        experimental_metrics={
+            "server": {
+                "tunnelTime": {"seconds": 3600},
+                "bandwidth": {
+                    "current": {"data": {"bytes": 10}},
+                    "peak": {"data": {"bytes": 20}},
+                },
+                "locations": [
+                    {
+                        "location": "us",
+                        "dataTransferred": {"bytes": 5},
+                        "tunnelTime": {"seconds": 7},
+                    }
+                ],
+            }
+        },
+        key_count=2,
+        total_bytes_transferred=1024,
+    )
+
+
 def test_prometheus_exporter_cache_and_clear():
     exporter = PrometheusExporter(cache_ttl=60)
     metrics = [("test_metric", 1, "gauge", "help", None)]
@@ -72,6 +98,26 @@ def test_prometheus_exporter_cache_and_clear():
     exporter.clear_cache()
     out3 = exporter.format_metrics_batch(metrics, cache_key="k1")
     assert out3 == out1
+
+
+def test_prometheus_exporter_no_cache_key():
+    exporter = PrometheusExporter(cache_ttl=60)
+    metrics = [("test_metric", 1, "gauge", "", None)]
+    out = exporter.format_metrics_batch(metrics, cache_key=None)
+    assert "test_metric" in out
+
+
+def test_prometheus_format_metric_with_labels():
+    exporter = PrometheusExporter(cache_ttl=60)
+    lines = exporter.format_metric(
+        "metric",
+        1,
+        metric_type="gauge",
+        help_text="help",
+        labels={"key": "value"},
+    )
+    assert any("HELP metric help" in line for line in lines)
+    assert any('metric{key="value"} 1' in line for line in lines)
 
 
 @pytest.mark.asyncio
@@ -92,6 +138,20 @@ async def test_collect_single_snapshot_with_fallbacks():
     snapshot3 = await collector_fail_keys._collect_single_snapshot()
     assert snapshot3 is not None
     assert snapshot3.key_count == 0
+
+
+@pytest.mark.asyncio
+async def test_collect_single_snapshot_exception_returns_none(monkeypatch):
+    class BadDict(dict):
+        def get(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            raise ValueError("bad")
+
+    class BadKeysClient(DummyClient):
+        async def get_access_keys(self, *, as_json: bool = False):  # type: ignore[no-untyped-def]
+            return BadDict()
+
+    collector = MetricsCollector(BadKeysClient(), interval=1.0, max_history=10)
+    assert await collector._collect_single_snapshot() is None
 
 
 def test_get_snapshots_filters_and_latest():
@@ -119,12 +179,20 @@ def test_usage_stats_caching():
     assert stats1 is stats2
 
 
+def test_usage_stats_empty_history():
+    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    stats = collector.get_usage_stats()
+    assert stats.total_bytes_transferred == 0
+
+
 def test_export_prometheus_and_summary():
     collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
-    collector._history = deque([_make_snapshot(1.0, 1024)], maxlen=10)
+    collector._history = deque([_make_snapshot_with_experimental(1.0)], maxlen=10)
     output = collector.export_prometheus(include_per_key=True)
     assert "outline_keys_total" in output
     assert "outline_key_bytes_total" in output
+    assert "outline_tunnel_time_seconds_total" in output
+    assert "outline_bandwidth_peak_bytes" in output
 
     summary = collector.export_prometheus_summary()
     assert "outline_bytes_per_second" in summary
@@ -165,3 +233,121 @@ async def test_start_and_stop():
     assert collector.is_running is True
     await collector.stop()
     assert collector.is_running is False
+
+
+def test_uptime_when_running():
+    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector._running = True
+    collector._start_time = 1.0
+    assert collector.uptime >= 0.0
+
+
+def test_export_prometheus_no_snapshot():
+    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector._history.clear()
+    assert collector.export_prometheus() == ""
+
+
+def test_export_prometheus_without_per_key_or_experimental():
+    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector._history = deque(
+        [
+            MetricsSnapshot(
+                timestamp=1.0,
+                server_info={},
+                transfer_metrics={},
+                experimental_metrics={},
+                key_count=0,
+                total_bytes_transferred=0,
+            )
+        ],
+        maxlen=10,
+    )
+    output = collector.export_prometheus(include_per_key=False)
+    assert "outline_keys_total" in output
+
+
+def test_export_prometheus_per_key_non_dict():
+    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector._history = deque(
+        [
+            MetricsSnapshot(
+                timestamp=1.0,
+                server_info={"metricsEnabled": False},
+                transfer_metrics={"bytesTransferredByUserId": []},
+                experimental_metrics={},
+                key_count=0,
+                total_bytes_transferred=0,
+            )
+        ],
+        maxlen=10,
+    )
+    output = collector.export_prometheus(include_per_key=True)
+    assert "outline_metrics_enabled" in output
+
+
+def test_export_prometheus_experimental_zero_location():
+    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector._history = deque(
+        [
+            MetricsSnapshot(
+                timestamp=1.0,
+                server_info={"metricsEnabled": True},
+                transfer_metrics={"bytesTransferredByUserId": {"a": 1}},
+                experimental_metrics={
+                    "server": {
+                        "locations": [
+                            {"location": "zero", "dataTransferred": {"bytes": 0}}
+                        ],
+                        "bandwidth": {"current": {"data": {}}},
+                    }
+                },
+                key_count=1,
+                total_bytes_transferred=1,
+            )
+        ],
+        maxlen=10,
+    )
+    output = collector.export_prometheus(include_per_key=True)
+    assert "outline_keys_total" in output
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_task(caplog):
+    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+
+    async def long_task():  # type: ignore[no-untyped-def]
+        await asyncio.sleep(1)
+
+    collector._running = True
+    collector._task = asyncio.create_task(long_task())
+    collector._shutdown_event.clear()
+
+    with caplog.at_level(logging.WARNING, logger="pyoutlineapi.metrics_collector"):
+        await collector.stop()
+    assert collector._task is None
+
+
+def test_get_snapshots_limit_zero():
+    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector._history = deque([_make_snapshot(1.0, 10)], maxlen=10)
+    assert len(collector.get_snapshots(limit=0)) == 1
+
+
+def test_usage_stats_with_non_dict_bytes():
+    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector._history = deque(
+        [
+            MetricsSnapshot(
+                timestamp=1.0,
+                server_info={},
+                transfer_metrics={"bytesTransferredByUserId": []},
+                experimental_metrics={},
+                key_count=0,
+                total_bytes_transferred=0,
+            )
+        ],
+        maxlen=10,
+    )
+    stats = collector.get_usage_stats()
+    assert stats.active_keys == frozenset()

@@ -157,10 +157,6 @@ class AsyncOutlineClient(
                     field="cert_sha256",
                     security_issue=True,
                 )
-            case None, None, None:
-                raise ConfigurationError(
-                    "Either provide 'config' or both 'api_url' and 'cert_sha256'"
-                )
 
             # Pattern 4: Conflicting parameters
             case OutlineClientConfig(), str() | None, str() | None:

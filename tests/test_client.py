@@ -761,3 +761,146 @@ async def test_get_healthy_servers_filters(monkeypatch):
     monkeypatch.setattr(MultiServerManager, "health_check_all", fake_health_check_all)
     healthy = await manager.get_healthy_servers()
     assert healthy
+
+
+@pytest.mark.asyncio
+async def test_health_check_access_key_list_and_metrics(monkeypatch):
+    config = OutlineClientConfig.create_minimal(
+        api_url="https://example.com/secret",
+        cert_sha256="a" * 64,
+    )
+    client = AsyncOutlineClient(config=config)
+
+    from pyoutlineapi.models import AccessKey, AccessKeyList, MetricsStatusResponse
+
+    async def fake_get_server_info(*args, **kwargs):
+        return {"serverId": "srv"}
+
+    async def fake_get_access_keys(*args, **kwargs):
+        key = AccessKey(
+            id="key-1",
+            name="Name",
+            password="pwd",
+            port=12345,
+            method="aes-256-gcm",
+            accessUrl="ss://example",
+            dataLimit=None,
+        )
+        return AccessKeyList(accessKeys=[key])
+
+    async def fake_get_metrics_status(*args, **kwargs):
+        return MetricsStatusResponse(metricsEnabled=True)
+
+    async def fake_get_transfer_metrics(*args, **kwargs):
+        return {"bytesTransferredByUserId": {"key-1": 10}}
+
+    monkeypatch.setattr(client, "get_server_info", fake_get_server_info)
+    monkeypatch.setattr(client, "get_access_keys", fake_get_access_keys)
+    monkeypatch.setattr(client, "get_metrics_status", fake_get_metrics_status)
+    monkeypatch.setattr(client, "get_transfer_metrics", fake_get_transfer_metrics)
+
+    summary = await client.get_server_summary()
+    assert summary["access_keys_count"] == 1
+    assert summary["metrics_enabled"] is True
+    assert "transfer_metrics" in summary
+
+
+@pytest.mark.asyncio
+async def test_get_server_summary_dict_keys_and_metrics(monkeypatch):
+    config = OutlineClientConfig.create_minimal(
+        api_url="https://example.com/secret",
+        cert_sha256="a" * 64,
+    )
+    client = AsyncOutlineClient(config=config)
+
+    async def fake_get_server_info(*args, **kwargs):
+        return {"serverId": "srv"}
+
+    async def fake_get_access_keys(*args, **kwargs):
+        return {"accessKeys": [{"id": "k1"}]}
+
+    async def fake_get_metrics_status(*args, **kwargs):
+        return {"metricsEnabled": False}
+
+    monkeypatch.setattr(client, "get_server_info", fake_get_server_info)
+    monkeypatch.setattr(client, "get_access_keys", fake_get_access_keys)
+    monkeypatch.setattr(client, "get_metrics_status", fake_get_metrics_status)
+
+    summary = await client.get_server_summary()
+    assert summary["access_keys_count"] == 1
+    assert summary["metrics_enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_server_summary_metrics_status_error(monkeypatch, caplog):
+    config = OutlineClientConfig.create_minimal(
+        api_url="https://example.com/secret",
+        cert_sha256="a" * 64,
+    )
+    client = AsyncOutlineClient(config=config)
+
+    async def fake_get_server_info(*args, **kwargs):
+        return {"serverId": "srv"}
+
+    async def fake_get_access_keys(*args, **kwargs):
+        return {"accessKeys": []}
+
+    async def fake_get_metrics_status(*args, **kwargs):
+        raise RuntimeError("metrics fail")
+
+    monkeypatch.setattr(client, "get_server_info", fake_get_server_info)
+    monkeypatch.setattr(client, "get_access_keys", fake_get_access_keys)
+    monkeypatch.setattr(client, "get_metrics_status", fake_get_metrics_status)
+
+    with caplog.at_level(logging.DEBUG, logger="pyoutlineapi.client"):
+        summary = await client.get_server_summary()
+    assert summary["errors"]
+
+
+@pytest.mark.asyncio
+async def test_client_aexit_cleanup_logs_warning(caplog, monkeypatch):
+    config = OutlineClientConfig.create_minimal(
+        api_url="https://example.com/secret",
+        cert_sha256="a" * 64,
+    )
+    client = AsyncOutlineClient(config=config)
+
+    class BadAudit:
+        async def shutdown(self):  # type: ignore[no-untyped-def]
+            raise RuntimeError("audit fail")
+
+    async def bad_shutdown(timeout: float = 30.0):  # type: ignore[no-untyped-def]
+        raise RuntimeError("shutdown fail")
+
+    class DummySession:
+        closed = False
+
+        async def close(self):  # type: ignore[no-untyped-def]
+            self.closed = True
+
+    client._audit_logger_instance = BadAudit()  # type: ignore[assignment]
+    monkeypatch.setattr(client, "shutdown", bad_shutdown)
+    client._session = DummySession()  # type: ignore[assignment]
+
+    with caplog.at_level(logging.WARNING, logger="pyoutlineapi.client"):
+        await client.__aexit__(None, None, None)
+    assert any("Cleanup completed with" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_multi_server_manager_aenter_logs_warning(monkeypatch, caplog):
+    config = OutlineClientConfig.create_minimal(
+        api_url="https://example.com/secret",
+        cert_sha256="a" * 64,
+    )
+    manager = MultiServerManager([config])
+
+    async def bad_enter(self):  # type: ignore[no-untyped-def]
+        raise RuntimeError("fail")
+
+    monkeypatch.setattr(AsyncOutlineClient, "__aenter__", bad_enter)
+    with caplog.at_level(logging.WARNING, logger="pyoutlineapi.client"):
+        with pytest.raises(ConfigurationError):
+            async with manager:
+                pass
+    assert any("Failed to initialize server" in r.message for r in caplog.records)

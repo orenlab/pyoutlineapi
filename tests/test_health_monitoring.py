@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import time
+
 import pytest
 
 from pyoutlineapi.health_monitoring import (
@@ -18,6 +21,11 @@ class DummyClient:
         return None
 
 
+class FailingServerClient(DummyClient):
+    async def get_server_info(self):
+        raise RuntimeError("fail")
+
+
 @pytest.mark.asyncio
 async def test_health_monitor_check_and_cache():
     monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
@@ -25,6 +33,25 @@ async def test_health_monitor_check_and_cache():
     assert result.healthy is True
     cached = await monitor.check()
     assert cached is result
+
+
+@pytest.mark.asyncio
+async def test_health_monitor_check_returns_cached_result():
+    monitor = HealthMonitor(FailingServerClient(), cache_ttl=10.0)
+    cached = HealthStatus(healthy=True, timestamp=1.0, checks={}, metrics={})
+    monitor._cached_result = cached
+    monitor._last_check_time = time.monotonic()
+    assert await monitor.check() is cached
+
+
+@pytest.mark.asyncio
+async def test_health_monitor_quick_check_returns_cached(monkeypatch):
+    monitor = HealthMonitor(FailingServerClient(), cache_ttl=10.0)
+    monitor._cached_result = HealthStatus(
+        healthy=True, timestamp=1.0, checks={}, metrics={}
+    )
+    monitor._last_check_time = time.monotonic()
+    assert await monitor.quick_check() is True
 
 
 @pytest.mark.asyncio
@@ -156,6 +183,16 @@ def test_performance_metrics_and_helper():
     assert helper.determine_performance_status(0.95, 0.5) == "warning"
 
 
+def test_health_check_helper_branches():
+    helper = HealthCheckHelper()
+    assert helper.determine_status_by_time(0.9) in {"warning", "healthy"}
+    assert helper.determine_status_by_time(2.0) == "warning"
+    assert helper.determine_circuit_status("CLOSED", 0.99) == "healthy"
+    assert helper.determine_circuit_status("CLOSED", 0.6) == "warning"
+    assert helper.determine_circuit_status("CLOSED", 0.2) == "degraded"
+    assert helper.determine_performance_status(0.8, 5.0) == "degraded"
+
+
 @pytest.mark.asyncio
 async def test_cache_valid_and_quick_check_cached(monkeypatch):
     monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
@@ -176,7 +213,7 @@ async def test_quick_check_cached_result():
     monitor._cached_result = HealthStatus(
         healthy=True, timestamp=1.0, checks={}, metrics={}
     )
-    monitor._last_check_time = 0.0
+    monitor._last_check_time = time.monotonic()
     assert await monitor.quick_check() is True
 
 
@@ -219,6 +256,19 @@ def test_add_custom_check_validation_and_invalidate_cache():
 
 
 @pytest.mark.asyncio
+async def test_add_custom_check_logs_debug(caplog):
+    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+
+    async def ok_check(_client):  # type: ignore[no-untyped-def]
+        return {"status": "healthy"}
+
+    logging.getLogger("pyoutlineapi.health_monitoring").setLevel("DEBUG")
+    with caplog.at_level("DEBUG", logger="pyoutlineapi.health_monitoring"):
+        monitor.add_custom_check("ok", ok_check)
+    assert monitor.custom_checks_count == 1
+
+
+@pytest.mark.asyncio
 async def test_wait_for_healthy_validation_errors():
     monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
     with pytest.raises(ValueError):
@@ -237,3 +287,40 @@ async def test_wait_for_healthy_exception_in_check(monkeypatch):
     monkeypatch.setattr(HealthMonitor, "quick_check", boom)
     result = await monitor.wait_for_healthy(timeout=0.01, check_interval=0.005)
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_wait_for_healthy_exception_logs_debug(monkeypatch, caplog):
+    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+
+    async def boom(self):  # type: ignore[no-untyped-def]
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(HealthMonitor, "quick_check", boom)
+    logging.getLogger("pyoutlineapi.health_monitoring").setLevel("DEBUG")
+    with caplog.at_level("DEBUG", logger="pyoutlineapi.health_monitoring"):
+        result = await monitor.wait_for_healthy(timeout=0.01, check_interval=0.005)
+    assert result is False
+    assert any("Health check failed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_healthy_success(monkeypatch):
+    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+
+    async def always_true(self):  # type: ignore[no-untyped-def]
+        return True
+
+    monkeypatch.setattr(HealthMonitor, "quick_check", always_true)
+    assert await monitor.wait_for_healthy(timeout=1.0, check_interval=0.005) is True
+
+
+@pytest.mark.asyncio
+async def test_check_performance_unhealthy():
+    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor._metrics.total_requests = 10
+    monitor._metrics.successful_requests = 0
+    monitor._metrics.failed_requests = 10
+    status_data = {"healthy": True, "checks": {}, "metrics": {}}
+    await monitor._check_performance(status_data)
+    assert status_data["healthy"] is False

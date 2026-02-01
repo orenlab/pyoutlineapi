@@ -99,6 +99,34 @@ async def test_circuit_breaker_reset():
 
 
 @pytest.mark.asyncio
+async def test_circuit_breaker_reset_logs_info(caplog):
+    breaker = CircuitBreaker("reset-log")
+    with caplog.at_level(logging.INFO, logger="pyoutlineapi.circuit_breaker"):
+        await breaker.reset()
+    assert any("manual reset" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_open_state_rejects():
+    breaker = CircuitBreaker("open", CircuitConfig(recovery_timeout=10.0))
+    breaker._state = CircuitState.OPEN  # type: ignore[attr-defined]
+    breaker._last_failure_time = 100.0  # type: ignore[attr-defined]
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("pyoutlineapi.circuit_breaker.time.monotonic", lambda: 100.1)
+        with pytest.raises(CircuitOpenError) as exc:
+            await breaker.call(asyncio.sleep, 0)
+    assert exc.value.retry_after >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_transition_to_open_logs_info(caplog):
+    breaker = CircuitBreaker("transition-open")
+    with caplog.at_level(logging.INFO, logger="pyoutlineapi.circuit_breaker"):
+        await breaker._transition_to(CircuitState.OPEN)
+    assert breaker.state == CircuitState.OPEN
+
+
+@pytest.mark.asyncio
 async def test_circuit_breaker_timeout():
     breaker = CircuitBreaker("timeout", CircuitConfig(call_timeout=0.1))
 
@@ -150,6 +178,16 @@ async def test_circuit_breaker_check_state_transitions(caplog, monkeypatch):
     with caplog.at_level(logging.INFO, logger="pyoutlineapi.circuit_breaker"):
         await breaker._check_state()
     assert breaker.state in {CircuitState.HALF_OPEN, CircuitState.OPEN}
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_check_state_opens_with_warning(caplog):
+    breaker = CircuitBreaker("warn", CircuitConfig(failure_threshold=1))
+    breaker._failure_count = 1  # type: ignore[attr-defined]
+    logging.getLogger("pyoutlineapi.circuit_breaker").setLevel(logging.WARNING)
+    with caplog.at_level(logging.WARNING, logger="pyoutlineapi.circuit_breaker"):
+        await breaker._check_state()
+    assert breaker.state == CircuitState.OPEN
 
 
 @pytest.mark.asyncio
@@ -208,14 +246,23 @@ async def test_circuit_breaker_half_open_success_closes(caplog):
 
 
 @pytest.mark.asyncio
-async def test_circuit_breaker_half_open_failure_logs_warning(caplog):
-    breaker = CircuitBreaker("half-fail")
+async def test_circuit_breaker_half_open_success_logs_info(caplog):
+    breaker = CircuitBreaker("half-info", CircuitConfig(success_threshold=1))
     breaker._state = CircuitState.HALF_OPEN  # type: ignore[attr-defined]
-    logger = logging.getLogger("pyoutlineapi.circuit_breaker")
-    logger.setLevel(logging.WARNING)
+    logging.getLogger("pyoutlineapi.circuit_breaker").setLevel(logging.INFO)
+    with caplog.at_level(logging.INFO, logger="pyoutlineapi.circuit_breaker"):
+        await breaker._record_success(0.1)
+    assert any("closing after" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_half_open_failure_logs_warning(caplog):
+    breaker = CircuitBreaker("half-fail-log")
+    breaker._state = CircuitState.HALF_OPEN  # type: ignore[attr-defined]
+    logging.getLogger("pyoutlineapi.circuit_breaker").setLevel(logging.WARNING)
     with caplog.at_level(logging.WARNING, logger="pyoutlineapi.circuit_breaker"):
         await breaker._record_failure(0.1, RuntimeError("boom"))
-    assert breaker.state == CircuitState.OPEN
+    assert any("reopening" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio

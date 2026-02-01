@@ -143,6 +143,16 @@ def test_audit_context_resource_patterns():
     assert ctx.resource == "server"
 
 
+def test_audit_context_resource_from_result_dict():
+    def func():  # type: ignore[no-untyped-def]
+        return None
+
+    resource = AuditContext._extract_resource(  # type: ignore[attr-defined]
+        func, args=(), kwargs={}, result={"id": "r1"}, success=True
+    )
+    assert resource == "r1"
+
+
 @pytest.mark.asyncio
 async def test_audit_logger_queue_full_fallback(monkeypatch):
     logger_instance = DefaultAuditLogger(queue_size=1)
@@ -216,6 +226,7 @@ async def test_audit_logger_shutdown_timeout_logs_warning(caplog):
         await logger_instance.shutdown(timeout=0.0001)
     monkeypatch.undo()
     assert any("Queue did not drain" in r.message for r in caplog.records)
+
 
 def test_audit_context_resource_unknown():
     def op():  # type: ignore[no-untyped-def]
@@ -425,3 +436,246 @@ async def test_default_audit_logger_shutdown_timeout(monkeypatch):
 
     monkeypatch.setattr(logger._queue, "join", fake_join)
     await logger.shutdown(timeout=0.01)
+
+
+@pytest.mark.asyncio
+async def test_audit_logger_shutdown_already_set():
+    logger = DefaultAuditLogger()
+    logger._shutdown_event.set()
+    await logger.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_audit_logger_queue_full_logs_warning(caplog, monkeypatch):
+    logger_instance = DefaultAuditLogger(queue_size=1)
+    logging.getLogger("pyoutlineapi.audit").setLevel(logging.WARNING)
+
+    def fake_put_nowait(_entry):  # type: ignore[no-untyped-def]
+        raise asyncio.QueueFull
+
+    monkeypatch.setattr(logger_instance._queue, "put_nowait", fake_put_nowait)
+    with caplog.at_level(logging.WARNING, logger="pyoutlineapi.audit"):
+        await logger_instance.alog_action("act", "res")
+    assert any("Queue full" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_audit_logger_queue_full_no_warning(monkeypatch):
+    logger_instance = DefaultAuditLogger(queue_size=1)
+    logging.getLogger("pyoutlineapi.audit").setLevel(logging.ERROR)
+
+    def fake_put_nowait(_entry):  # type: ignore[no-untyped-def]
+        raise asyncio.QueueFull
+
+    monkeypatch.setattr(logger_instance._queue, "put_nowait", fake_put_nowait)
+    await logger_instance.alog_action("act", "res")
+
+
+@pytest.mark.asyncio
+async def test_audit_logger_ensure_task_running_restarts():
+    logger_instance = DefaultAuditLogger()
+    await logger_instance._ensure_task_running()
+    task = logger_instance._task
+    assert task is not None
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+    await logger_instance._ensure_task_running()
+    await logger_instance.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_audit_logger_process_queue_batch_size(monkeypatch):
+    logger_instance = DefaultAuditLogger(batch_size=1, batch_timeout=1.0)
+    flushed: list[int] = []
+
+    def fake_write_batch(self, batch):  # type: ignore[no-untyped-def]
+        flushed.append(len(batch))
+
+    monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
+    await logger_instance._queue.put({"action": "a", "resource": "r"})
+
+    task = asyncio.create_task(logger_instance._process_queue())
+    await asyncio.sleep(0.01)
+    logger_instance._shutdown_event.set()
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+    assert flushed
+
+
+@pytest.mark.asyncio
+async def test_audit_logger_process_queue_timeout_flushes(monkeypatch):
+    logger_instance = DefaultAuditLogger(batch_size=10, batch_timeout=0.001)
+    flushed: list[int] = []
+
+    def fake_write_batch(self, batch):  # type: ignore[no-untyped-def]
+        flushed.append(len(batch))
+
+    monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
+    await logger_instance._queue.put({"action": "a", "resource": "r"})
+    task = asyncio.create_task(logger_instance._process_queue())
+    await asyncio.sleep(0.01)
+    logger_instance._shutdown_event.set()
+    await task
+    assert flushed
+
+
+@pytest.mark.asyncio
+async def test_audit_logger_process_queue_empty_flush(monkeypatch, caplog):
+    logger_instance = DefaultAuditLogger(batch_size=10, batch_timeout=1.0)
+    logging.getLogger("pyoutlineapi.audit").setLevel(logging.DEBUG)
+    flushed: list[int] = []
+
+    def fake_write_batch(self, batch):  # type: ignore[no-untyped-def]
+        flushed.append(len(batch))
+
+    monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
+    await logger_instance._queue.put({"action": "a", "resource": "r"})
+
+    with caplog.at_level(logging.DEBUG, logger="pyoutlineapi.audit"):
+        task = asyncio.create_task(logger_instance._process_queue())
+        await asyncio.sleep(0.01)
+        logger_instance._shutdown_event.set()
+        await task
+    assert flushed
+
+
+@pytest.mark.asyncio
+async def test_audit_logger_shutdown_timeout_cancels_task(monkeypatch):
+    logger_instance = DefaultAuditLogger()
+    logging.getLogger("pyoutlineapi.audit").setLevel(logging.WARNING)
+
+    async def fake_join():  # type: ignore[no-untyped-def]
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(logger_instance._queue, "join", fake_join)
+    await logger_instance._ensure_task_running()
+    await logger_instance.shutdown(timeout=0.001)
+
+
+@pytest.mark.asyncio
+async def test_audit_logger_shutdown_timeout_no_warning(monkeypatch):
+    logger_instance = DefaultAuditLogger()
+    logging.getLogger("pyoutlineapi.audit").setLevel(logging.ERROR)
+
+    async def fake_join():  # type: ignore[no-untyped-def]
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(logger_instance._queue, "join", fake_join)
+    await logger_instance.shutdown(timeout=0.001)
+
+
+@pytest.mark.asyncio
+async def test_audited_async_without_logger():
+    class NoLogger:
+        @audited()
+        async def do(self):  # type: ignore[no-untyped-def]
+            return "ok"
+
+    obj = NoLogger()
+    assert await obj.do() == "ok"
+
+
+def test_audited_sync_no_success_logging():
+    logger = DummyLogger()
+
+    class Example:
+        def __init__(self, logger):  # type: ignore[no-untyped-def]
+            self._audit_logger_instance = logger
+
+        @property
+        def _audit_logger(self):  # type: ignore[no-untyped-def]
+            return self._audit_logger_instance
+
+        @audited(log_success=False)
+        def do(self):  # type: ignore[no-untyped-def]
+            return "ok"
+
+    obj = Example(logger)
+    assert obj.do() == "ok"
+    assert logger.logged == []
+
+
+@pytest.mark.asyncio
+async def test_audited_async_no_success_logging():
+    logger = DummyLogger()
+
+    class Example:
+        def __init__(self, logger):  # type: ignore[no-untyped-def]
+            self._audit_logger_instance = logger
+
+        @property
+        def _audit_logger(self):  # type: ignore[no-untyped-def]
+            return self._audit_logger_instance
+
+        @audited(log_success=False)
+        async def do(self):  # type: ignore[no-untyped-def]
+            return "ok"
+
+    obj = Example(logger)
+    assert await obj.do() == "ok"
+    assert logger.alogged == []
+
+
+def test_sanitize_details_nested_redaction():
+    details = {"token": "x", "nested": {"password": "y"}}
+    sanitized = _sanitize_details(details)
+    assert sanitized["token"] == "***REDACTED***"
+    assert sanitized["nested"]["password"] == "***REDACTED***"
+
+
+def test_get_or_create_audit_logger_cache_paths():
+    logger1 = get_or_create_audit_logger(instance_id=123)
+    logger2 = get_or_create_audit_logger(instance_id=123)
+    assert logger1 is logger2
+
+
+def test_get_or_create_audit_logger_creates_and_caches():
+    logger_instance = get_or_create_audit_logger(instance_id=999)
+    assert get_or_create_audit_logger(instance_id=999) is logger_instance
+
+
+@pytest.mark.asyncio
+async def test_audited_async_failure_logs():
+    logger = DummyLogger()
+
+    class Example:
+        def __init__(self, logger):  # type: ignore[no-untyped-def]
+            self._audit_logger_instance = logger
+
+        @property
+        def _audit_logger(self):  # type: ignore[no-untyped-def]
+            return self._audit_logger_instance
+
+        @audited()
+        async def fail(self):  # type: ignore[no-untyped-def]
+            raise RuntimeError("boom")
+
+    obj = Example(logger)
+    with pytest.raises(RuntimeError):
+        await obj.fail()
+    await asyncio.sleep(0)
+    assert logger.alogged
+
+
+def test_audited_sync_failure_logs():
+    logger = DummyLogger()
+
+    class Example:
+        def __init__(self, logger):  # type: ignore[no-untyped-def]
+            self._audit_logger_instance = logger
+
+        @property
+        def _audit_logger(self):  # type: ignore[no-untyped-def]
+            return self._audit_logger_instance
+
+        @audited()
+        def fail(self):  # type: ignore[no-untyped-def]
+            raise RuntimeError("boom")
+
+    obj = Example(logger)
+    with pytest.raises(RuntimeError):
+        obj.fail()
+    assert logger.logged

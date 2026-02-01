@@ -46,7 +46,7 @@ class ResponseParser:
         model: type[T],
         *,
         as_json: Literal[True] = True,
-    ) -> JsonDict: ...
+    ) -> JsonDict: ...  # pragma: no cover
 
     @staticmethod
     @overload
@@ -55,7 +55,7 @@ class ResponseParser:
         model: type[T],
         *,
         as_json: Literal[False] = False,
-    ) -> T: ...
+    ) -> T: ...  # pragma: no cover
 
     @staticmethod
     @overload
@@ -64,7 +64,7 @@ class ResponseParser:
         model: type[T],
         *,
         as_json: bool,
-    ) -> T | JsonDict: ...
+    ) -> T | JsonDict: ...  # pragma: no cover
 
     @staticmethod
     def parse(
