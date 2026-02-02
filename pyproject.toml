@@ -79,6 +79,7 @@ dev = [
     "pdoc>=15.0.4",
     "rich>=14.2.0",
     "bandit>=1.8.2",
+    "codeclone>=1.1.0",
 ]
 
 # ===== Pdoc Configuration =====

@@ -31,7 +31,6 @@ from typing import (
     TypeAlias,
     TypedDict,
     TypeGuard,
-    Union,
 )
 from urllib.parse import urlparse
 
@@ -63,9 +62,9 @@ Timestamp: TypeAlias = TimestampMs
 # ===== Type Aliases - JSON and API Types =====
 
 JsonPrimitive: TypeAlias = str | int | float | bool | None
-JsonValue: TypeAlias = Union[JsonPrimitive, "JsonDict", "JsonList"]
-JsonDict: TypeAlias = dict[str, JsonValue]
-JsonList: TypeAlias = list[JsonValue]
+JsonDict: TypeAlias = dict[str, "JsonValue"]
+JsonList: TypeAlias = list["JsonValue"]
+JsonValue: TypeAlias = JsonPrimitive | JsonDict | JsonList
 JsonPayload: TypeAlias = JsonDict | JsonList | None
 ResponseData: TypeAlias = JsonDict
 QueryParams: TypeAlias = dict[str, str | int | float | bool]
@@ -296,7 +295,7 @@ class CredentialSanitizer:
         ),
         (
             re.compile(
-                r'token["\']?\s*[:=]\s*["\']?([a-zA-Z0-9_\-\.]{20,})', re.IGNORECASE
+                r'token["\']?\s*[:=]\s*["\']?([a-zA-Z0-9_\-.]{20,})', re.IGNORECASE
             ),
             "***TOKEN***",
         ),

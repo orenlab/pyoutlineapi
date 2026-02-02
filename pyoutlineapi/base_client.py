@@ -32,8 +32,6 @@ from .audit import AuditLogger, NoOpAuditLogger
 from .common_types import (
     Constants,
     CredentialSanitizer,
-    JsonDict,  # noqa: F401
-    JsonList,  # noqa: F401
     JsonPayload,
     MetricsTags,
     QueryParams,

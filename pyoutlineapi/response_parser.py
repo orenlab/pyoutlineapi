@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Final, Literal, TypeVar, cast, overload
 
 from pydantic import BaseModel, ValidationError
 
-from .common_types import Constants, JsonDict, JsonList, JsonValue  # noqa: F401
+from .common_types import Constants, JsonDict, JsonValue
 from .exceptions import ValidationError as OutlineValidationError
 
 if TYPE_CHECKING:

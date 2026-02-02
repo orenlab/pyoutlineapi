@@ -209,6 +209,18 @@ wheels = [
 ]
 
 [[package]]
+name = "codeclone"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pygments" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a0/b6/82a42134228873394e64ad5ebaf05b41d82a42954db41368b3fc6bc728fe/codeclone-1.1.0.tar.gz", hash = "sha256:dfe4b63ed837ef33ed8cda422db16d033789e91661034f338139fd37ad75b8dc", size = 23033, upload-time = "2026-01-19T14:44:57.853Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/b3/9d1c1994ad87cdedafa06dbaec05a3e53518e4c343c52ab95532cdc3188b/codeclone-1.1.0-py3-none-any.whl", hash = "sha256:5eb387e052487557457c0e46cb70091dc7a9be27ea06e1937694eb4b4123aa6f", size = 23288, upload-time = "2026-01-19T14:44:55.002Z" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1200,6 +1212,7 @@ dependencies = [
 dev = [
     { name = "aioresponses" },
     { name = "bandit" },
+    { name = "codeclone" },
     { name = "mypy" },
     { name = "pdoc" },
     { name = "pytest" },
@@ -1223,6 +1236,7 @@ requires-dist = [
 dev = [
     { name = "aioresponses", specifier = ">=0.7.8" },
     { name = "bandit", specifier = ">=1.8.2" },
+    { name = "codeclone", specifier = ">=1.1.0" },
     { name = "mypy", specifier = ">=1.13.0" },
     { name = "pdoc", specifier = ">=15.0.4" },
     { name = "pytest", specifier = ">=8.4.2" },

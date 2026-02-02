@@ -222,7 +222,7 @@ async def test_collect_loop_warning_and_stop(caplog):
         task = asyncio.create_task(collector._collect_loop())
         await asyncio.sleep(0.05)
         collector._shutdown_event.set()
-        
+
         try:
             await asyncio.wait_for(task, timeout=0.1)
         except (asyncio.TimeoutError, asyncio.CancelledError):
