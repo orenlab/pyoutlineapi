@@ -1,17 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 import pytest
 
-from pyoutlineapi import common_types as common_types_module
-from pyoutlineapi import metrics_collector as metrics_collector_module
+from pyoutlineapi import (
+    common_types as common_types_module,
+    metrics_collector as metrics_collector_module,
+)
+from pyoutlineapi.client import AsyncOutlineClient
 from pyoutlineapi.metrics_collector import (
     MetricsCollector,
     MetricsSnapshot,
     PrometheusExporter,
     UsageStats,
 )
+
+
+def _as_client(client: object) -> AsyncOutlineClient:
+    return cast(AsyncOutlineClient, client)
 
 
 class DummyClient:
@@ -51,7 +59,7 @@ class WeirdTransferClient(DummyClient):
 
 @pytest.mark.asyncio
 async def test_collect_single_snapshot():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     snapshot = await collector._collect_single_snapshot()
     assert snapshot is not None
     assert snapshot.key_count == 1
@@ -60,7 +68,11 @@ async def test_collect_single_snapshot():
 
 @pytest.mark.asyncio
 async def test_collect_single_snapshot_non_dict_transfer():
-    collector = MetricsCollector(WeirdTransferClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(
+        _as_client(WeirdTransferClient()),
+        interval=1.0,
+        max_history=5,
+    )
     snapshot = await collector._collect_single_snapshot()
     assert snapshot is not None
     assert snapshot.total_bytes_transferred == 0
@@ -68,9 +80,9 @@ async def test_collect_single_snapshot_non_dict_transfer():
 
 @pytest.mark.asyncio
 async def test_collect_single_snapshot_error(monkeypatch):
-    collector = MetricsCollector(FailingClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(FailingClient()), interval=1.0, max_history=5)
 
-    def fake_getsizeof(_):  # type: ignore[no-untyped-def]
+    def fake_getsizeof(_: object) -> int:
         return 10 * 1024 * 1024 + 1
 
     monkeypatch.setattr("sys.getsizeof", fake_getsizeof)
@@ -80,7 +92,7 @@ async def test_collect_single_snapshot_error(monkeypatch):
 
 def test_metrics_snapshot_size_limit(monkeypatch):
     monkeypatch.setattr(common_types_module.Constants, "MAX_SNAPSHOT_SIZE_MB", 0)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         MetricsSnapshot(
             timestamp=0.0,
             server_info={"a": {"b": {"c": "d"}}},
@@ -98,7 +110,7 @@ def test_estimate_size_early_exit():
 
 @pytest.mark.asyncio
 async def test_collector_start_stop():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     await collector.start()
     await asyncio.sleep(0)
     await collector.stop()
@@ -106,7 +118,7 @@ async def test_collector_start_stop():
 
 
 def test_collector_stats_and_prometheus():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     snapshot = MetricsSnapshot(
         timestamp=1.0,
         server_info={"metricsEnabled": True, "portForNewAccessKeys": 1234},
@@ -210,7 +222,7 @@ def test_prometheus_exporter_cache():
 
 
 def test_collector_empty_history():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     assert collector.get_latest_snapshot() is None
     stats = collector.get_usage_stats()
     assert stats.snapshots_count == 0
@@ -219,18 +231,18 @@ def test_collector_empty_history():
 
 
 def test_collector_invalid_params():
-    with pytest.raises(ValueError):
-        MetricsCollector(DummyClient(), interval=0.0)
-    with pytest.raises(ValueError):
-        MetricsCollector(DummyClient(), interval=1.0, max_history=0)
+    with pytest.raises(ValueError, match=r".*"):
+        MetricsCollector(_as_client(DummyClient()), interval=0.0)
+    with pytest.raises(ValueError, match=r".*"):
+        MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=0)
 
 
 @pytest.mark.asyncio
 async def test_collect_loop_cancel_and_timeout(monkeypatch):
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     collector._interval = 0.01
 
-    async def return_none(self):  # type: ignore[no-untyped-def]
+    async def return_none(self: MetricsCollector) -> MetricsSnapshot | None:
         await asyncio.sleep(0.1)
         return None
 
@@ -245,10 +257,10 @@ async def test_collect_loop_cancel_and_timeout(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_collect_loop_unexpected_error(monkeypatch):
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     collector._interval = 0.01
 
-    async def boom(self):  # type: ignore[no-untyped-def]
+    async def boom(self: MetricsCollector) -> MetricsSnapshot | None:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(MetricsCollector, "_collect_single_snapshot", boom)
@@ -261,7 +273,7 @@ async def test_collect_loop_unexpected_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_collector_start_twice_and_stop_not_running(monkeypatch):
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     await collector.start()
     with pytest.raises(RuntimeError):
         await collector.start()
@@ -271,15 +283,15 @@ async def test_collector_start_twice_and_stop_not_running(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_collector_stop_timeout(monkeypatch):
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
 
-    async def fake_loop():  # type: ignore[no-untyped-def]
+    async def fake_loop() -> None:
         await asyncio.sleep(1)
 
     collector._task = asyncio.create_task(fake_loop())
     collector._running = True
 
-    async def raise_timeout(_task, timeout):  # type: ignore[no-untyped-def]
+    async def raise_timeout(_task: object, timeout: float | None = None) -> None:
         raise TimeoutError()
 
     monkeypatch.setattr(asyncio, "wait_for", raise_timeout)
@@ -287,7 +299,7 @@ async def test_collector_stop_timeout(monkeypatch):
 
 
 def test_collector_clear_history():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     collector._history.append(
         MetricsSnapshot(
             timestamp=1.0,
@@ -303,7 +315,7 @@ def test_collector_clear_history():
 
 
 def test_get_snapshots_end_time_and_limit():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     collector._history.extend(
         [
             MetricsSnapshot(
@@ -337,7 +349,7 @@ def test_get_snapshots_end_time_and_limit():
 
 
 def test_export_prometheus_with_locations_and_keys():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     snapshot = MetricsSnapshot(
         timestamp=1.0,
         server_info={"metricsEnabled": True, "portForNewAccessKeys": 1234},
@@ -374,7 +386,7 @@ def test_export_prometheus_with_locations_and_keys():
 
 @pytest.mark.asyncio
 async def test_collector_uptime_and_context_manager():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=5)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=5)
     assert collector.uptime == 0.0
     async with collector:
         assert collector.is_running is True

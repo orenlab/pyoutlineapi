@@ -507,6 +507,12 @@ class MetricsCollector:
             except TimeoutError:
                 pass  # Normal timeout, continue loop
 
+        if 0 < consecutive_errors < max_consecutive_errors:
+            _log_if_enabled(
+                logging.WARNING,
+                f"Failed to collect metrics {consecutive_errors} times consecutively",
+            )
+
     async def start(self) -> None:
         """Start metrics collection.
 

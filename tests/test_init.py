@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from importlib import reload
 from typing import Any
 
 import pytest
-from importlib import reload
 
 import pyoutlineapi
 
@@ -46,7 +46,7 @@ def test_getattr_helpful_errors():
 def test_version_fallback(monkeypatch):
     import pyoutlineapi as module
 
-    def raise_not_found(_name):  # type: ignore[no-untyped-def]
+    def raise_not_found(_name: str) -> str:
         raise module.metadata.PackageNotFoundError
 
     monkeypatch.setattr(module.metadata, "version", raise_not_found)

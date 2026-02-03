@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
+from types import SimpleNamespace
+from typing import cast
 
 import aiohttp
 import pytest
@@ -16,9 +19,15 @@ from pyoutlineapi.base_client import (
     SSLFingerprintValidator,
     TokenBucketRateLimiter,
 )
-from pyoutlineapi.circuit_breaker import CircuitConfig
-from pyoutlineapi.common_types import Constants, SSRFProtection
-from pyoutlineapi.exceptions import APIError, CircuitOpenError, OutlineConnectionError
+from pyoutlineapi.circuit_breaker import CircuitBreaker, CircuitConfig
+from pyoutlineapi.common_types import (
+    Constants,
+    JsonDict,
+    JsonList,
+    JsonValue,
+    SSRFProtection,
+)
+from pyoutlineapi.exceptions import APIError, CircuitOpenError
 
 
 class _ChunkedContent:
@@ -69,11 +78,11 @@ class DummyRequestContext:
 
 
 class DummySession:
-    def __init__(self, responder):  # type: ignore[no-untyped-def]
+    def __init__(self, responder: Callable[..., DummyResponse]) -> None:
         self._responder = responder
         self.closed = False
 
-    def request(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def request(self, *args: object, **kwargs: object) -> DummyRequestContext:
         return DummyRequestContext(self._responder(*args, **kwargs))
 
     async def close(self) -> None:
@@ -93,19 +102,26 @@ async def test_request_rechecks_ssrf(monkeypatch):
         SSRFProtection, "is_blocked_hostname_uncached", lambda _host: True
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         await client._request("GET", "server")
 
 
 @pytest.mark.asyncio
 async def test_request_ssrf_passes_and_returns(monkeypatch):
     class DummyClient(BaseHTTPClient):
-        async def _ensure_session(self):  # type: ignore[no-untyped-def]
+        async def _ensure_session(self) -> None:
             return None
 
-        async def _make_request_inner(  # type: ignore[no-untyped-def]
-            self, *_args, **_kwargs
-        ):
+        async def _make_request_inner(
+            self,
+            method: str,
+            endpoint: str,
+            *,
+            json: JsonDict | JsonList | None = None,
+            params: dict[str, str | int | float | bool] | None = None,
+            correlation_id: str,
+        ) -> dict[str, JsonValue]:
+            _ = (method, endpoint, json, params, correlation_id)
             return {}
 
     client = DummyClient(
@@ -144,7 +160,7 @@ async def test_build_url_and_parse_response(access_key_dict):
     body = json.dumps(access_key_dict).encode("utf-8")
     response = DummyResponse(status=200, body=body)
 
-    data = await client._parse_response_safe(response, "/server")
+    data = await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
     assert data["id"] == "key-1"
 
 
@@ -163,7 +179,7 @@ async def test_parse_response_size_limit():
     response = DummyResponse(status=200, body=big)
 
     with pytest.raises(APIError):
-        await client._parse_response_safe(response, "/server")
+        await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
 
 
 @pytest.mark.asyncio
@@ -185,7 +201,7 @@ async def test_parse_response_content_length_header_limit():
         },
     )
     with pytest.raises(APIError):
-        await client._parse_response_safe(response, "/server")
+        await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
 
 
 @pytest.mark.asyncio
@@ -203,7 +219,7 @@ async def test_parse_response_content_length_invalid_and_list_json():
         body=b"[]",
         headers={"Content-Type": "text/plain", "Content-Length": "bad"},
     )
-    data = await client._parse_response_safe(response, "/server")
+    data = await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
     assert data["success"] is True
 
 
@@ -215,7 +231,7 @@ async def test_handle_error_json():
         json_data={"message": "fail"},
     )
     with pytest.raises(APIError) as exc:
-        await BaseHTTPClient._handle_error(response, "/bad")
+        await BaseHTTPClient._handle_error(cast(aiohttp.ClientResponse, response), "/bad")
     assert "fail" in str(exc.value)
 
 
@@ -228,13 +244,13 @@ async def test_handle_error_non_json():
         reason="Bad Request",
     )
     with pytest.raises(APIError) as exc:
-        await BaseHTTPClient._handle_error(response, "/bad")
+        await BaseHTTPClient._handle_error(cast(aiohttp.ClientResponse, response), "/bad")
     assert "Bad Request" in str(exc.value)
 
 
 @pytest.mark.asyncio
 async def test_make_request_inner_success_and_204(monkeypatch):
-    def responder(method, url, **kwargs):
+    def responder(method: str, url: str, **kwargs: object) -> DummyResponse:
         if method == "GET":
             return DummyResponse(status=200, body=b'{"success": true}')
         return DummyResponse(status=204, body=b"")
@@ -247,7 +263,7 @@ async def test_make_request_inner_success_and_204(monkeypatch):
         max_connections=1,
         rate_limit=10,
     )
-    client._session = DummySession(responder)
+    client._session = cast(aiohttp.ClientSession, DummySession(responder))
 
     result = await client._make_request_inner(
         "GET", "server", json=None, params=None, correlation_id="cid"
@@ -262,7 +278,7 @@ async def test_make_request_inner_success_and_204(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_make_request_inner_debug_logging(caplog):
-    def responder(method, url, **kwargs):  # type: ignore[no-untyped-def]
+    def responder(method: str, url: str, **kwargs: object) -> DummyResponse:
         return DummyResponse(status=200, body=b'{"success": true}')
 
     client = _TestClient(
@@ -274,7 +290,7 @@ async def test_make_request_inner_debug_logging(caplog):
         rate_limit=10,
     )
     client._enable_logging = True
-    client._session = DummySession(responder)
+    client._session = cast(aiohttp.ClientSession, DummySession(responder))
     with caplog.at_level(logging.DEBUG, logger="pyoutlineapi.base_client"):
         await client._make_request_inner(
             "GET", "server", json=None, params=None, correlation_id="cid"
@@ -293,7 +309,7 @@ async def test_parse_response_invalid_json_returns_success():
         rate_limit=10,
     )
     response = DummyResponse(status=200, body=b"{invalid")
-    data = await client._parse_response_safe(response, "/server")
+    data = await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
     assert data["success"] is True
 
 
@@ -309,7 +325,7 @@ async def test_parse_response_invalid_json_error_status():
     )
     response = DummyResponse(status=500, body=b"{invalid")
     with pytest.raises(APIError):
-        await client._parse_response_safe(response, "/server")
+        await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
 
 
 @pytest.mark.asyncio
@@ -324,7 +340,7 @@ async def test_parse_response_non_dict_error_status():
     )
     response = DummyResponse(status=400, body=b"[]")
     with pytest.raises(APIError):
-        await client._parse_response_safe(response, "/server")
+        await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
 
 
 @pytest.mark.asyncio
@@ -337,7 +353,10 @@ async def test_shutdown_closes_session():
         max_connections=1,
         rate_limit=10,
     )
-    client._session = DummySession(lambda *args, **kwargs: DummyResponse(204, b""))
+    def responder(method: str, url: str, **kwargs: object) -> DummyResponse:
+        return DummyResponse(204, b"")
+
+    client._session = cast(aiohttp.ClientSession, DummySession(responder))
     await client.shutdown()
     assert client._session is None
 
@@ -353,8 +372,9 @@ async def test_shutdown_cancels_active_requests():
         rate_limit=10,
     )
 
-    async def sleeper():  # type: ignore[no-untyped-def]
+    async def sleeper() -> dict[str, JsonValue]:
         await asyncio.sleep(1)
+        return {"ok": True}
 
     task = asyncio.create_task(sleeper())
     async with client._active_requests_lock:
@@ -363,10 +383,10 @@ async def test_shutdown_cancels_active_requests():
     class DummySessionClose:
         closed = False
 
-        async def close(self):  # type: ignore[no-untyped-def]
+        async def close(self) -> None:
             self.closed = True
 
-    client._session = DummySessionClose()  # type: ignore[assignment]
+    client._session = cast(aiohttp.ClientSession, DummySessionClose())
     await client.shutdown(timeout=0.01)
     assert task.cancelled() or task.done()
 
@@ -390,9 +410,9 @@ async def test_rate_limiter_and_noop_metrics(monkeypatch):
 
 
 def test_token_bucket_invalid_params():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         TokenBucketRateLimiter(rate=0.0, capacity=1)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         TokenBucketRateLimiter(rate=1.0, capacity=0)
 
 
@@ -460,7 +480,11 @@ async def test_rate_limit_properties():
 @pytest.mark.asyncio
 async def test_make_request_inner_connection_error():
     class ErrorSession:
-        def request(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        def request(
+            self,
+            *args: object,
+            **kwargs: object,
+        ) -> DummyRequestContext:
             raise aiohttp.ClientConnectionError("boom")
 
     client = _TestClient(
@@ -471,7 +495,7 @@ async def test_make_request_inner_connection_error():
         max_connections=1,
         rate_limit=10,
     )
-    client._session = ErrorSession()
+    client._session = cast(aiohttp.ClientSession, ErrorSession())
     with pytest.raises(APIError):
         await client._make_request_inner(
             "GET", "server", json=None, params=None, correlation_id="cid"
@@ -490,10 +514,10 @@ async def test_request_with_circuit_open(monkeypatch):
     )
 
     class DummyBreaker:
-        async def call(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        async def call(self, *args: object, **kwargs: object) -> object:
             raise CircuitOpenError("open")
 
-    client._circuit_breaker = DummyBreaker()
+    client._circuit_breaker = cast(CircuitBreaker, DummyBreaker())
     with pytest.raises(CircuitOpenError):
         await client._request("GET", "server")
 
@@ -510,13 +534,15 @@ async def test_request_with_circuit_open_logs(caplog):
     )
 
     class DummyBreaker:
-        async def call(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        async def call(self, *args: object, **kwargs: object) -> object:
             raise CircuitOpenError("open")
 
-    client._circuit_breaker = DummyBreaker()
-    with caplog.at_level(logging.ERROR, logger="pyoutlineapi.base_client"):
-        with pytest.raises(CircuitOpenError):
-            await client._request("GET", "server")
+    client._circuit_breaker = cast(CircuitBreaker, DummyBreaker())
+    with caplog.at_level(
+        logging.ERROR,
+        logger="pyoutlineapi.base_client",
+    ), pytest.raises(CircuitOpenError):
+        await client._request("GET", "server")
 
 
 @pytest.mark.asyncio
@@ -530,7 +556,7 @@ async def test_request_success_path(monkeypatch):
         rate_limit=10,
     )
 
-    async def fake_inner(*args, **kwargs):  # type: ignore[no-untyped-def]
+    async def fake_inner(*args: object, **kwargs: object) -> dict[str, object]:
         return {"ok": True}
 
     monkeypatch.setattr(client, "_make_request_inner", fake_inner)
@@ -540,7 +566,7 @@ async def test_request_success_path(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_make_request_inner_http_error():
-    def responder(method, url, **kwargs):  # type: ignore[no-untyped-def]
+    def responder(method: str, url: str, **kwargs: object) -> DummyResponse:
         return DummyResponse(
             status=500,
             body=b'{"message": "fail"}',
@@ -555,7 +581,7 @@ async def test_make_request_inner_http_error():
         max_connections=1,
         rate_limit=10,
     )
-    client._session = DummySession(responder)
+    client._session = cast(aiohttp.ClientSession, DummySession(responder))
     with pytest.raises(APIError):
         await client._make_request_inner(
             "GET", "server", json=None, params=None, correlation_id="cid"
@@ -582,7 +608,11 @@ async def test_make_request_inner_no_session():
 @pytest.mark.asyncio
 async def test_make_request_inner_timeout_error(monkeypatch):
     class TimeoutSession:
-        def request(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        def request(
+            self,
+            *args: object,
+            **kwargs: object,
+        ) -> DummyRequestContext:
             raise asyncio.TimeoutError()
 
     client = _TestClient(
@@ -593,7 +623,7 @@ async def test_make_request_inner_timeout_error(monkeypatch):
         max_connections=1,
         rate_limit=10,
     )
-    client._session = TimeoutSession()
+    client._session = cast(aiohttp.ClientSession, TimeoutSession())
     with pytest.raises(APIError):
         await client._make_request_inner(
             "GET", "server", json=None, params=None, correlation_id="cid"
@@ -603,7 +633,11 @@ async def test_make_request_inner_timeout_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_make_request_inner_client_error():
     class ClientErrorSession:
-        def request(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        def request(
+            self,
+            *args: object,
+            **kwargs: object,
+        ) -> DummyRequestContext:
             raise aiohttp.ClientError("oops")
 
     client = _TestClient(
@@ -614,7 +648,7 @@ async def test_make_request_inner_client_error():
         max_connections=1,
         rate_limit=10,
     )
-    client._session = ClientErrorSession()
+    client._session = cast(aiohttp.ClientSession, ClientErrorSession())
     with pytest.raises(APIError):
         await client._make_request_inner(
             "GET", "server", json=None, params=None, correlation_id="cid"
@@ -627,15 +661,15 @@ async def test_ensure_session_uses_aiohttp(monkeypatch, caplog):
 
     class DummyTraceConfig:
         def __init__(self) -> None:
-            self.on_connection_create_end = []
-            self.on_connection_reuseconn = []
+            self.on_connection_create_end: list[object] = []
+            self.on_connection_reuseconn: list[object] = []
 
     class DummyConnector:
-        def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        def __init__(self, **kwargs: object) -> None:
             self.kwargs = kwargs
 
     class DummySession:
-        def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        def __init__(self, **kwargs: object) -> None:
             created["session"] = True
             self.closed = False
 
@@ -673,7 +707,7 @@ async def test_ensure_session_fast_path():
     class DummySessionFast:
         closed = False
 
-    client._session = DummySessionFast()  # type: ignore[assignment]
+    client._session = cast(aiohttp.ClientSession, DummySessionFast())
     await client._ensure_session()
 
 
@@ -687,7 +721,7 @@ async def test_rate_limiter_context_and_set_limit():
     await limiter.set_limit(2)
     assert limiter.limit == 2
     await limiter.set_limit(2)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         await limiter.set_limit(0)
 
 
@@ -697,19 +731,19 @@ def test_rate_limiter_available_edge_cases():
     class DummySemaphore:
         _value = "bad"
 
-    limiter._semaphore = DummySemaphore()  # type: ignore[assignment]
+    limiter._semaphore = cast(asyncio.Semaphore, DummySemaphore())
     assert limiter.available == 0
 
     class BrokenSemaphore:
-        def __getattr__(self, _name: str):  # type: ignore[no-untyped-def]
+        def __getattr__(self, _name: str) -> object:
             raise TypeError("boom")
 
-    limiter._semaphore = BrokenSemaphore()  # type: ignore[assignment]
+    limiter._semaphore = cast(asyncio.Semaphore, BrokenSemaphore())
     assert limiter.available == 0
 
 
 def test_rate_limiter_invalid_limit():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         RateLimiter(limit=0)
 
 
@@ -717,10 +751,10 @@ def test_rate_limiter_available_logs_warning(caplog):
     limiter = RateLimiter(limit=1)
 
     class BrokenSemaphore:
-        def __getattr__(self, _name: str):  # type: ignore[no-untyped-def]
+        def __getattr__(self, _name: str) -> object:
             raise TypeError("missing")
 
-    limiter._semaphore = BrokenSemaphore()  # type: ignore[assignment]
+    limiter._semaphore = cast(asyncio.Semaphore, BrokenSemaphore())
     with caplog.at_level(logging.WARNING, logger="pyoutlineapi.base_client"):
         assert limiter.available == 0
     assert any("Cannot access semaphore value" in r.message for r in caplog.records)
@@ -739,7 +773,7 @@ async def test_retry_helper_success(monkeypatch):
     helper = RetryHelper()
     calls = {"count": 0}
 
-    async def func():  # type: ignore[no-untyped-def]
+    async def func() -> dict[str, JsonValue]:
         calls["count"] += 1
         if calls["count"] < 2:
             raise APIError("fail")
@@ -757,7 +791,7 @@ async def test_retry_helper_success(monkeypatch):
 async def test_retry_helper_non_retryable():
     helper = RetryHelper()
 
-    async def func():  # type: ignore[no-untyped-def]
+    async def func() -> dict[str, JsonValue]:
         raise APIError("fail", status_code=400)
 
     with pytest.raises(APIError):
@@ -771,7 +805,7 @@ def test_ssl_fingerprint_validator_verify():
     expected = hashlib.sha256(cert_bytes).hexdigest()
     validator = SSLFingerprintValidator(SecretStr(expected))
     validator._verify_cert_fingerprint(cert_bytes)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         validator._verify_cert_fingerprint(b"other")
 
     validator.__exit__(None, None, None)
@@ -788,11 +822,11 @@ async def test_ssl_fingerprint_validator_verify_connection():
     validator = SSLFingerprintValidator(SecretStr(expected))
 
     class DummySSL:
-        def getpeercert(self, *, binary_form: bool = False):  # type: ignore[no-untyped-def]
+        def getpeercert(self, *, binary_form: bool = False) -> bytes | None:
             return cert_bytes if binary_form else None
 
     class DummyTransport:
-        def get_extra_info(self, name: str):  # type: ignore[no-untyped-def]
+        def get_extra_info(self, name: str) -> object:
             if name == "ssl_object":
                 return DummySSL()
             return None
@@ -800,7 +834,11 @@ async def test_ssl_fingerprint_validator_verify_connection():
     class DummyParams:
         transport = DummyTransport()
 
-    await validator.verify_connection(None, None, DummyParams())  # type: ignore[arg-type]
+    await validator.verify_connection(
+        cast(aiohttp.ClientSession, None),
+        SimpleNamespace(),
+        cast(aiohttp.TraceConnectionCreateEndParams, DummyParams()),
+    )
 
 
 @pytest.mark.asyncio
@@ -810,15 +848,19 @@ async def test_ssl_fingerprint_validator_verify_connection_no_transport():
     class DummyParams:
         transport = None
 
-    await validator.verify_connection(None, None, DummyParams())  # type: ignore[arg-type]
+    await validator.verify_connection(
+        cast(aiohttp.ClientSession, None),
+        SimpleNamespace(),
+        cast(aiohttp.TraceConnectionCreateEndParams, DummyParams()),
+    )
 
 
 def test_validate_numeric_params_errors():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         BaseHTTPClient._validate_numeric_params(0, 0, 1)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         BaseHTTPClient._validate_numeric_params(1, -1, 1)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         BaseHTTPClient._validate_numeric_params(1, 0, 0)
 
 

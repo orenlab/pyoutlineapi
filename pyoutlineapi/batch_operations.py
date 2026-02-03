@@ -385,7 +385,7 @@ class BatchOperations:
 
         async def create_key(config: dict[str, object]) -> AccessKey:
             result = await self._client.create_access_key(
-                **cast(AccessKeyCreateConfig, config)
+                **cast(AccessKeyCreateConfig, cast(object, config))
             )
             if TYPE_CHECKING:
                 assert isinstance(result, AccessKey)

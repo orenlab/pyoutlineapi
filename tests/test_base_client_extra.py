@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from types import SimpleNamespace
+from typing import cast
 
+import aiohttp
 import pytest
 from pydantic import SecretStr
 
@@ -13,16 +16,17 @@ from pyoutlineapi.base_client import (
     RetryHelper,
     SSLFingerprintValidator,
 )
+from pyoutlineapi.circuit_breaker import CircuitBreaker
+from pyoutlineapi.common_types import JsonValue
 from pyoutlineapi.exceptions import APIError, CircuitOpenError
-from pyoutlineapi.exceptions import APIError
 
 
 class DummyResponse:
-    def __init__(self, status: int, reason: str = "Bad"):  # type: ignore[no-untyped-def]
+    def __init__(self, status: int, reason: str = "Bad") -> None:
         self.status = status
         self.reason = reason
 
-    async def json(self):  # type: ignore[no-untyped-def]
+    async def json(self) -> dict[str, object]:
         raise TypeError("bad")
 
 
@@ -53,11 +57,11 @@ class _TestClient(BaseHTTPClient):
 
 
 class DummySession:
-    def __init__(self, response):  # type: ignore[no-untyped-def]
+    def __init__(self, response: object) -> None:
         self._response = response
         self.closed = False
 
-    def request(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def request(self, *args: object, **kwargs: object) -> object:
         return self._response
 
     async def close(self) -> None:
@@ -69,10 +73,10 @@ def test_rate_limiter_available_attribute_error(caplog):
     logging.getLogger("pyoutlineapi.base_client").setLevel(logging.WARNING)
 
     class BrokenSemaphore:
-        def __getattribute__(self, _name: str):  # type: ignore[no-untyped-def]
+        def __getattribute__(self, _name: str) -> object:
             raise AttributeError("missing")
 
-    limiter._semaphore = BrokenSemaphore()  # type: ignore[assignment]
+    limiter._semaphore = cast(asyncio.Semaphore, BrokenSemaphore())
     with caplog.at_level(logging.WARNING, logger="pyoutlineapi.base_client"):
         assert limiter.available == 0
 
@@ -89,13 +93,17 @@ async def test_ssl_fingerprint_validator_verify_connection_no_ssl_object():
     validator = SSLFingerprintValidator(SecretStr("a" * 64))
 
     class DummyTransport:
-        def get_extra_info(self, name: str):  # type: ignore[no-untyped-def]
+        def get_extra_info(self, name: str) -> object:
             return None
 
     class DummyParams:
         transport = DummyTransport()
 
-    await validator.verify_connection(None, None, DummyParams())  # type: ignore[arg-type]
+    await validator.verify_connection(
+        cast(aiohttp.ClientSession, None),
+        SimpleNamespace(),
+        cast(aiohttp.TraceConnectionCreateEndParams, DummyParams()),
+    )
 
 
 @pytest.mark.asyncio
@@ -103,11 +111,11 @@ async def test_ssl_fingerprint_validator_verify_connection_empty_cert():
     validator = SSLFingerprintValidator(SecretStr("a" * 64))
 
     class DummySSL:
-        def getpeercert(self, *, binary_form: bool = False):  # type: ignore[no-untyped-def]
+        def getpeercert(self, *, binary_form: bool = False) -> bytes | None:
             return b""
 
     class DummyTransport:
-        def get_extra_info(self, name: str):  # type: ignore[no-untyped-def]
+        def get_extra_info(self, name: str) -> object:
             if name == "ssl_object":
                 return DummySSL()
             return None
@@ -115,13 +123,20 @@ async def test_ssl_fingerprint_validator_verify_connection_empty_cert():
     class DummyParams:
         transport = DummyTransport()
 
-    await validator.verify_connection(None, None, DummyParams())  # type: ignore[arg-type]
+    await validator.verify_connection(
+        cast(aiohttp.ClientSession, None),
+        SimpleNamespace(),
+        cast(aiohttp.TraceConnectionCreateEndParams, DummyParams()),
+    )
 
 
 @pytest.mark.asyncio
 async def test_handle_error_type_error():
     with pytest.raises(APIError):
-        await BaseHTTPClient._handle_error(DummyResponse(500), "/bad")
+        await BaseHTTPClient._handle_error(
+            cast(aiohttp.ClientResponse, DummyResponse(500)),
+            "/bad",
+        )
 
 
 @pytest.mark.asyncio
@@ -149,8 +164,9 @@ async def test_shutdown_logs_and_cancels(caplog):
         rate_limit=1,
     )
 
-    async def sleeper():  # type: ignore[no-untyped-def]
+    async def sleeper() -> dict[str, JsonValue]:
         await asyncio.sleep(1)
+        return {"ok": True}
 
     task = asyncio.create_task(sleeper())
     async with client._active_requests_lock:
@@ -159,10 +175,10 @@ async def test_shutdown_logs_and_cancels(caplog):
     class DummySession:
         closed = False
 
-        async def close(self):  # type: ignore[no-untyped-def]
+        async def close(self) -> None:
             self.closed = True
 
-    client._session = DummySession()  # type: ignore[assignment]
+    client._session = cast(aiohttp.ClientSession, DummySession())
 
     with caplog.at_level(logging.DEBUG, logger="pyoutlineapi.base_client"):
         await client.shutdown(timeout=0.01)
@@ -182,14 +198,16 @@ async def test_request_circuit_open_logs_error(caplog):
     )
 
     class DummyBreaker:
-        async def call(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        async def call(self, *args: object, **kwargs: object) -> object:
             raise CircuitOpenError("open")
 
-    client._circuit_breaker = DummyBreaker()
+    client._circuit_breaker = cast(CircuitBreaker, DummyBreaker())
     logging.getLogger("pyoutlineapi.base_client").setLevel(logging.ERROR)
-    with caplog.at_level(logging.ERROR, logger="pyoutlineapi.base_client"):
-        with pytest.raises(CircuitOpenError):
-            await client._request("GET", "server")
+    with caplog.at_level(
+        logging.ERROR,
+        logger="pyoutlineapi.base_client",
+    ), pytest.raises(CircuitOpenError):
+        await client._request("GET", "server")
 
 
 @pytest.mark.asyncio
@@ -197,12 +215,14 @@ async def test_retry_helper_logs_warning(caplog):
     helper = RetryHelper()
     logging.getLogger("pyoutlineapi.base_client").setLevel(logging.WARNING)
 
-    async def boom():  # type: ignore[no-untyped-def]
+    async def boom() -> dict[str, JsonValue]:
         raise APIError("fail", status_code=500)
 
-    with caplog.at_level(logging.WARNING, logger="pyoutlineapi.base_client"):
-        with pytest.raises(APIError):
-            await helper.execute_with_retry(boom, "/endpoint", 0, NoOpMetrics())
+    with caplog.at_level(
+        logging.WARNING,
+        logger="pyoutlineapi.base_client",
+    ), pytest.raises(APIError):
+        await helper.execute_with_retry(boom, "/endpoint", 0, NoOpMetrics())
     assert any("Request to" in r.message for r in caplog.records)
 
 
@@ -211,7 +231,7 @@ async def test_retry_helper_no_warning_when_logger_disabled():
     helper = RetryHelper()
     logging.getLogger("pyoutlineapi.base_client").setLevel(logging.ERROR)
 
-    async def boom():  # type: ignore[no-untyped-def]
+    async def boom() -> dict[str, JsonValue]:
         raise APIError("fail", status_code=500)
 
     with pytest.raises(APIError):
@@ -233,14 +253,19 @@ async def test_ensure_session_double_check_returns(monkeypatch):
         closed = False
 
     class DummyLock:
-        async def __aenter__(self):  # type: ignore[no-untyped-def]
-            client._session = DummySessionFast()  # type: ignore[assignment]
+        async def __aenter__(self) -> None:
+            client._session = cast(aiohttp.ClientSession, DummySessionFast())
 
-        async def __aexit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: object | None,
+        ) -> None:
             return None
 
     client._session = None
-    client._session_lock = DummyLock()  # type: ignore[assignment]
+    client._session_lock = cast(asyncio.Lock, DummyLock())
     await client._ensure_session()
     assert client._session is not None
 
@@ -251,12 +276,17 @@ async def test_active_requests_tracking():
     continue_event = asyncio.Event()
 
     class DummyContext:
-        async def __aenter__(self):  # type: ignore[no-untyped-def]
+        async def __aenter__(self) -> SimpleResponse:
             entered.set()
             await continue_event.wait()
             return SimpleResponse()
 
-        async def __aexit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: object | None,
+        ) -> None:
             return None
 
     client = _TestClient(
@@ -267,7 +297,7 @@ async def test_active_requests_tracking():
         max_connections=1,
         rate_limit=1,
     )
-    client._session = DummySession(DummyContext())
+    client._session = cast(aiohttp.ClientSession, DummySession(DummyContext()))
 
     task = asyncio.create_task(
         client._make_request_inner(
@@ -293,12 +323,12 @@ async def test_reset_circuit_breaker_configured():
     )
 
     class DummyBreaker:
-        async def reset(self):  # type: ignore[no-untyped-def]
+        async def reset(self) -> None:
             return None
 
         @property
-        def metrics(self):  # type: ignore[no-untyped-def]
+        def metrics(self) -> object:
             return None
 
-    client._circuit_breaker = DummyBreaker()  # type: ignore[assignment]
+    client._circuit_breaker = cast(CircuitBreaker, DummyBreaker())
     assert await client.reset_circuit_breaker() is True

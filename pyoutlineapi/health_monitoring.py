@@ -17,7 +17,6 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
@@ -42,9 +41,8 @@ _SUCCESS_RATE_ACCEPTABLE: Final[float] = 0.7
 _SUCCESS_RATE_DEGRADED: Final[float] = 0.5
 
 
-@lru_cache(maxsize=128)
 def _log_if_enabled(level: int, message: str) -> None:
-    """Centralized logging with caching for repeated messages.
+    """Centralized logging with log-level guard.
 
     :param level: Logging level
     :param message: Log message
@@ -568,15 +566,27 @@ class HealthMonitor:
                 raise ValueError("Check interval must be positive")
 
         start_time = time.monotonic()
+        deadline = start_time + timeout
 
-        while time.monotonic() - start_time < timeout:
+        last_error: Exception | None = None
+
+        while True:
             try:
                 if await self.quick_check():
                     return True
             except Exception as e:
+                last_error = e
                 _log_if_enabled(logging.DEBUG, f"Health check failed: {e}")
 
-            await asyncio.sleep(check_interval)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(check_interval, remaining))
+
+        if last_error is not None:
+            _log_if_enabled(logging.DEBUG, f"Health check failed: {last_error}")
+        else:
+            _log_if_enabled(logging.DEBUG, "Health check failed: timeout")
 
         return False
 

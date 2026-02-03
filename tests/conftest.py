@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -110,7 +111,7 @@ class DummySession:
         self.closed = True
 
 
-@pytest.fixture()
+@pytest.fixture
 def access_key_dict() -> dict[str, Any]:
     return {
         "id": "key-1",
@@ -123,7 +124,7 @@ def access_key_dict() -> dict[str, Any]:
     }
 
 
-@pytest.fixture()
+@pytest.fixture
 def server_dict() -> dict[str, Any]:
     return {
         "name": "My Server",
@@ -137,17 +138,17 @@ def server_dict() -> dict[str, Any]:
     }
 
 
-@pytest.fixture()
+@pytest.fixture
 def access_keys_list(access_key_dict: dict[str, Any]) -> dict[str, Any]:
     return {"accessKeys": [access_key_dict]}
 
 
-@pytest.fixture()
+@pytest.fixture
 def server_metrics_dict() -> dict[str, Any]:
     return {"bytesTransferredByUserId": {"user-1": 100, "user-2": 200}}
 
 
-@pytest.fixture()
+@pytest.fixture
 def experimental_metrics_dict() -> dict[str, Any]:
     return {
         "server": {
@@ -173,6 +174,6 @@ def experimental_metrics_dict() -> dict[str, Any]:
     }
 
 
-@pytest.fixture()
+@pytest.fixture
 def event_loop_policy() -> asyncio.AbstractEventLoopPolicy:
     return asyncio.get_event_loop_policy()

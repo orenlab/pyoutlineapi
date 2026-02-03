@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import cast
 
 import pytest
 
@@ -11,15 +12,19 @@ from pyoutlineapi.batch_operations import (
     BatchResult,
     ValidationHelper,
 )
+from pyoutlineapi.client import AsyncOutlineClient
 from pyoutlineapi.models import AccessKey, DataLimit
+
+PLACEHOLDER_CREDENTIAL = "pwd"
 
 
 class DummyClient:
-    async def create_access_key(self, **kwargs):  # type: ignore[no-untyped-def]
+    async def create_access_key(self, **kwargs: object) -> AccessKey:
+        name = cast(str | None, kwargs.get("name"))
         return AccessKey(
             id="key-1",
-            name=kwargs.get("name"),
-            password="pwd",
+            name=name,
+            password=PLACEHOLDER_CREDENTIAL,
             port=12345,
             method="aes-256-gcm",
             accessUrl="ss://example",
@@ -35,16 +40,20 @@ class DummyClient:
     async def set_access_key_data_limit(self, key_id: str, limit: DataLimit) -> bool:
         return True
 
-    async def get_access_key(self, key_id: str):
+    async def get_access_key(self, key_id: str) -> AccessKey:
         return AccessKey(
             id=key_id,
             name="Name",
-            password="pwd",
+            password=PLACEHOLDER_CREDENTIAL,
             port=12345,
             method="aes-256-gcm",
             accessUrl="ss://example",
             dataLimit=None,
         )
+
+
+def _as_client(client: object) -> AsyncOutlineClient:
+    return cast(AsyncOutlineClient, client)
 
 
 @pytest.mark.asyncio
@@ -57,7 +66,7 @@ async def test_batch_processor_success_and_fail():
     results = await processor.process([1, 2, 3], double)
     assert results == [2, 4, 6]
 
-    async def fail(x: int):  # type: ignore[no-untyped-def]
+    async def fail(x: int) -> int:
         raise RuntimeError(f"bad {x}")
 
     results = await processor.process([1], fail, fail_fast=False)
@@ -96,11 +105,11 @@ def test_validation_helper_config():
     validated = helper.validate_config_dict(config, 0, fail_fast=True)
     assert validated is not None
     assert validated["name"] == "test"
-    assert helper.validate_config_dict("bad", 0, fail_fast=False) is None  # type: ignore[arg-type]
-    with pytest.raises(ValueError):
-        helper.validate_config_dict("bad", 0, fail_fast=True)  # type: ignore[arg-type]
+    assert helper.validate_config_dict("bad", 0, fail_fast=False) is None
+    with pytest.raises(ValueError, match=r".*"):
+        helper.validate_config_dict("bad", 0, fail_fast=True)
     assert helper.validate_config_dict({"name": " "}, 0, fail_fast=False) is None
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         helper.validate_config_dict({"name": " "}, 0, fail_fast=True)
     validated = helper.validate_config_dict({"port": 12345}, 0, fail_fast=True)
     assert validated is not None
@@ -110,20 +119,20 @@ def test_validation_helper_tuple_pair():
     helper = ValidationHelper()
     assert helper.validate_tuple_pair(("a", "b"), 0, (str, str), False) == ("a", "b")
     assert helper.validate_tuple_pair(("a", 1), 0, (str, str), False) is None
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         helper.validate_tuple_pair(("a",), 0, (str, str), True)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         helper.validate_tuple_pair(("a", 1), 0, (str, str), True)
 
 
 def test_validation_helper_key_id():
     helper = ValidationHelper()
     assert helper.validate_key_id("key-1", 0, False) == "key-1"
-    assert helper.validate_key_id(123, 0, False) is None  # type: ignore[arg-type]
-    with pytest.raises(ValueError):
-        helper.validate_key_id(123, 0, True)  # type: ignore[arg-type]
+    assert helper.validate_key_id(123, 0, False) is None
+    with pytest.raises(ValueError, match=r".*"):
+        helper.validate_key_id(123, 0, True)
     assert helper.validate_key_id("bad id", 0, False) is None
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         helper.validate_key_id("bad id", 0, True)
 
 
@@ -143,7 +152,7 @@ def test_batch_result_properties():
     assert len(result.get_failures()) == 1
     data = result.to_dict()
     assert data["total"] == 2
-    empty = BatchResult[int](
+    empty: BatchResult[int] = BatchResult(
         total=0,
         successful=0,
         failed=0,
@@ -156,7 +165,7 @@ def test_batch_result_properties():
 
 @pytest.mark.asyncio
 async def test_batch_operations_create_and_fetch():
-    ops = BatchOperations(DummyClient())
+    ops = BatchOperations(_as_client(DummyClient()))
     result = await ops.create_multiple_keys([{"name": "Alice"}], fail_fast=False)
     assert result.total == 1
     assert result.successful == 1
@@ -173,7 +182,7 @@ async def test_batch_operations_create_and_fetch():
 
 @pytest.mark.asyncio
 async def test_batch_operations_other_actions():
-    ops = BatchOperations(DummyClient())
+    ops = BatchOperations(_as_client(DummyClient()))
 
     delete_result = await ops.delete_multiple_keys(["key-1"], fail_fast=False)
     assert delete_result.successful == 1
@@ -194,9 +203,9 @@ async def test_batch_operations_other_actions():
 
 @pytest.mark.asyncio
 async def test_batch_fail_fast_and_custom_ops():
-    ops = BatchOperations(DummyClient(), max_concurrent=1)
+    ops = BatchOperations(_as_client(DummyClient()), max_concurrent=1)
 
-    async def bad(_):  # type: ignore[no-untyped-def]
+    async def bad(_: int) -> int:
         raise RuntimeError("fail")
 
     processor: BatchProcessor[int, int] = BatchProcessor(max_concurrent=1)
@@ -218,33 +227,39 @@ async def test_batch_fail_fast_and_custom_ops():
 
 @pytest.mark.asyncio
 async def test_batch_operations_validation_errors():
-    ops = BatchOperations(DummyClient())
-    result = await ops.create_multiple_keys([{"name": " "}], fail_fast=False)
-    assert result.failed == 1
-    assert result.has_validation_errors is True
+    ops = BatchOperations(_as_client(DummyClient()))
+    create_result = await ops.create_multiple_keys([{"name": " "}], fail_fast=False)
+    assert create_result.failed == 1
+    assert create_result.has_validation_errors is True
 
-    result = await ops.rename_multiple_keys([("bad id", "")], fail_fast=False)
-    assert result.has_errors is True
+    rename_result = await ops.rename_multiple_keys([("bad id", "")], fail_fast=False)
+    assert rename_result.has_errors is True
 
-    result = await ops.set_multiple_data_limits([("bad", -1)], fail_fast=False)
-    assert result.failed >= 1
+    limit_result = await ops.set_multiple_data_limits([("bad", -1)], fail_fast=False)
+    assert limit_result.failed >= 1
 
-    result = await ops.rename_multiple_keys([("bad",)], fail_fast=False)  # type: ignore[list-item]
-    assert result.failed >= 1
+    bad_rename = await ops.rename_multiple_keys(
+        cast(list[tuple[str, str]], [("bad",)]),
+        fail_fast=False,
+    )
+    assert bad_rename.failed >= 1
 
-    result = await ops.set_multiple_data_limits([("key-1", "bad")], fail_fast=False)  # type: ignore[list-item]
-    assert result.failed >= 1
-    with pytest.raises(ValueError):
+    bad_limits = await ops.set_multiple_data_limits(
+        cast(list[tuple[str, int]], [("key-1", "bad")]),
+        fail_fast=False,
+    )
+    assert bad_limits.failed >= 1
+    with pytest.raises(ValueError, match=r".*"):
         await ops.rename_multiple_keys([("bad id", "")], fail_fast=True)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         await ops.set_multiple_data_limits([("bad", -1)], fail_fast=True)
 
 
 @pytest.mark.asyncio
 async def test_batch_operations_invalid_tuple_types(monkeypatch):
-    ops = BatchOperations(DummyClient())
+    ops = BatchOperations(_as_client(DummyClient()))
 
-    def bad_validate(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+    def bad_validate(*_args: object, **_kwargs: object) -> tuple[int, str]:
         return (123, "name")
 
     monkeypatch.setattr(
@@ -253,7 +268,7 @@ async def test_batch_operations_invalid_tuple_types(monkeypatch):
     result = await ops.rename_multiple_keys([("key-1", "new")], fail_fast=False)
     assert result.validation_errors
 
-    def bad_validate_limits(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+    def bad_validate_limits(*_args: object, **_kwargs: object) -> tuple[str, str]:
         return ("key-1", "bad")
 
     monkeypatch.setattr(
@@ -265,7 +280,7 @@ async def test_batch_operations_invalid_tuple_types(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_batch_concurrency_and_custom_ops_empty():
-    ops = BatchOperations(DummyClient())
+    ops = BatchOperations(_as_client(DummyClient()))
     await ops.set_concurrency(2)
     empty = await ops.execute_custom_operations([])
     assert empty.total == 0
@@ -273,30 +288,30 @@ async def test_batch_concurrency_and_custom_ops_empty():
 
 @pytest.mark.asyncio
 async def test_batch_operations_invalid_concurrency():
-    with pytest.raises(ValueError):
-        BatchOperations(DummyClient(), max_concurrent=0)
+    with pytest.raises(ValueError, match=r".*"):
+        BatchOperations(_as_client(DummyClient()), max_concurrent=0)
 
 
 def test_batch_processor_invalid_concurrency():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         BatchProcessor(max_concurrent=0)
 
 
 @pytest.mark.asyncio
 async def test_batch_processor_set_concurrency_logs(caplog):
-    processor = BatchProcessor(max_concurrent=1)
+    processor: BatchProcessor[int, int] = BatchProcessor(max_concurrent=1)
     with caplog.at_level(logging.DEBUG, logger="pyoutlineapi.batch_operations"):
         await processor.set_concurrency(2)
     assert any("concurrency changed" in r.message for r in caplog.records)
     await processor.set_concurrency(2)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         await processor.set_concurrency(0)
 
 
 @pytest.mark.asyncio
 async def test_batch_operations_invalid_ids():
-    ops = BatchOperations(DummyClient())
-    result = await ops.delete_multiple_keys(["bad id"], fail_fast=False)
-    assert result.failed >= 1
-    result = await ops.fetch_multiple_keys(["bad id"], fail_fast=False)
-    assert result.failed >= 1
+    ops = BatchOperations(_as_client(DummyClient()))
+    delete_result = await ops.delete_multiple_keys(["bad id"], fail_fast=False)
+    assert delete_result.failed >= 1
+    fetch_result = await ops.fetch_multiple_keys(["bad id"], fail_fast=False)
+    assert fetch_result.failed >= 1

@@ -35,7 +35,7 @@ def test_from_env_and_sanitized(tmp_path: Path):
     assert config.timeout == 15
     sanitized = config.get_sanitized_config
     assert sanitized["cert_sha256"] == "***MASKED***"
-    assert "secret" not in sanitized["api_url"]
+    assert "secret" not in str(sanitized["api_url"])
 
 
 def test_from_env_str_path(tmp_path: Path):
@@ -83,7 +83,7 @@ def test_load_config_variants(monkeypatch):
     )
     assert isinstance(config, ProductionConfig)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         load_config("nope")
 
     monkeypatch.setenv("OUTLINE_API_URL", "https://example.com/secret")
@@ -134,8 +134,8 @@ def test_model_copy_and_circuit_config():
     assert copied.timeout == 12
     assert copied.circuit_config is not None
 
-    with pytest.raises(ValueError):
-        config.model_copy_immutable(bad_key=1)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r".*"):
+        config.model_copy_immutable(bad_key=1)
 
     config = OutlineClientConfig.create_minimal(
         api_url="https://example.com/secret",
@@ -156,7 +156,7 @@ def test_cert_sha_assignment_guard():
 
 
 def test_user_agent_control_chars():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         OutlineClientConfig.create_minimal(
             api_url="https://example.com/secret",
             cert_sha256="a" * 64,

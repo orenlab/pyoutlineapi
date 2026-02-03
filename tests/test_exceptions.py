@@ -16,6 +16,9 @@ from pyoutlineapi.exceptions import (
     is_retryable,
 )
 
+PLACEHOLDER_VALUE = "x"
+UPDATED_VALUE = "changed"
+
 
 def test_outline_error_sanitizes_and_truncates_message():
     message = "password=supersecret " + ("a" * 2000)
@@ -27,11 +30,15 @@ def test_outline_error_sanitizes_and_truncates_message():
 
 
 def test_outline_error_non_string_message_and_details_copy():
-    err = OutlineError(123, details={"secret": "x"}, safe_details={"safe": "y"})
+    err = OutlineError(
+        123,
+        details={"secret": PLACEHOLDER_VALUE},
+        safe_details={"safe": "y"},
+    )
     assert "123" in str(err)
     details = err.details
-    details["secret"] = "changed"
-    assert err.details["secret"] == "x"
+    details["secret"] = UPDATED_VALUE
+    assert err.details["secret"] == PLACEHOLDER_VALUE
     safe = err.safe_details
     safe["safe"] = "changed"
     assert err.safe_details["safe"] == "y"
@@ -58,7 +65,7 @@ def test_circuit_open_error_validation_and_delay():
     err = CircuitOpenError("open", retry_after=12.3)
     assert err.is_retryable is True
     assert err.default_retry_delay == 12.3
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         CircuitOpenError("open", retry_after=-1)
 
 

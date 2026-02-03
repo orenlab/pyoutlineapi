@@ -16,6 +16,8 @@ from pyoutlineapi.models import (
     TunnelTime,
 )
 
+PLACEHOLDER_CREDENTIAL = "pwd"
+
 
 def test_data_limit_conversions():
     limit = DataLimit.from_megabytes(1)
@@ -29,7 +31,7 @@ def test_access_key_properties():
     key = AccessKey(
         id="key-1",
         name=None,
-        password="pwd",
+        password=PLACEHOLDER_CREDENTIAL,
         port=12345,
         method="aes-256-gcm",
         accessUrl="ss://example",
@@ -43,7 +45,7 @@ def test_access_key_list():
     key = AccessKey(
         id="key-1",
         name="Name",
-        password="pwd",
+        password=PLACEHOLDER_CREDENTIAL,
         port=12345,
         method="aes-256-gcm",
         accessUrl="ss://example",
@@ -83,30 +85,34 @@ def test_server_and_metrics():
 
 
 def test_server_name_validation_error():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         Server(
             name="",
             serverId="srv",
             metricsEnabled=True,
             createdTimestampMs=1000,
             portForNewAccessKeys=12345,
+            hostnameForAccessKeys=None,
+            accessKeyDataLimit=None,
         )
 
 
 def test_server_name_validation_none(monkeypatch):
     from pyoutlineapi import common_types
 
-    def fake_validate_name(_v):  # type: ignore[no-untyped-def]
+    def fake_validate_name(_v: str) -> None:
         return None
 
     monkeypatch.setattr(common_types.Validators, "validate_name", fake_validate_name)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         Server(
             name="Server",
             serverId="srv",
             metricsEnabled=True,
             createdTimestampMs=1000,
             portForNewAccessKeys=12345,
+            hostnameForAccessKeys=None,
+            accessKeyDataLimit=None,
         )
 
 

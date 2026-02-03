@@ -17,17 +17,27 @@ from pyoutlineapi.audit import (
     set_audit_logger,
 )
 
+REDACTED_VALUE = "***REDACTED***"
+
 
 class DummyLogger:
     def __init__(self) -> None:
         self.logged: list[tuple[str, str]] = []
         self.alogged: list[tuple[str, str]] = []
 
-    def log_action(self, action: str, resource: str, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    def log_action(self, action: str, resource: str, **kwargs: object) -> None:
         self.logged.append((action, resource))
 
-    async def alog_action(self, action: str, resource: str, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def alog_action(
+        self,
+        action: str,
+        resource: str,
+        **kwargs: object,
+    ) -> None:
         self.alogged.append((action, resource))
+
+    async def shutdown(self) -> None:
+        return None
 
 
 class DummyResult:
@@ -96,8 +106,8 @@ def test_audit_logger_context():
 def test_sanitize_details_masks():
     details = {"password": "x", "nested": {"token": "y"}}
     sanitized = _sanitize_details(details)
-    assert sanitized["password"] == "***REDACTED***"
-    assert sanitized["nested"]["token"] == "***REDACTED***"
+    assert sanitized["password"] == REDACTED_VALUE
+    assert sanitized["nested"]["token"] == REDACTED_VALUE
 
 
 def test_sanitize_details_no_change_returns_same():
@@ -111,7 +121,7 @@ def test_sanitize_details_empty():
 
 
 def test_audit_context_resource_extraction():
-    def sample(key_id: str):  # type: ignore[no-untyped-def]
+    def sample(key_id: str):
         return key_id
 
     ctx = AuditContext.from_call(
@@ -121,7 +131,7 @@ def test_audit_context_resource_extraction():
 
 
 def test_audit_context_resource_patterns():
-    def func(key_id: str):  # type: ignore[no-untyped-def]
+    def func(key_id: str):
         return None
 
     class Obj:
@@ -136,7 +146,7 @@ def test_audit_context_resource_patterns():
     ctx = AuditContext.from_call(func, None, (Obj(),), {}, result=Obj())
     assert ctx.resource == "obj-1"
 
-    def server_action():  # type: ignore[no-untyped-def]
+    def server_action():
         return None
 
     ctx = AuditContext.from_call(server_action, None, (), {}, result=None)
@@ -144,10 +154,10 @@ def test_audit_context_resource_patterns():
 
 
 def test_audit_context_resource_from_result_dict():
-    def func():  # type: ignore[no-untyped-def]
+    def func():
         return None
 
-    resource = AuditContext._extract_resource(  # type: ignore[attr-defined]
+    resource = AuditContext._extract_resource(
         func, args=(), kwargs={}, result={"id": "r1"}, success=True
     )
     assert resource == "r1"
@@ -158,12 +168,12 @@ async def test_audit_logger_queue_full_fallback(monkeypatch):
     logger_instance = DefaultAuditLogger(queue_size=1)
     entries: list[dict[str, object]] = []
 
-    def fake_write_log(self, entry):  # type: ignore[no-untyped-def]
+    def fake_write_log(self, entry):
         entries.append(entry)
 
     monkeypatch.setattr(DefaultAuditLogger, "_write_log", fake_write_log)
 
-    def fake_put_nowait(_entry):  # type: ignore[no-untyped-def]
+    def fake_put_nowait(_entry):
         raise asyncio.QueueFull
 
     monkeypatch.setattr(logger_instance._queue, "put_nowait", fake_put_nowait)
@@ -177,7 +187,7 @@ async def test_audit_logger_process_queue_timeout_flush(monkeypatch):
     logger_instance = DefaultAuditLogger(batch_size=10, batch_timeout=0.001)
     flushed: list[int] = []
 
-    def fake_write_batch(self, batch):  # type: ignore[no-untyped-def]
+    def fake_write_batch(self, batch):
         flushed.append(len(batch))
 
     monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
@@ -198,7 +208,7 @@ async def test_audit_logger_process_queue_cancel_flush(monkeypatch):
     logger_instance = DefaultAuditLogger(batch_size=10, batch_timeout=1.0)
     flushed: list[int] = []
 
-    def fake_write_batch(self, batch):  # type: ignore[no-untyped-def]
+    def fake_write_batch(self, batch):
         flushed.append(len(batch))
 
     monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
@@ -217,7 +227,7 @@ async def test_audit_logger_process_queue_cancel_flush(monkeypatch):
 async def test_audit_logger_shutdown_timeout_logs_warning(caplog):
     logger_instance = DefaultAuditLogger()
 
-    async def slow_join():  # type: ignore[no-untyped-def]
+    async def slow_join():
         await asyncio.sleep(0.01)
 
     monkeypatch = pytest.MonkeyPatch()
@@ -229,7 +239,7 @@ async def test_audit_logger_shutdown_timeout_logs_warning(caplog):
 
 
 def test_audit_context_resource_unknown():
-    def op():  # type: ignore[no-untyped-def]
+    def op():
         return None
 
     ctx = AuditContext.from_call(
@@ -239,7 +249,7 @@ def test_audit_context_resource_unknown():
 
 
 def test_audit_context_details_extraction():
-    def op(name: str, limit: int = 10):  # type: ignore[no-untyped-def]
+    def op(name: str, limit: int = 10):
         return name
 
     ctx = AuditContext.from_call(
@@ -249,7 +259,7 @@ def test_audit_context_details_extraction():
 
 
 def test_audit_context_details_for_list():
-    def op(items: list[int]):  # type: ignore[no-untyped-def]
+    def op(items: list[int]):
         return items
 
     ctx = AuditContext.from_call(
@@ -259,7 +269,7 @@ def test_audit_context_details_for_list():
 
 
 def test_audit_context_details_for_dict():
-    def op(payload: dict[str, object]):  # type: ignore[no-untyped-def]
+    def op(payload: dict[str, object]):
         return payload
 
     ctx = AuditContext.from_call(
@@ -270,10 +280,10 @@ def test_audit_context_details_for_dict():
 
 def test_audit_context_details_model_dump():
     class DummyModel:
-        def model_dump(self, **kwargs):  # type: ignore[no-untyped-def]
+        def model_dump(self, **kwargs):
             return {"x": 1}
 
-    def op(model: DummyModel):  # type: ignore[no-untyped-def]
+    def op(model: DummyModel):
         return model
 
     ctx = AuditContext.from_call(
@@ -340,7 +350,7 @@ async def test_default_audit_logger_queue_full(monkeypatch):
     logger = DefaultAuditLogger(queue_size=1, batch_size=10, batch_timeout=1.0)
     entries: list[dict[str, object]] = []
 
-    def capture(self, entry):  # type: ignore[no-untyped-def]
+    def capture(self, entry):
         entries.append(entry)
 
     monkeypatch.setattr(DefaultAuditLogger, "_write_log", capture)
@@ -354,7 +364,7 @@ async def test_default_audit_logger_fallback_on_shutdown(monkeypatch):
     logger = DefaultAuditLogger(queue_size=1, batch_size=1, batch_timeout=0.01)
     entries: list[dict[str, object]] = []
 
-    def capture(self, entry):  # type: ignore[no-untyped-def]
+    def capture(self, entry):
         entries.append(entry)
 
     monkeypatch.setattr(DefaultAuditLogger, "_write_log", capture)
@@ -389,7 +399,7 @@ async def test_default_audit_logger_ensure_task_running_fast_path():
 def test_audited_sync_without_logger():
     class NoLogger:
         @audited()
-        def do(self):  # type: ignore[no-untyped-def]
+        def do(self):
             return "ok"
 
     obj = NoLogger()
@@ -410,7 +420,7 @@ async def test_default_audit_logger_cancel_flush(monkeypatch):
     logger = DefaultAuditLogger(queue_size=10, batch_size=10, batch_timeout=0.1)
     entries: list[dict[str, object]] = []
 
-    def capture(self, entry):  # type: ignore[no-untyped-def]
+    def capture(self, entry):
         entries.append(entry)
 
     monkeypatch.setattr(DefaultAuditLogger, "_write_log", capture)
@@ -430,7 +440,7 @@ async def test_default_audit_logger_shutdown_timeout(monkeypatch):
     logger = DefaultAuditLogger(queue_size=10, batch_size=100, batch_timeout=1.0)
     logger._queue.put_nowait({"action": "a", "resource": "r"})
 
-    async def fake_join():  # type: ignore[no-untyped-def]
+    async def fake_join():
         await asyncio.sleep(0)
         raise asyncio.TimeoutError()
 
@@ -450,7 +460,7 @@ async def test_audit_logger_queue_full_logs_warning(caplog, monkeypatch):
     logger_instance = DefaultAuditLogger(queue_size=1)
     logging.getLogger("pyoutlineapi.audit").setLevel(logging.WARNING)
 
-    def fake_put_nowait(_entry):  # type: ignore[no-untyped-def]
+    def fake_put_nowait(_entry):
         raise asyncio.QueueFull
 
     monkeypatch.setattr(logger_instance._queue, "put_nowait", fake_put_nowait)
@@ -464,7 +474,7 @@ async def test_audit_logger_queue_full_no_warning(monkeypatch):
     logger_instance = DefaultAuditLogger(queue_size=1)
     logging.getLogger("pyoutlineapi.audit").setLevel(logging.ERROR)
 
-    def fake_put_nowait(_entry):  # type: ignore[no-untyped-def]
+    def fake_put_nowait(_entry):
         raise asyncio.QueueFull
 
     monkeypatch.setattr(logger_instance._queue, "put_nowait", fake_put_nowait)
@@ -489,7 +499,7 @@ async def test_audit_logger_process_queue_batch_size(monkeypatch):
     logger_instance = DefaultAuditLogger(batch_size=1, batch_timeout=1.0)
     flushed: list[int] = []
 
-    def fake_write_batch(self, batch):  # type: ignore[no-untyped-def]
+    def fake_write_batch(self, batch):
         flushed.append(len(batch))
 
     monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
@@ -510,7 +520,7 @@ async def test_audit_logger_process_queue_timeout_flushes(monkeypatch):
     logger_instance = DefaultAuditLogger(batch_size=10, batch_timeout=0.001)
     flushed: list[int] = []
 
-    def fake_write_batch(self, batch):  # type: ignore[no-untyped-def]
+    def fake_write_batch(self, batch):
         flushed.append(len(batch))
 
     monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
@@ -528,7 +538,7 @@ async def test_audit_logger_process_queue_empty_flush(monkeypatch, caplog):
     logging.getLogger("pyoutlineapi.audit").setLevel(logging.DEBUG)
     flushed: list[int] = []
 
-    def fake_write_batch(self, batch):  # type: ignore[no-untyped-def]
+    def fake_write_batch(self, batch):
         flushed.append(len(batch))
 
     monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
@@ -547,7 +557,7 @@ async def test_audit_logger_shutdown_timeout_cancels_task(monkeypatch):
     logger_instance = DefaultAuditLogger()
     logging.getLogger("pyoutlineapi.audit").setLevel(logging.WARNING)
 
-    async def fake_join():  # type: ignore[no-untyped-def]
+    async def fake_join():
         raise asyncio.TimeoutError()
 
     monkeypatch.setattr(logger_instance._queue, "join", fake_join)
@@ -560,7 +570,7 @@ async def test_audit_logger_shutdown_timeout_no_warning(monkeypatch):
     logger_instance = DefaultAuditLogger()
     logging.getLogger("pyoutlineapi.audit").setLevel(logging.ERROR)
 
-    async def fake_join():  # type: ignore[no-untyped-def]
+    async def fake_join():
         raise asyncio.TimeoutError()
 
     monkeypatch.setattr(logger_instance._queue, "join", fake_join)
@@ -571,7 +581,7 @@ async def test_audit_logger_shutdown_timeout_no_warning(monkeypatch):
 async def test_audited_async_without_logger():
     class NoLogger:
         @audited()
-        async def do(self):  # type: ignore[no-untyped-def]
+        async def do(self):
             return "ok"
 
     obj = NoLogger()
@@ -582,15 +592,15 @@ def test_audited_sync_no_success_logging():
     logger = DummyLogger()
 
     class Example:
-        def __init__(self, logger):  # type: ignore[no-untyped-def]
+        def __init__(self, logger):
             self._audit_logger_instance = logger
 
         @property
-        def _audit_logger(self):  # type: ignore[no-untyped-def]
+        def _audit_logger(self):
             return self._audit_logger_instance
 
         @audited(log_success=False)
-        def do(self):  # type: ignore[no-untyped-def]
+        def do(self):
             return "ok"
 
     obj = Example(logger)
@@ -603,15 +613,15 @@ async def test_audited_async_no_success_logging():
     logger = DummyLogger()
 
     class Example:
-        def __init__(self, logger):  # type: ignore[no-untyped-def]
+        def __init__(self, logger):
             self._audit_logger_instance = logger
 
         @property
-        def _audit_logger(self):  # type: ignore[no-untyped-def]
+        def _audit_logger(self):
             return self._audit_logger_instance
 
         @audited(log_success=False)
-        async def do(self):  # type: ignore[no-untyped-def]
+        async def do(self):
             return "ok"
 
     obj = Example(logger)
@@ -622,8 +632,8 @@ async def test_audited_async_no_success_logging():
 def test_sanitize_details_nested_redaction():
     details = {"token": "x", "nested": {"password": "y"}}
     sanitized = _sanitize_details(details)
-    assert sanitized["token"] == "***REDACTED***"
-    assert sanitized["nested"]["password"] == "***REDACTED***"
+    assert sanitized["token"] == REDACTED_VALUE
+    assert sanitized["nested"]["password"] == REDACTED_VALUE
 
 
 def test_get_or_create_audit_logger_cache_paths():
@@ -642,15 +652,15 @@ async def test_audited_async_failure_logs():
     logger = DummyLogger()
 
     class Example:
-        def __init__(self, logger):  # type: ignore[no-untyped-def]
+        def __init__(self, logger):
             self._audit_logger_instance = logger
 
         @property
-        def _audit_logger(self):  # type: ignore[no-untyped-def]
+        def _audit_logger(self):
             return self._audit_logger_instance
 
         @audited()
-        async def fail(self):  # type: ignore[no-untyped-def]
+        async def fail(self):
             raise RuntimeError("boom")
 
     obj = Example(logger)
@@ -664,15 +674,15 @@ def test_audited_sync_failure_logs():
     logger = DummyLogger()
 
     class Example:
-        def __init__(self, logger):  # type: ignore[no-untyped-def]
+        def __init__(self, logger):
             self._audit_logger_instance = logger
 
         @property
-        def _audit_logger(self):  # type: ignore[no-untyped-def]
+        def _audit_logger(self):
             return self._audit_logger_instance
 
         @audited()
-        def fail(self):  # type: ignore[no-untyped-def]
+        def fail(self):
             raise RuntimeError("boom")
 
     obj = Example(logger)

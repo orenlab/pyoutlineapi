@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from contextlib import suppress
+from typing import cast
 
 import pytest
 
+from pyoutlineapi.client import AsyncOutlineClient
 from pyoutlineapi.metrics_collector import (
     MetricsCollector,
     MetricsSnapshot,
@@ -14,16 +17,33 @@ from pyoutlineapi.metrics_collector import (
 
 
 class DummyClient:
-    async def get_server_info(self, *, as_json: bool = False):  # type: ignore[no-untyped-def]
+    async def get_server_info(
+        self,
+        *,
+        as_json: bool = False,
+    ) -> dict[str, object]:
         return {"metricsEnabled": True, "portForNewAccessKeys": 8080}
 
-    async def get_transfer_metrics(self, *, as_json: bool = False):  # type: ignore[no-untyped-def]
+    async def get_transfer_metrics(
+        self,
+        *,
+        as_json: bool = False,
+    ) -> dict[str, object]:
         return {"bytesTransferredByUserId": {"a": 1, "b": 0}}
 
-    async def get_access_keys(self, *, as_json: bool = False):  # type: ignore[no-untyped-def]
+    async def get_access_keys(
+        self,
+        *,
+        as_json: bool = False,
+    ) -> dict[str, object]:
         return {"accessKeys": [{"id": "a"}]}
 
-    async def get_experimental_metrics(self, since, *, as_json: bool = False):  # type: ignore[no-untyped-def]
+    async def get_experimental_metrics(
+        self,
+        since: str,
+        *,
+        as_json: bool = False,
+    ) -> dict[str, object]:
         return {
             "server": {
                 "tunnelTime": {"seconds": 3600},
@@ -43,13 +63,25 @@ class DummyClient:
 
 
 class FailingClient(DummyClient):
-    async def get_server_info(self, *, as_json: bool = False):  # type: ignore[no-untyped-def]
+    async def get_server_info(
+        self,
+        *,
+        as_json: bool = False,
+    ) -> dict[str, object]:
         raise RuntimeError("boom")
 
 
 class FailingKeysClient(DummyClient):
-    async def get_access_keys(self, *, as_json: bool = False):  # type: ignore[no-untyped-def]
+    async def get_access_keys(
+        self,
+        *,
+        as_json: bool = False,
+    ) -> dict[str, object]:
         raise RuntimeError("boom")
+
+
+def _as_client(client: object) -> AsyncOutlineClient:
+    return cast(AsyncOutlineClient, client)
 
 
 def _make_snapshot(timestamp: float, total_bytes: int) -> MetricsSnapshot:
@@ -122,18 +154,20 @@ def test_prometheus_format_metric_with_labels():
 
 @pytest.mark.asyncio
 async def test_collect_single_snapshot_with_fallbacks():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     snapshot = await collector._collect_single_snapshot()
     assert snapshot is not None
     assert snapshot.key_count == 1
 
-    collector_fail = MetricsCollector(FailingClient(), interval=1.0, max_history=10)
+    collector_fail = MetricsCollector(_as_client(FailingClient()), interval=1.0, max_history=10)
     snapshot2 = await collector_fail._collect_single_snapshot()
     assert snapshot2 is not None
     assert snapshot2.key_count == 1
 
     collector_fail_keys = MetricsCollector(
-        FailingKeysClient(), interval=1.0, max_history=10
+        _as_client(FailingKeysClient()),
+        interval=1.0,
+        max_history=10,
     )
     snapshot3 = await collector_fail_keys._collect_single_snapshot()
     assert snapshot3 is not None
@@ -143,19 +177,23 @@ async def test_collect_single_snapshot_with_fallbacks():
 @pytest.mark.asyncio
 async def test_collect_single_snapshot_exception_returns_none(monkeypatch):
     class BadDict(dict):
-        def get(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        def get(self, *args: object, **kwargs: object) -> object:
             raise ValueError("bad")
 
     class BadKeysClient(DummyClient):
-        async def get_access_keys(self, *, as_json: bool = False):  # type: ignore[no-untyped-def]
+        async def get_access_keys(
+            self,
+            *,
+            as_json: bool = False,
+        ) -> dict[str, object]:
             return BadDict()
 
-    collector = MetricsCollector(BadKeysClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(BadKeysClient()), interval=1.0, max_history=10)
     assert await collector._collect_single_snapshot() is None
 
 
 def test_get_snapshots_filters_and_latest():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history = deque(
         [
             _make_snapshot(1.0, 10),
@@ -165,14 +203,16 @@ def test_get_snapshots_filters_and_latest():
         maxlen=10,
     )
 
-    assert collector.get_latest_snapshot().total_bytes_transferred == 30
+    latest = collector.get_latest_snapshot()
+    assert latest is not None
+    assert latest.total_bytes_transferred == 30
     assert len(collector.get_snapshots(start_time=2.0)) == 2
     assert len(collector.get_snapshots(end_time=2.0)) == 2
     assert len(collector.get_snapshots(limit=1)) == 1
 
 
 def test_usage_stats_caching():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history = deque([_make_snapshot(1.0, 10)], maxlen=10)
     stats1 = collector.get_usage_stats()
     stats2 = collector.get_usage_stats()
@@ -180,13 +220,13 @@ def test_usage_stats_caching():
 
 
 def test_usage_stats_empty_history():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     stats = collector.get_usage_stats()
     assert stats.total_bytes_transferred == 0
 
 
 def test_export_prometheus_and_summary():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history = deque([_make_snapshot_with_experimental(1.0)], maxlen=10)
     output = collector.export_prometheus(include_per_key=True)
     assert "outline_keys_total" in output
@@ -199,7 +239,7 @@ def test_export_prometheus_and_summary():
 
 
 def test_clear_history_resets_state(caplog):
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history = deque([_make_snapshot(1.0, 10)], maxlen=10)
     collector._stats_cache = collector.get_usage_stats()
     with caplog.at_level(logging.INFO, logger="pyoutlineapi.metrics_collector"):
@@ -211,10 +251,10 @@ def test_clear_history_resets_state(caplog):
 @pytest.mark.asyncio
 async def test_collect_loop_warning_and_stop(caplog):
     class ErrorCollector(MetricsCollector):
-        async def _collect_single_snapshot(self):  # type: ignore[no-untyped-def]
+        async def _collect_single_snapshot(self) -> MetricsSnapshot | None:
             return None
 
-    collector = ErrorCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = ErrorCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._interval = 0.001
     collector._running = True
 
@@ -230,17 +270,15 @@ async def test_collect_loop_warning_and_stop(caplog):
         finally:
             if not task.done():
                 task.cancel()
-                try:
+                with suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
     assert any("Failed to collect metrics" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio
 async def test_start_and_stop():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     await collector.start()
     assert collector.is_running is True
     await collector.stop()
@@ -248,20 +286,20 @@ async def test_start_and_stop():
 
 
 def test_uptime_when_running():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._running = True
     collector._start_time = 1.0
     assert collector.uptime >= 0.0
 
 
 def test_export_prometheus_no_snapshot():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history.clear()
     assert collector.export_prometheus() == ""
 
 
 def test_export_prometheus_without_per_key_or_experimental():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history = deque(
         [
             MetricsSnapshot(
@@ -280,7 +318,7 @@ def test_export_prometheus_without_per_key_or_experimental():
 
 
 def test_export_prometheus_per_key_non_dict():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history = deque(
         [
             MetricsSnapshot(
@@ -299,7 +337,7 @@ def test_export_prometheus_per_key_non_dict():
 
 
 def test_export_prometheus_experimental_zero_location():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history = deque(
         [
             MetricsSnapshot(
@@ -326,9 +364,9 @@ def test_export_prometheus_experimental_zero_location():
 
 @pytest.mark.asyncio
 async def test_stop_cancels_task(caplog):
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
 
-    async def long_task():  # type: ignore[no-untyped-def]
+    async def long_task() -> None:
         await asyncio.sleep(1)
 
     collector._running = True
@@ -341,13 +379,13 @@ async def test_stop_cancels_task(caplog):
 
 
 def test_get_snapshots_limit_zero():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history = deque([_make_snapshot(1.0, 10)], maxlen=10)
     assert len(collector.get_snapshots(limit=0)) == 1
 
 
 def test_usage_stats_with_non_dict_bytes():
-    collector = MetricsCollector(DummyClient(), interval=1.0, max_history=10)
+    collector = MetricsCollector(_as_client(DummyClient()), interval=1.0, max_history=10)
     collector._history = deque(
         [
             MetricsSnapshot(

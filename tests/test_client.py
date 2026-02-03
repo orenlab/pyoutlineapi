@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import cast
 
+import aiohttp
 import pytest
-from pydantic import SecretStr
 
+from pyoutlineapi.audit import AuditLogger
 from pyoutlineapi.client import (
     AsyncOutlineClient,
     MultiServerManager,
@@ -14,6 +16,8 @@ from pyoutlineapi.client import (
 )
 from pyoutlineapi.config import OutlineClientConfig
 from pyoutlineapi.exceptions import ConfigurationError
+
+PLACEHOLDER_CREDENTIAL = "pwd"
 
 
 @pytest.mark.asyncio
@@ -410,7 +414,7 @@ async def test_multi_server_manager_health(monkeypatch):
     manager = MultiServerManager([config])
     async with manager:
         results = await manager.health_check_all()
-        assert list(results.values())[0]["healthy"] is True
+        assert next(iter(results.values()))["healthy"] is True
 
 
 @pytest.mark.asyncio
@@ -553,10 +557,10 @@ async def test_health_check_all_error_path():
     manager = MultiServerManager([config])
 
     class Dummy:
-        async def health_check(self):  # type: ignore[no-untyped-def]
+        async def health_check(self) -> dict[str, object]:
             raise RuntimeError("fail")
 
-    manager._clients = {"srv": Dummy()}  # type: ignore[attr-defined]
+    manager._clients = {"srv": cast(AsyncOutlineClient, Dummy())}
     results = await manager.health_check_all()
     assert results["srv"]["healthy"] is False
 
@@ -569,10 +573,10 @@ async def test_health_check_all_exception_result(monkeypatch):
     )
     manager = MultiServerManager([config])
 
-    async def boom(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+    async def boom(*_args: object, **_kwargs: object) -> dict[str, object]:
         raise RuntimeError("boom")
 
-    manager._clients = {"srv": object()}  # type: ignore[attr-defined]
+    manager._clients = {"srv": cast(AsyncOutlineClient, object())}
     monkeypatch.setattr(MultiServerManager, "_health_check_single", boom)
 
     results = await manager.health_check_all()
@@ -588,11 +592,15 @@ async def test_health_check_single_timeout():
     manager = MultiServerManager([config])
 
     class SlowClient:
-        async def health_check(self):  # type: ignore[no-untyped-def]
+        async def health_check(self) -> dict[str, object]:
             await asyncio.sleep(0.01)
             return {"healthy": True}
 
-    result = await manager._health_check_single("srv", SlowClient(), timeout=0.001)
+    result = await manager._health_check_single(
+        "srv",
+        cast(AsyncOutlineClient, SlowClient()),
+        timeout=0.001,
+    )
     assert result["error_type"] == "TimeoutError"
 
 
@@ -680,21 +688,21 @@ async def test_client_aexit_handles_errors(monkeypatch, caplog):
     client = AsyncOutlineClient(config=config)
 
     class BadAudit:
-        async def shutdown(self):  # type: ignore[no-untyped-def]
+        async def shutdown(self) -> None:
             raise RuntimeError("bad")
 
-    async def bad_shutdown(timeout: float = 30.0):  # type: ignore[no-untyped-def]
+    async def bad_shutdown(timeout: float = 30.0) -> None:
         raise RuntimeError("fail")
 
     class DummySession:
         closed = False
 
-        async def close(self):  # type: ignore[no-untyped-def]
+        async def close(self) -> None:
             self.closed = True
 
-    client._audit_logger_instance = BadAudit()  # type: ignore[assignment]
+    client._audit_logger_instance = cast(AuditLogger, BadAudit())
     monkeypatch.setattr(client, "shutdown", bad_shutdown)
-    client._session = DummySession()  # type: ignore[assignment]
+    client._session = cast(aiohttp.ClientSession, DummySession())
     with caplog.at_level(logging.DEBUG, logger="pyoutlineapi.client"):
         await client.__aexit__(None, None, None)
     assert client._session.closed is True
@@ -709,17 +717,17 @@ async def test_client_aexit_emergency_cleanup_error(caplog):
     client = AsyncOutlineClient(config=config)
 
     class BadAudit:
-        async def shutdown(self):  # type: ignore[no-untyped-def]
+        async def shutdown(self) -> None:
             raise RuntimeError("shutdown fail")
 
     class BadSession:
         closed = False
 
-        async def close(self):  # type: ignore[no-untyped-def]
+        async def close(self) -> None:
             raise RuntimeError("close fail")
 
-    client._audit_logger_instance = BadAudit()  # type: ignore[assignment]
-    client._session = BadSession()  # type: ignore[assignment]
+    client._audit_logger_instance = cast(AuditLogger, BadAudit())
+    client._session = cast(aiohttp.ClientSession, BadSession())
 
     with caplog.at_level(logging.DEBUG, logger="pyoutlineapi.client"):
         await client.__aexit__(None, None, None)
@@ -753,7 +761,7 @@ async def test_get_healthy_servers_filters(monkeypatch):
     class DummyClient:
         is_connected = True
 
-    manager._clients = {"srv": DummyClient()}  # type: ignore[attr-defined]
+    manager._clients = {"srv": cast(AsyncOutlineClient, DummyClient())}
 
     async def fake_health_check_all(self, *args, **kwargs):
         return {"srv": {"healthy": True}}
@@ -780,7 +788,7 @@ async def test_health_check_access_key_list_and_metrics(monkeypatch):
         key = AccessKey(
             id="key-1",
             name="Name",
-            password="pwd",
+            password=PLACEHOLDER_CREDENTIAL,
             port=12345,
             method="aes-256-gcm",
             accessUrl="ss://example",
@@ -866,21 +874,21 @@ async def test_client_aexit_cleanup_logs_warning(caplog, monkeypatch):
     client = AsyncOutlineClient(config=config)
 
     class BadAudit:
-        async def shutdown(self):  # type: ignore[no-untyped-def]
+        async def shutdown(self) -> None:
             raise RuntimeError("audit fail")
 
-    async def bad_shutdown(timeout: float = 30.0):  # type: ignore[no-untyped-def]
+    async def bad_shutdown(timeout: float = 30.0) -> None:
         raise RuntimeError("shutdown fail")
 
     class DummySession:
         closed = False
 
-        async def close(self):  # type: ignore[no-untyped-def]
+        async def close(self) -> None:
             self.closed = True
 
-    client._audit_logger_instance = BadAudit()  # type: ignore[assignment]
+    client._audit_logger_instance = cast(AuditLogger, BadAudit())
     monkeypatch.setattr(client, "shutdown", bad_shutdown)
-    client._session = DummySession()  # type: ignore[assignment]
+    client._session = cast(aiohttp.ClientSession, DummySession())
 
     with caplog.at_level(logging.WARNING, logger="pyoutlineapi.client"):
         await client.__aexit__(None, None, None)
@@ -895,12 +903,14 @@ async def test_multi_server_manager_aenter_logs_warning(monkeypatch, caplog):
     )
     manager = MultiServerManager([config])
 
-    async def bad_enter(self):  # type: ignore[no-untyped-def]
+    async def bad_enter(self) -> AsyncOutlineClient:
         raise RuntimeError("fail")
 
     monkeypatch.setattr(AsyncOutlineClient, "__aenter__", bad_enter)
-    with caplog.at_level(logging.WARNING, logger="pyoutlineapi.client"):
-        with pytest.raises(ConfigurationError):
-            async with manager:
-                pass
+    with caplog.at_level(
+        logging.WARNING,
+        logger="pyoutlineapi.client",
+    ), pytest.raises(ConfigurationError):
+        async with manager:
+            pass
     assert any("Failed to initialize server" in r.message for r in caplog.records)

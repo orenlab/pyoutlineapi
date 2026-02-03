@@ -2,15 +2,22 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable, Coroutine
+from typing import cast
 
 import pytest
 
+from pyoutlineapi.client import AsyncOutlineClient
 from pyoutlineapi.health_monitoring import (
     HealthCheckHelper,
     HealthMonitor,
     HealthStatus,
     PerformanceMetrics,
 )
+
+
+def _as_client(client: object) -> AsyncOutlineClient:
+    return cast(AsyncOutlineClient, client)
 
 
 class DummyClient:
@@ -28,7 +35,7 @@ class FailingServerClient(DummyClient):
 
 @pytest.mark.asyncio
 async def test_health_monitor_check_and_cache():
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
     result = await monitor.check()
     assert result.healthy is True
     cached = await monitor.check()
@@ -37,7 +44,7 @@ async def test_health_monitor_check_and_cache():
 
 @pytest.mark.asyncio
 async def test_health_monitor_check_returns_cached_result():
-    monitor = HealthMonitor(FailingServerClient(), cache_ttl=10.0)
+    monitor = HealthMonitor(_as_client(FailingServerClient()), cache_ttl=10.0)
     cached = HealthStatus(healthy=True, timestamp=1.0, checks={}, metrics={})
     monitor._cached_result = cached
     monitor._last_check_time = time.monotonic()
@@ -46,7 +53,7 @@ async def test_health_monitor_check_returns_cached_result():
 
 @pytest.mark.asyncio
 async def test_health_monitor_quick_check_returns_cached(monkeypatch):
-    monitor = HealthMonitor(FailingServerClient(), cache_ttl=10.0)
+    monitor = HealthMonitor(_as_client(FailingServerClient()), cache_ttl=10.0)
     monitor._cached_result = HealthStatus(
         healthy=True, timestamp=1.0, checks={}, metrics={}
     )
@@ -56,13 +63,13 @@ async def test_health_monitor_quick_check_returns_cached(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_health_monitor_quick_check():
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
     assert await monitor.quick_check() is True
 
 
 def test_health_monitor_invalid_cache_ttl():
-    with pytest.raises(ValueError):
-        HealthMonitor(DummyClient(), cache_ttl=0.0)
+    with pytest.raises(ValueError, match=r".*"):
+        HealthMonitor(_as_client(DummyClient()), cache_ttl=0.0)
 
 
 class CircuitClient(DummyClient):
@@ -72,9 +79,9 @@ class CircuitClient(DummyClient):
 
 @pytest.mark.asyncio
 async def test_health_monitor_custom_check_and_circuit():
-    monitor = HealthMonitor(CircuitClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(CircuitClient()), cache_ttl=1.0)
 
-    async def custom_check(_client):  # type: ignore[no-untyped-def]
+    async def custom_check(_client: AsyncOutlineClient) -> dict[str, object]:
         return {"status": "ok"}
 
     monitor.add_custom_check("custom", custom_check)
@@ -109,9 +116,9 @@ def test_health_status_properties():
 
 @pytest.mark.asyncio
 async def test_wait_until_healthy_timeout(monkeypatch):
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
 
-    async def always_false():  # type: ignore[no-untyped-def]
+    async def always_false(*_args: object, **_kwargs: object) -> bool:
         return False
 
     monkeypatch.setattr(HealthMonitor, "quick_check", always_false)
@@ -126,16 +133,16 @@ class FailingClient(DummyClient):
 
 @pytest.mark.asyncio
 async def test_health_monitor_failure_path():
-    monitor = HealthMonitor(FailingClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(FailingClient()), cache_ttl=1.0)
     result = await monitor.check(use_cache=False)
     assert result.healthy is False
 
 
 @pytest.mark.asyncio
 async def test_custom_check_error_path():
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
 
-    async def bad_check(_client):  # type: ignore[no-untyped-def]
+    async def bad_check(_client: AsyncOutlineClient) -> dict[str, object]:
         raise RuntimeError("boom")
 
     monitor.add_custom_check("bad", bad_check)
@@ -145,12 +152,12 @@ async def test_custom_check_error_path():
 
 @pytest.mark.asyncio
 async def test_quick_check_exception_path():
-    monitor = HealthMonitor(FailingClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(FailingClient()), cache_ttl=1.0)
     assert await monitor.quick_check() is False
 
 
 def test_record_request_and_metrics():
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
     monitor.record_request(True, 1.0)
     monitor.record_request(False, 2.0)
     metrics = monitor.get_metrics()
@@ -158,7 +165,7 @@ def test_record_request_and_metrics():
     monitor.reset_metrics()
     assert monitor.get_metrics()["total_requests"] == 0
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         monitor.record_request(True, -1.0)
 
 
@@ -195,12 +202,12 @@ def test_health_check_helper_branches():
 
 @pytest.mark.asyncio
 async def test_cache_valid_and_quick_check_cached(monkeypatch):
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
 
-    async def fake_check(*args, **kwargs):  # type: ignore[no-untyped-def]
+    async def fake_check(*args: object, **kwargs: object) -> None:
         return None
 
-    result = await monitor.check(use_cache=False)
+    await monitor.check(use_cache=False)
     assert monitor.cache_valid is True
 
     monkeypatch.setattr(DummyClient, "get_server_info", fake_check)
@@ -209,7 +216,7 @@ async def test_cache_valid_and_quick_check_cached(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_quick_check_cached_result():
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
     monitor._cached_result = HealthStatus(
         healthy=True, timestamp=1.0, checks={}, metrics={}
     )
@@ -223,16 +230,16 @@ async def test_circuit_metrics_invalid_success_rate():
         def get_circuit_metrics(self):
             return {"state": "CLOSED", "success_rate": "bad"}
 
-    monitor = HealthMonitor(BadCircuitClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(BadCircuitClient()), cache_ttl=1.0)
     result = await monitor.check(use_cache=False)
     assert result.checks["circuit_breaker"]["success_rate"] == 0.0
 
 
 @pytest.mark.asyncio
 async def test_custom_check_unhealthy_sets_overall():
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
 
-    async def unhealthy_check(_client):  # type: ignore[no-untyped-def]
+    async def unhealthy_check(_client: AsyncOutlineClient) -> dict[str, object]:
         return {"status": "unhealthy"}
 
     monitor.add_custom_check("unhealthy", unhealthy_check)
@@ -241,11 +248,20 @@ async def test_custom_check_unhealthy_sets_overall():
 
 
 def test_add_custom_check_validation_and_invalidate_cache():
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
-    with pytest.raises(ValueError):
-        monitor.add_custom_check("", lambda _c: None)  # type: ignore[arg-type]
-    with pytest.raises(ValueError):
-        monitor.add_custom_check("x", "bad")  # type: ignore[arg-type]
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
+    async def noop_check(_client: AsyncOutlineClient) -> dict[str, object]:
+        return {"status": "ok"}
+
+    with pytest.raises(ValueError, match=r".*"):
+        monitor.add_custom_check("", noop_check)
+    with pytest.raises(ValueError, match=r".*"):
+        monitor.add_custom_check(
+            "x",
+            cast(
+                Callable[[AsyncOutlineClient], Coroutine[object, object, dict[str, object]]],
+                "bad",
+            ),
+        )
 
     monitor._cached_result = HealthStatus(
         healthy=True, timestamp=1.0, checks={}, metrics={}
@@ -257,9 +273,9 @@ def test_add_custom_check_validation_and_invalidate_cache():
 
 @pytest.mark.asyncio
 async def test_add_custom_check_logs_debug(caplog):
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
 
-    async def ok_check(_client):  # type: ignore[no-untyped-def]
+    async def ok_check(_client: AsyncOutlineClient) -> dict[str, object]:
         return {"status": "healthy"}
 
     logging.getLogger("pyoutlineapi.health_monitoring").setLevel("DEBUG")
@@ -270,18 +286,18 @@ async def test_add_custom_check_logs_debug(caplog):
 
 @pytest.mark.asyncio
 async def test_wait_for_healthy_validation_errors():
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
-    with pytest.raises(ValueError):
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
+    with pytest.raises(ValueError, match=r".*"):
         await monitor.wait_for_healthy(timeout=0.0, check_interval=1.0)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".*"):
         await monitor.wait_for_healthy(timeout=1.0, check_interval=0.0)
 
 
 @pytest.mark.asyncio
 async def test_wait_for_healthy_exception_in_check(monkeypatch):
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
 
-    async def boom():  # type: ignore[no-untyped-def]
+    async def boom(*_args: object, **_kwargs: object) -> bool:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(HealthMonitor, "quick_check", boom)
@@ -291,9 +307,9 @@ async def test_wait_for_healthy_exception_in_check(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_wait_for_healthy_exception_logs_debug(monkeypatch, caplog):
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
 
-    async def boom(self):  # type: ignore[no-untyped-def]
+    async def boom(*_args: object, **_kwargs: object) -> bool:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(HealthMonitor, "quick_check", boom)
@@ -306,9 +322,9 @@ async def test_wait_for_healthy_exception_logs_debug(monkeypatch, caplog):
 
 @pytest.mark.asyncio
 async def test_wait_for_healthy_success(monkeypatch):
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
 
-    async def always_true(self):  # type: ignore[no-untyped-def]
+    async def always_true(*_args: object, **_kwargs: object) -> bool:
         return True
 
     monkeypatch.setattr(HealthMonitor, "quick_check", always_true)
@@ -317,7 +333,7 @@ async def test_wait_for_healthy_success(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_check_performance_unhealthy():
-    monitor = HealthMonitor(DummyClient(), cache_ttl=1.0)
+    monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
     monitor._metrics.total_requests = 10
     monitor._metrics.successful_requests = 0
     monitor._metrics.failed_requests = 10
