@@ -1,10 +1,15 @@
 [project]
 name = "pyoutlineapi"
 version = "0.4.0"
-description = "Production-ready async Python client for Outline VPN Server API with enterprise features: circuit breaker, health monitoring, audit logging, and comprehensive type safety."
+description = "Production-ready async Python client for Outline VPN Server API with enterprise-grade features and full type safety."
 readme = "README.md"
 license = { file = "LICENSE" }
-authors = [{ name = "Denis Rozhnovskiy", email = "pytelemonbot@mail.ru" }]
+requires-python = ">=3.10,<4.0"
+
+authors = [
+    { name = "Denis Rozhnovskiy", email = "pytelemonbot@mail.ru" }
+]
+
 keywords = [
     "outline",
     "vpn",
@@ -15,17 +20,14 @@ keywords = [
     "pydantic",
     "client",
     "manager",
-    "enterprise",
     "production",
-    "circuit-breaker",
-    "health-monitoring",
-    "audit-logging",
+    "enterprise",
 ]
+
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
-    "Intended Audience :: Information Technology",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -38,19 +40,15 @@ classifiers = [
     "Framework :: aiohttp",
     "Framework :: Pydantic",
     "Framework :: Pydantic :: 2",
-    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
-    "Topic :: Security",
-    "Topic :: Internet :: Proxy Servers",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Internet :: Proxy Servers",
+    "Topic :: Security",
     "Topic :: System :: Networking",
-    "Topic :: System :: Systems Administration",
     "Operating System :: OS Independent",
     "Typing :: Typed",
-    "Environment :: Console",
-    "Environment :: Web Environment",
-    "Natural Language :: English",
 ]
-requires-python = ">=3.10,<4.0"
+
 dependencies = [
     "aiohttp>=3.13.2",
     "pydantic>=2.12.3",
@@ -65,24 +63,25 @@ Changelog = "https://github.com/orenlab/pyoutlineapi/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/orenlab/pyoutlineapi/issues"
 Discussions = "https://github.com/orenlab/pyoutlineapi/discussions"
 
+
 [dependency-groups]
 dev = [
-    "pytest>=8.4.2",
-    "pytest-asyncio>=0.25.3",
-    "pytest-cov>=6.0.0",
-    "pytest-timeout>=2.3.1",
-    "pytest-xdist>=3.6.1",
+    "pytest>=8.4",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "pytest-timeout>=2.3",
+    "pytest-xdist>=3.6",
     "aioresponses>=0.7.8",
-    "mypy>=1.13.0",
-    "types-aiofiles>=24.1.0",
-    "ruff>=0.14.4",
-    "pdoc>=15.0.4",
-    "rich>=14.2.0",
-    "bandit>=1.8.2",
-    "codeclone>=1.1.0",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-aiofiles>=24.1",
+    "pdoc>=15.0",
+    "rich>=14.2",
+    "bandit>=1.8",
+    "codeclone>=1.2",
 ]
 
-# ===== Pdoc Configuration =====
+# ================== Documentation ==================
 
 [tool.pdoc]
 output_directory = "docs"
@@ -96,213 +95,147 @@ include_undocumented = false
 show_inherited_members = true
 members_order = "alphabetical"
 
-# ===== Pytest Configuration =====
+
+# ================== Pytest ==================
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
+
 addopts = [
     "-v",
     "--strict-markers",
     "--strict-config",
+    "--tb=short",
+    "--maxfail=5",
     "--cov=pyoutlineapi",
+    "--cov-branch",
     "--cov-report=html",
     "--cov-report=xml",
     "--cov-report=term-missing:skip-covered",
-    "--cov-branch",
     "--cov-fail-under=80",
-    "--tb=short",
-    "--maxfail=5",
 ]
+
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
-    "network: marks tests that require network access",
+    "unit",
+    "integration",
+    "slow",
+    "network",
 ]
+
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
 ]
+
 timeout = 300
 timeout_method = "thread"
 
+
+# ================== Coverage ==================
+
 [tool.coverage.run]
 source = ["pyoutlineapi"]
+branch = true
 omit = [
     "tests/*",
     "**/__pycache__/*",
     "**/site-packages/*",
 ]
-branch = true
 
 [tool.coverage.report]
 precision = 2
 show_missing = true
-skip_covered = false
 exclude_lines = [
     "pragma: no cover",
-    "def __repr__",
-    "def __str__",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
-    "if typing.TYPE_CHECKING:",
     "@abstractmethod",
-    "@abc.abstractmethod",
-    "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
 ]
 
 [tool.coverage.html]
 directory = "htmlcov"
 
-# ===== Ruff Configuration =====
+
+# ================== Ruff ==================
 
 [tool.ruff]
 line-length = 88
 target-version = "py310"
-exclude = [
-    ".git",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".venv",
-    "__pycache__",
-    "dist",
-    "build",
-]
 
 [tool.ruff.lint]
 select = [
-    "F",
-    "E",
-    "W",
-    "I",
-    "N",
-    "UP",
-    "B",
-    "C4",
-    "SIM",
-    "RUF",
-    "D",
-    "ANN",
-    "S",
-    "ASYNC",
-    "PT",
+    "F", "E", "W", "I",
+    "UP", "B", "C4", "SIM",
+    "RUF", "D", "ANN",
+    "S", "ASYNC", "PT",
 ]
 ignore = [
     "E501",
-    "PLR0913",
     "PLR0912",
+    "PLR0913",
     "PLR0915",
     "PLR2004",
     "E402",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = [
-    "S101",
-    "ARG",
-    "PLR2004",
-    "ANN",
-    "D",
-    "E501",
-]
-"__init__.py" = [
-    "F401",
-    "D104",
-    "E402",
-]
-"demo.py" = [
-    "T201",
-    "INP001",
-]
-"examples/*" = [
-    "T201",
-    "INP001",
-]
+"tests/*" = ["S101", "ANN", "D", "PLR2004"]
+"__init__.py" = ["F401", "D104"]
+"examples/*" = ["T201"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyoutlineapi"]
 combine-as-imports = true
-split-on-trailing-comma = true
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
-[tool.ruff.lint.flake8-quotes]
-inline-quotes = "double"
-multiline-quotes = "double"
-docstring-quotes = "double"
-
 [tool.ruff.format]
 quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
 
-# ===== MyPy Configuration =====
+
+# ================== MyPy ==================
 
 [tool.mypy]
 python_version = "3.10"
 files = ["pyoutlineapi"]
+
 warn_return_any = true
 warn_unused_configs = true
-check_untyped_defs = true
-no_implicit_optional = true
-warn_redundant_casts = true
 warn_unused_ignores = true
-warn_no_return = true
-strict_equality = true
-show_error_codes = true
-show_column_numbers = true
-pretty = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-disallow_untyped_decorators = false
-disallow_any_generics = false
-disallow_untyped_calls = false
-disallow_subclassing_any = false
 warn_unreachable = true
-implicit_reexport = true
+show_error_codes = true
+pretty = true
+
 strict_optional = true
-strict_concatenate = false
+implicit_reexport = true
 
 [[tool.mypy.overrides]]
-module = [
-    "aiohttp.*",
-    "aioresponses.*",
-]
+module = ["aiohttp.*", "aioresponses.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = [
-    "pydantic",
-    "pydantic.*",
-    "pydantic_settings",
-]
+module = ["pydantic", "pydantic.*", "pydantic_settings"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "tests.*"
-disallow_untyped_defs = false
 check_untyped_defs = false
 
-# ===== Bandit Configuration =====
+
+# ================== Bandit ==================
 
 [tool.bandit]
 exclude_dirs = ["tests", "docs", "examples"]
-skips = ["B101"]  # Skip assert check (used in type narrowing occasionally)
+skips = ["B101"]
+
+
+# ================== Build ==================
 
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

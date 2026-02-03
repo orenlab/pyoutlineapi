@@ -210,14 +210,15 @@ wheels = [
 
 [[package]]
 name = "codeclone"
-version = "1.1.0"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pygments" },
+    { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a0/b6/82a42134228873394e64ad5ebaf05b41d82a42954db41368b3fc6bc728fe/codeclone-1.1.0.tar.gz", hash = "sha256:dfe4b63ed837ef33ed8cda422db16d033789e91661034f338139fd37ad75b8dc", size = 23033, upload-time = "2026-01-19T14:44:57.853Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/40/7e/6bc36bf6734f5d8436a536da2fc0beda245c45e927246fd36e7edbdeae55/codeclone-1.2.1.tar.gz", hash = "sha256:f2cc940ae813548b83df0e577b90626df437f2ccc23dd011c65e08954792b66d", size = 47441, upload-time = "2026-02-03T11:32:46.857Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5b/b3/9d1c1994ad87cdedafa06dbaec05a3e53518e4c343c52ab95532cdc3188b/codeclone-1.1.0-py3-none-any.whl", hash = "sha256:5eb387e052487557457c0e46cb70091dc7a9be27ea06e1937694eb4b4123aa6f", size = 23288, upload-time = "2026-01-19T14:44:55.002Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/3f/ef3357a73fcbe01405a0e618df688d9df4b7eec8d714a11903c2e2d42d3f/codeclone-1.2.1-py3-none-any.whl", hash = "sha256:1e7353ebe026f4acf9b0f52e1860e002ab37b7e06ca08ec3d493686c1e379347", size = 38055, upload-time = "2026-02-03T11:32:44.81Z" },
 ]
 
 [[package]]
@@ -1235,18 +1236,18 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "aioresponses", specifier = ">=0.7.8" },
-    { name = "bandit", specifier = ">=1.8.2" },
-    { name = "codeclone", specifier = ">=1.1.0" },
-    { name = "mypy", specifier = ">=1.13.0" },
-    { name = "pdoc", specifier = ">=15.0.4" },
-    { name = "pytest", specifier = ">=8.4.2" },
-    { name = "pytest-asyncio", specifier = ">=0.25.3" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-timeout", specifier = ">=2.3.1" },
-    { name = "pytest-xdist", specifier = ">=3.6.1" },
-    { name = "rich", specifier = ">=14.2.0" },
-    { name = "ruff", specifier = ">=0.14.4" },
-    { name = "types-aiofiles", specifier = ">=24.1.0" },
+    { name = "bandit", specifier = ">=1.8" },
+    { name = "codeclone", specifier = ">=1.2" },
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "pdoc", specifier = ">=15.0" },
+    { name = "pytest", specifier = ">=8.4" },
+    { name = "pytest-asyncio", specifier = ">=0.25" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "pytest-timeout", specifier = ">=2.3" },
+    { name = "pytest-xdist", specifier = ">=3.6" },
+    { name = "rich", specifier = ">=14.2" },
+    { name = "ruff", specifier = ">=0.8" },
+    { name = "types-aiofiles", specifier = ">=24.1" },
 ]
 
 [[package]]
