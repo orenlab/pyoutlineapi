@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import pytest
 from pydantic import BaseModel, ValidationError
+from pydantic_core import InitErrorDetails
 
 from pyoutlineapi.common_types import JsonValue
 from pyoutlineapi.exceptions import ValidationError as OutlineValidationError
@@ -22,34 +23,42 @@ class MultiErrorModel(BaseModel):
 
 
 def test_parse_non_dict_raises_validation_error():
-    bad_data = cast(dict[str, JsonValue], ["bad"])
+    bad_data = cast(dict[str, JsonValue], cast(object, ["bad"]))
     with pytest.raises(OutlineValidationError) as exc:
         ResponseParser.parse(bad_data, SimpleModel)
     assert exc.value.safe_details["model"] == "SimpleModel"
 
 
-def test_parse_as_json_returns_dict():
+def test_parse_as_json_returns_dict() -> None:
     data: dict[str, JsonValue] = {"id": 1, "name": "test"}
     result = ResponseParser.parse(data, SimpleModel, as_json=True)
     assert result["id"] == 1
     assert result["name"] == "test"
 
 
-def test_parse_invalid_data_logs_and_raises(caplog):
+def test_parse_invalid_data_logs_and_raises(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     data: dict[str, JsonValue] = {"id": "bad"}  # missing name and wrong id type
-    with caplog.at_level(
-        logging.WARNING,
-        logger="pyoutlineapi.response_parser",
-    ), pytest.raises(OutlineValidationError) as exc:
+    with (
+        caplog.at_level(
+            logging.WARNING,
+            logger="pyoutlineapi.response_parser",
+        ),
+        pytest.raises(OutlineValidationError) as exc,
+    ):
         ResponseParser.parse(data, SimpleModel, as_json=False)
     assert exc.value.safe_details["model"] == "SimpleModel"
 
 
 def test_parse_empty_dict_debug_log(caplog):
-    with caplog.at_level(
-        logging.DEBUG,
-        logger="pyoutlineapi.response_parser",
-    ), pytest.raises(OutlineValidationError):
+    with (
+        caplog.at_level(
+            logging.DEBUG,
+            logger="pyoutlineapi.response_parser",
+        ),
+        pytest.raises(OutlineValidationError),
+    ):
         ResponseParser.parse({}, SimpleModel)
     assert any("Parsing empty dict" in r.message for r in caplog.records)
 
@@ -72,11 +81,10 @@ def test_parse_validation_error_many_details(caplog):
     class ManyErrorsModel(SimpleModel):
         @classmethod
         def model_validate(cls, obj: Any, **kwargs: Any) -> ManyErrorsModel:
-            errors = [
+            errors: list[InitErrorDetails] = [
                 {
                     "type": "value_error",
                     "loc": ("field", idx),
-                    "msg": "bad",
                     "input": obj,
                     "ctx": {"error": "boom"},
                 }
@@ -84,13 +92,16 @@ def test_parse_validation_error_many_details(caplog):
             ]
             raise ValidationError.from_exception_data(
                 "ManyErrorsModel",
-                errors,  # type: ignore[arg-type]  # synthetic pydantic error details for test
+                errors,
             )
 
-    with caplog.at_level(
-        logging.DEBUG,
-        logger="pyoutlineapi.response_parser",
-    ), pytest.raises(OutlineValidationError):
+    with (
+        caplog.at_level(
+            logging.DEBUG,
+            logger="pyoutlineapi.response_parser",
+        ),
+        pytest.raises(OutlineValidationError),
+    ):
         ResponseParser.parse({"id": 1, "name": "x"}, ManyErrorsModel)
     assert any("Validation error details" in r.message for r in caplog.records)
     assert any("more error(s)" in r.message for r in caplog.records)
@@ -99,10 +110,13 @@ def test_parse_validation_error_many_details(caplog):
 def test_parse_validation_error_multiple_fields(caplog):
     logger = logging.getLogger("pyoutlineapi.response_parser")
     logger.setLevel(logging.DEBUG)
-    with caplog.at_level(
-        logging.DEBUG,
-        logger="pyoutlineapi.response_parser",
-    ), pytest.raises(OutlineValidationError):
+    with (
+        caplog.at_level(
+            logging.DEBUG,
+            logger="pyoutlineapi.response_parser",
+        ),
+        pytest.raises(OutlineValidationError),
+    ):
         ResponseParser.parse({}, MultiErrorModel)
     assert any("Multiple validation errors" in r.message for r in caplog.records)
 
@@ -134,10 +148,13 @@ def test_parse_unexpected_exception_logs_error(caplog):
         def model_validate(cls, obj: Any, **kwargs: Any) -> BadModel:
             raise RuntimeError("boom")
 
-    with caplog.at_level(
-        logging.ERROR,
-        logger="pyoutlineapi.response_parser",
-    ), pytest.raises(OutlineValidationError):
+    with (
+        caplog.at_level(
+            logging.ERROR,
+            logger="pyoutlineapi.response_parser",
+        ),
+        pytest.raises(OutlineValidationError),
+    ):
         ResponseParser.parse({"id": 1, "name": "x"}, BadModel)
     assert any(
         "Unexpected error during validation" in r.message for r in caplog.records

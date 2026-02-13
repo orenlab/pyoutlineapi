@@ -203,10 +203,13 @@ async def test_request_circuit_open_logs_error(caplog):
 
     client._circuit_breaker = cast(CircuitBreaker, DummyBreaker())
     logging.getLogger("pyoutlineapi.base_client").setLevel(logging.ERROR)
-    with caplog.at_level(
-        logging.ERROR,
-        logger="pyoutlineapi.base_client",
-    ), pytest.raises(CircuitOpenError):
+    with (
+        caplog.at_level(
+            logging.ERROR,
+            logger="pyoutlineapi.base_client",
+        ),
+        pytest.raises(CircuitOpenError),
+    ):
         await client._request("GET", "server")
 
 
@@ -218,10 +221,13 @@ async def test_retry_helper_logs_warning(caplog):
     async def boom() -> dict[str, JsonValue]:
         raise APIError("fail", status_code=500)
 
-    with caplog.at_level(
-        logging.WARNING,
-        logger="pyoutlineapi.base_client",
-    ), pytest.raises(APIError):
+    with (
+        caplog.at_level(
+            logging.WARNING,
+            logger="pyoutlineapi.base_client",
+        ),
+        pytest.raises(APIError),
+    ):
         await helper.execute_with_retry(boom, "/endpoint", 0, NoOpMetrics())
     assert any("Request to" in r.message for r in caplog.records)
 

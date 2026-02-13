@@ -249,6 +249,7 @@ async def test_custom_check_unhealthy_sets_overall():
 
 def test_add_custom_check_validation_and_invalidate_cache():
     monitor = HealthMonitor(_as_client(DummyClient()), cache_ttl=1.0)
+
     async def noop_check(_client: AsyncOutlineClient) -> dict[str, object]:
         return {"status": "ok"}
 
@@ -258,7 +259,9 @@ def test_add_custom_check_validation_and_invalidate_cache():
         monitor.add_custom_check(
             "x",
             cast(
-                Callable[[AsyncOutlineClient], Coroutine[object, object, dict[str, object]]],
+                Callable[
+                    [AsyncOutlineClient], Coroutine[object, object, dict[str, object]]
+                ],
                 "bad",
             ),
         )

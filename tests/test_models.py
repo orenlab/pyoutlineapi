@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from pyoutlineapi.common_types import Constants
 from pyoutlineapi.models import (
     AccessKey,
     AccessKeyList,
@@ -39,6 +40,31 @@ def test_access_key_properties():
     )
     assert key.display_name == "Key-key-1"
     assert key.has_data_limit is False
+
+
+def test_access_key_name_validation():
+    key = AccessKey(
+        id="key-1",
+        name="   ",
+        password=PLACEHOLDER_CREDENTIAL,
+        port=12345,
+        method="aes-256-gcm",
+        accessUrl="ss://example",
+        dataLimit=None,
+    )
+    assert key.name is None
+
+    too_long = "a" * (Constants.MAX_NAME_LENGTH + 1)
+    with pytest.raises(ValueError, match=r".*"):
+        AccessKey(
+            id="key-1",
+            name=too_long,
+            password=PLACEHOLDER_CREDENTIAL,
+            port=12345,
+            method="aes-256-gcm",
+            accessUrl="ss://example",
+            dataLimit=None,
+        )
 
 
 def test_access_key_list():

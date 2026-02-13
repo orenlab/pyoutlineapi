@@ -74,19 +74,19 @@ class MetricsCollector(Protocol):
 
     def increment(self, metric: str, *, tags: MetricsTags | None = None) -> None:
         """Increment counter metric."""
-        ...
+        ...  # pragma: no cover
 
     def timing(
         self, metric: str, value: float, *, tags: MetricsTags | None = None
     ) -> None:
         """Record timing metric."""
-        ...
+        ...  # pragma: no cover
 
     def gauge(
         self, metric: str, value: float, *, tags: MetricsTags | None = None
     ) -> None:
         """Set gauge metric."""
-        ...
+        ...  # pragma: no cover
 
 
 class NoOpMetrics:

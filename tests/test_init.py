@@ -13,7 +13,10 @@ def test_get_version_monkeypatch(monkeypatch):
     assert pyoutlineapi.get_version() == "9.9.9"
 
 
-def test_quick_setup_prints(monkeypatch, capsys):
+def test_quick_setup_prints(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     called: dict[str, Any] = {"value": False}
 
     def fake_create_env_template() -> None:

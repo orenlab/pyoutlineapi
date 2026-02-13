@@ -20,6 +20,34 @@ from pyoutlineapi.audit import (
 REDACTED_VALUE = "***REDACTED***"
 
 
+async def _run_process_queue_flush_scenario(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    batch_size: int,
+    batch_timeout: float,
+) -> list[int]:
+    logger_instance = DefaultAuditLogger(
+        batch_size=batch_size,
+        batch_timeout=batch_timeout,
+    )
+    flushed: list[int] = []
+
+    def fake_write_batch(self, batch):
+        flushed.append(len(batch))
+
+    monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
+    await logger_instance._queue.put({"action": "a", "resource": "r"})
+
+    task = asyncio.create_task(logger_instance._process_queue())
+    await asyncio.sleep(0.01)
+    logger_instance._shutdown_event.set()
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+    return flushed
+
+
 class DummyLogger:
     def __init__(self) -> None:
         self.logged: list[tuple[str, str]] = []
@@ -164,7 +192,9 @@ def test_audit_context_resource_from_result_dict():
 
 
 @pytest.mark.asyncio
-async def test_audit_logger_queue_full_fallback(monkeypatch):
+async def test_audit_logger_queue_full_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     logger_instance = DefaultAuditLogger(queue_size=1)
     entries: list[dict[str, object]] = []
 
@@ -184,27 +214,18 @@ async def test_audit_logger_queue_full_fallback(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_audit_logger_process_queue_timeout_flush(monkeypatch):
-    logger_instance = DefaultAuditLogger(batch_size=10, batch_timeout=0.001)
-    flushed: list[int] = []
-
-    def fake_write_batch(self, batch):
-        flushed.append(len(batch))
-
-    monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
-    await logger_instance._queue.put({"action": "a", "resource": "r"})
-
-    task = asyncio.create_task(logger_instance._process_queue())
-    await asyncio.sleep(0.01)
-    logger_instance._shutdown_event.set()
-    task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
-
+    flushed = await _run_process_queue_flush_scenario(
+        monkeypatch,
+        batch_size=10,
+        batch_timeout=0.001,
+    )
     assert flushed
 
 
 @pytest.mark.asyncio
-async def test_audit_logger_process_queue_cancel_flush(monkeypatch):
+async def test_audit_logger_process_queue_cancel_flush(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     logger_instance = DefaultAuditLogger(batch_size=10, batch_timeout=1.0)
     flushed: list[int] = []
 
@@ -346,7 +367,9 @@ async def test_audited_failure_paths():
 
 
 @pytest.mark.asyncio
-async def test_default_audit_logger_queue_full(monkeypatch):
+async def test_default_audit_logger_queue_full(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     logger = DefaultAuditLogger(queue_size=1, batch_size=10, batch_timeout=1.0)
     entries: list[dict[str, object]] = []
 
@@ -360,7 +383,9 @@ async def test_default_audit_logger_queue_full(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_default_audit_logger_fallback_on_shutdown(monkeypatch):
+async def test_default_audit_logger_fallback_on_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     logger = DefaultAuditLogger(queue_size=1, batch_size=1, batch_timeout=0.01)
     entries: list[dict[str, object]] = []
 
@@ -416,7 +441,9 @@ async def test_default_audit_logger_shutdown_debug(caplog):
 
 
 @pytest.mark.asyncio
-async def test_default_audit_logger_cancel_flush(monkeypatch):
+async def test_default_audit_logger_cancel_flush(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     logger = DefaultAuditLogger(queue_size=10, batch_size=10, batch_timeout=0.1)
     entries: list[dict[str, object]] = []
 
@@ -496,27 +523,18 @@ async def test_audit_logger_ensure_task_running_restarts():
 
 @pytest.mark.asyncio
 async def test_audit_logger_process_queue_batch_size(monkeypatch):
-    logger_instance = DefaultAuditLogger(batch_size=1, batch_timeout=1.0)
-    flushed: list[int] = []
-
-    def fake_write_batch(self, batch):
-        flushed.append(len(batch))
-
-    monkeypatch.setattr(DefaultAuditLogger, "_write_batch", fake_write_batch)
-    await logger_instance._queue.put({"action": "a", "resource": "r"})
-
-    task = asyncio.create_task(logger_instance._process_queue())
-    await asyncio.sleep(0.01)
-    logger_instance._shutdown_event.set()
-    task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
-
+    flushed = await _run_process_queue_flush_scenario(
+        monkeypatch,
+        batch_size=1,
+        batch_timeout=1.0,
+    )
     assert flushed
 
 
 @pytest.mark.asyncio
-async def test_audit_logger_process_queue_timeout_flushes(monkeypatch):
+async def test_audit_logger_process_queue_timeout_flushes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     logger_instance = DefaultAuditLogger(batch_size=10, batch_timeout=0.001)
     flushed: list[int] = []
 
@@ -533,7 +551,10 @@ async def test_audit_logger_process_queue_timeout_flushes(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_audit_logger_process_queue_empty_flush(monkeypatch, caplog):
+async def test_audit_logger_process_queue_empty_flush(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     logger_instance = DefaultAuditLogger(batch_size=10, batch_timeout=1.0)
     logging.getLogger("pyoutlineapi.audit").setLevel(logging.DEBUG)
     flushed: list[int] = []

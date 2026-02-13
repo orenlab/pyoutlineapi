@@ -40,6 +40,10 @@ _MIN_INTERVAL: Final[float] = 1.0
 _MAX_INTERVAL: Final[float] = 3600.0
 _MAX_HISTORY: Final[int] = 100_000
 _PROMETHEUS_CACHE_TTL: Final[int] = 30  # seconds
+_WAIT_FOR_TIMEOUT_ERRORS: Final[tuple[type[BaseException], ...]] = (
+    TimeoutError,
+    asyncio.TimeoutError,
+)
 
 
 def _log_if_enabled(level: int, message: str) -> None:
@@ -504,10 +508,10 @@ class MetricsCollector:
                     timeout=self._interval,
                 )
                 break  # Shutdown signaled
-            except TimeoutError:
+            except _WAIT_FOR_TIMEOUT_ERRORS:
                 pass  # Normal timeout, continue loop
 
-        if 0 < consecutive_errors < max_consecutive_errors:
+        if consecutive_errors > 0:
             _log_if_enabled(
                 logging.WARNING,
                 f"Failed to collect metrics {consecutive_errors} times consecutively",
@@ -546,7 +550,7 @@ class MetricsCollector:
             # Give task time to finish gracefully
             try:
                 await asyncio.wait_for(self._task, timeout=5.0)
-            except TimeoutError:
+            except _WAIT_FOR_TIMEOUT_ERRORS:
                 _log_if_enabled(
                     logging.WARNING,
                     "Collection task did not finish gracefully, cancelling",

@@ -50,6 +50,11 @@ def test_outline_error_details_properties():
     assert err.safe_details == {}
 
 
+def test_outline_error_repr():
+    err = OutlineError("oops")
+    assert repr(err) == "OutlineError('oops')"
+
+
 def test_api_error_properties_and_retryable():
     err = APIError("fail", status_code=503, endpoint="/server")
     assert err.is_retryable is True

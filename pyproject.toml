@@ -78,7 +78,7 @@ dev = [
     "pdoc>=15.0",
     "rich>=14.2",
     "bandit>=1.8",
-    "codeclone>=1.2",
+    "codeclone>=1.4.0",
 ]
 
 # ================== Documentation ==================

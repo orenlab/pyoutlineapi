@@ -57,7 +57,7 @@ def test_create_minimal():
     with pytest.raises(TypeError):
         OutlineClientConfig.create_minimal(
             api_url="https://example.com/secret",
-            cert_sha256=123,  # type: ignore[arg-type]
+            cert_sha256=123,
         )
 
     config2 = OutlineClientConfig.create_minimal(
@@ -120,7 +120,7 @@ def test_create_env_template(tmp_path: Path):
 
 def test_create_env_template_invalid_path():
     with pytest.raises(TypeError):
-        create_env_template(123)  # type: ignore[arg-type]
+        create_env_template(123)
 
 
 def test_model_copy_and_circuit_config():
@@ -151,7 +151,7 @@ def test_cert_sha_assignment_guard():
         cert_sha256="a" * 64,
     )
     with pytest.raises(TypeError):
-        config.cert_sha256 = "bad"  # type: ignore[assignment]
+        config.cert_sha256 = "bad"
     config.cert_sha256 = SecretStr("a" * 64)
 
 

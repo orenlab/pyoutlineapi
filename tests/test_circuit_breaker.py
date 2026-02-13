@@ -147,10 +147,13 @@ async def test_circuit_breaker_timeout_logs_warning(caplog):
     async def slow():
         await asyncio.sleep(0.2)
 
-    with caplog.at_level(
-        logging.WARNING,
-        logger="pyoutlineapi.circuit_breaker",
-    ), pytest.raises(OutlineTimeoutError):
+    with (
+        caplog.at_level(
+            logging.WARNING,
+            logger="pyoutlineapi.circuit_breaker",
+        ),
+        pytest.raises(OutlineTimeoutError),
+    ):
         await breaker.call(slow)
     assert any("timeout after" in r.message for r in caplog.records)
 

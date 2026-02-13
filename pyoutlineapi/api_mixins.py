@@ -93,7 +93,7 @@ class HTTPClientProtocol(Protocol):
         :param params: Query parameters
         :return: Response data
         """
-        ...
+        ...  # pragma: no cover
 
     def _resolve_json_format(self, as_json: bool | None) -> bool:
         """Resolve JSON format preference.
@@ -101,7 +101,7 @@ class HTTPClientProtocol(Protocol):
         :param as_json: Explicit format preference
         :return: Resolved format preference
         """
-        ...
+        ...  # pragma: no cover
 
 
 # ===== Server Management Mixin =====

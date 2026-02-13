@@ -80,7 +80,9 @@ async def test_collect_single_snapshot_non_dict_transfer():
 
 @pytest.mark.asyncio
 async def test_collect_single_snapshot_error(monkeypatch):
-    collector = MetricsCollector(_as_client(FailingClient()), interval=1.0, max_history=5)
+    collector = MetricsCollector(
+        _as_client(FailingClient()), interval=1.0, max_history=5
+    )
 
     def fake_getsizeof(_: object) -> int:
         return 10 * 1024 * 1024 + 1
@@ -292,7 +294,7 @@ async def test_collector_stop_timeout(monkeypatch):
     collector._running = True
 
     async def raise_timeout(_task: object, timeout: float | None = None) -> None:
-        raise TimeoutError()
+        raise asyncio.TimeoutError()
 
     monkeypatch.setattr(asyncio, "wait_for", raise_timeout)
     await collector.stop()

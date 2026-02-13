@@ -117,7 +117,9 @@ def test_validate_url_invalid_cases():
 
 
 def test_validate_url_strict_ssrf_blocks_private(monkeypatch):
-    def fake_getaddrinfo(_host: str, *_args: object, **_kwargs: object) -> list[AddrInfo]:
+    def fake_getaddrinfo(
+        _host: str, *_args: object, **_kwargs: object
+    ) -> list[AddrInfo]:
         return [(None, None, None, None, ("10.0.0.5", 0))]
 
     SSRFProtection._resolve_hostname.cache_clear()
@@ -131,7 +133,9 @@ def test_validate_url_strict_ssrf_blocks_private(monkeypatch):
 
 
 def test_validate_url_strict_ssrf_allows_public(monkeypatch):
-    def fake_getaddrinfo(_host: str, *_args: object, **_kwargs: object) -> list[AddrInfo]:
+    def fake_getaddrinfo(
+        _host: str, *_args: object, **_kwargs: object
+    ) -> list[AddrInfo]:
         return [(None, None, None, None, ("1.1.1.1", 0))]
 
     SSRFProtection._resolve_hostname.cache_clear()
@@ -145,7 +149,9 @@ def test_validate_url_strict_ssrf_allows_public(monkeypatch):
 
 
 def test_validate_url_strict_ssrf_rebinding_guard(monkeypatch):
-    def fake_getaddrinfo(_host: str, *_args: object, **_kwargs: object) -> list[AddrInfo]:
+    def fake_getaddrinfo(
+        _host: str, *_args: object, **_kwargs: object
+    ) -> list[AddrInfo]:
         return [
             (None, None, None, None, ("1.1.1.1", 0)),
             (None, None, None, None, ("10.0.0.9", 0)),
@@ -162,7 +168,9 @@ def test_validate_url_strict_ssrf_rebinding_guard(monkeypatch):
 
 
 def test_validate_url_strict_ssrf_blocks_private_ipv6(monkeypatch):
-    def fake_getaddrinfo(_host: str, *_args: object, **_kwargs: object) -> list[AddrInfo]:
+    def fake_getaddrinfo(
+        _host: str, *_args: object, **_kwargs: object
+    ) -> list[AddrInfo]:
         return [(None, None, None, None, ("fd00::1", 0, 0, 0))]
 
     SSRFProtection._resolve_hostname.cache_clear()
@@ -176,7 +184,9 @@ def test_validate_url_strict_ssrf_blocks_private_ipv6(monkeypatch):
 
 
 def test_validate_url_strict_ssrf_allows_public_ipv6(monkeypatch):
-    def fake_getaddrinfo(_host: str, *_args: object, **_kwargs: object) -> list[AddrInfo]:
+    def fake_getaddrinfo(
+        _host: str, *_args: object, **_kwargs: object
+    ) -> list[AddrInfo]:
         return [(None, None, None, None, ("2606:4700:4700::1111", 0, 0, 0))]
 
     SSRFProtection._resolve_hostname.cache_clear()
@@ -190,7 +200,9 @@ def test_validate_url_strict_ssrf_allows_public_ipv6(monkeypatch):
 
 
 def test_validate_url_strict_ssrf_blocks_mixed_ipv6(monkeypatch):
-    def fake_getaddrinfo(_host: str, *_args: object, **_kwargs: object) -> list[AddrInfo]:
+    def fake_getaddrinfo(
+        _host: str, *_args: object, **_kwargs: object
+    ) -> list[AddrInfo]:
         return [
             (None, None, None, None, ("2606:4700:4700::1111", 0, 0, 0)),
             (None, None, None, None, ("fd00::2", 0, 0, 0)),
@@ -207,7 +219,9 @@ def test_validate_url_strict_ssrf_blocks_mixed_ipv6(monkeypatch):
 
 
 def test_validate_url_strict_ssrf_resolution_error(monkeypatch):
-    def fake_getaddrinfo(_host: str, *_args: object, **_kwargs: object) -> list[AddrInfo]:
+    def fake_getaddrinfo(
+        _host: str, *_args: object, **_kwargs: object
+    ) -> list[AddrInfo]:
         raise common_types.socket.gaierror("boom")
 
     SSRFProtection._resolve_hostname.cache_clear()
@@ -230,7 +244,9 @@ def test_validate_url_blocks_localhost_when_private_disallowed():
 
 
 def test_is_blocked_hostname_uncached_blocks_private(monkeypatch):
-    def fake_getaddrinfo(_host: str, *_args: object, **_kwargs: object) -> list[AddrInfo]:
+    def fake_getaddrinfo(
+        _host: str, *_args: object, **_kwargs: object
+    ) -> list[AddrInfo]:
         return [(None, None, None, None, ("10.0.0.8", 0))]
 
     monkeypatch.setattr(common_types.socket, "getaddrinfo", fake_getaddrinfo)
@@ -242,7 +258,9 @@ def test_is_blocked_hostname_uncached_allows_localhost():
 
 
 def test_resolve_hostname_uncached_resolution_error(monkeypatch):
-    def fake_getaddrinfo(_host: str, *_args: object, **_kwargs: object) -> list[AddrInfo]:
+    def fake_getaddrinfo(
+        _host: str, *_args: object, **_kwargs: object
+    ) -> list[AddrInfo]:
         raise common_types.socket.gaierror("boom")
 
     monkeypatch.setattr(common_types.socket, "getaddrinfo", fake_getaddrinfo)
@@ -299,7 +317,7 @@ def test_validate_snapshot_size_error(monkeypatch):
         validate_snapshot_size({"data": "x"})
 
 
-def test_mask_sensitive_depth_limit():
+def test_mask_sensitive_depth_limit() -> None:
     nested: dict[str, object] = {}
     current = nested
     for _ in range(Constants.MAX_RECURSION_DEPTH + 2):

@@ -40,6 +40,18 @@ class _ChunkedContent:
 
 
 class DummyResponse:
+    @staticmethod
+    def _resolve_headers(headers: dict[str, str] | None) -> dict[str, str]:
+        if headers is None:
+            return {"Content-Type": "application/json"}
+        return headers
+
+    @staticmethod
+    def _resolve_reason(reason: str | None) -> str:
+        if reason is None:
+            return "OK"
+        return reason
+
     def __init__(
         self,
         status: int,
@@ -50,13 +62,11 @@ class DummyResponse:
         json_data: dict[str, object] | None = None,
         json_error: Exception | None = None,
     ) -> None:
-        self.status = status
-        self.headers = headers or {"Content-Type": "application/json"}
-        self.reason = reason or "OK"
-        self._body = body
-        self._json_data = json_data
-        self._json_error = json_error
-        self.content = _ChunkedContent(body)
+        self.status, self._body = status, body
+        self.headers = self._resolve_headers(headers)
+        self.reason = self._resolve_reason(reason)
+        self._json_data, self._json_error = json_data, json_error
+        self.content = _ChunkedContent(self._body)
 
     async def json(self) -> dict[str, object]:
         if self._json_error is not None:
@@ -160,7 +170,9 @@ async def test_build_url_and_parse_response(access_key_dict):
     body = json.dumps(access_key_dict).encode("utf-8")
     response = DummyResponse(status=200, body=body)
 
-    data = await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
+    data = await client._parse_response_safe(
+        cast(aiohttp.ClientResponse, response), "/server"
+    )
     assert data["id"] == "key-1"
 
 
@@ -179,7 +191,9 @@ async def test_parse_response_size_limit():
     response = DummyResponse(status=200, body=big)
 
     with pytest.raises(APIError):
-        await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
+        await client._parse_response_safe(
+            cast(aiohttp.ClientResponse, response), "/server"
+        )
 
 
 @pytest.mark.asyncio
@@ -201,7 +215,9 @@ async def test_parse_response_content_length_header_limit():
         },
     )
     with pytest.raises(APIError):
-        await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
+        await client._parse_response_safe(
+            cast(aiohttp.ClientResponse, response), "/server"
+        )
 
 
 @pytest.mark.asyncio
@@ -219,7 +235,9 @@ async def test_parse_response_content_length_invalid_and_list_json():
         body=b"[]",
         headers={"Content-Type": "text/plain", "Content-Length": "bad"},
     )
-    data = await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
+    data = await client._parse_response_safe(
+        cast(aiohttp.ClientResponse, response), "/server"
+    )
     assert data["success"] is True
 
 
@@ -231,7 +249,9 @@ async def test_handle_error_json():
         json_data={"message": "fail"},
     )
     with pytest.raises(APIError) as exc:
-        await BaseHTTPClient._handle_error(cast(aiohttp.ClientResponse, response), "/bad")
+        await BaseHTTPClient._handle_error(
+            cast(aiohttp.ClientResponse, response), "/bad"
+        )
     assert "fail" in str(exc.value)
 
 
@@ -244,7 +264,9 @@ async def test_handle_error_non_json():
         reason="Bad Request",
     )
     with pytest.raises(APIError) as exc:
-        await BaseHTTPClient._handle_error(cast(aiohttp.ClientResponse, response), "/bad")
+        await BaseHTTPClient._handle_error(
+            cast(aiohttp.ClientResponse, response), "/bad"
+        )
     assert "Bad Request" in str(exc.value)
 
 
@@ -309,7 +331,9 @@ async def test_parse_response_invalid_json_returns_success():
         rate_limit=10,
     )
     response = DummyResponse(status=200, body=b"{invalid")
-    data = await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
+    data = await client._parse_response_safe(
+        cast(aiohttp.ClientResponse, response), "/server"
+    )
     assert data["success"] is True
 
 
@@ -325,7 +349,9 @@ async def test_parse_response_invalid_json_error_status():
     )
     response = DummyResponse(status=500, body=b"{invalid")
     with pytest.raises(APIError):
-        await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
+        await client._parse_response_safe(
+            cast(aiohttp.ClientResponse, response), "/server"
+        )
 
 
 @pytest.mark.asyncio
@@ -340,7 +366,9 @@ async def test_parse_response_non_dict_error_status():
     )
     response = DummyResponse(status=400, body=b"[]")
     with pytest.raises(APIError):
-        await client._parse_response_safe(cast(aiohttp.ClientResponse, response), "/server")
+        await client._parse_response_safe(
+            cast(aiohttp.ClientResponse, response), "/server"
+        )
 
 
 @pytest.mark.asyncio
@@ -353,6 +381,7 @@ async def test_shutdown_closes_session():
         max_connections=1,
         rate_limit=10,
     )
+
     def responder(method: str, url: str, **kwargs: object) -> DummyResponse:
         return DummyResponse(204, b"")
 
@@ -538,10 +567,13 @@ async def test_request_with_circuit_open_logs(caplog):
             raise CircuitOpenError("open")
 
     client._circuit_breaker = cast(CircuitBreaker, DummyBreaker())
-    with caplog.at_level(
-        logging.ERROR,
-        logger="pyoutlineapi.base_client",
-    ), pytest.raises(CircuitOpenError):
+    with (
+        caplog.at_level(
+            logging.ERROR,
+            logger="pyoutlineapi.base_client",
+        ),
+        pytest.raises(CircuitOpenError),
+    ):
         await client._request("GET", "server")
 
 

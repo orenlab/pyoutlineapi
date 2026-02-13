@@ -44,7 +44,7 @@ def test_sanitize_endpoint_for_logging_empty():
     assert Validators.sanitize_endpoint_for_logging("") == "***EMPTY***"
 
 
-def test_mask_sensitive_data_max_depth():
+def test_mask_sensitive_data_max_depth() -> None:
     data: dict[str, object] = {}
     current = data
     for _ in range(Constants.MAX_RECURSION_DEPTH + 2):

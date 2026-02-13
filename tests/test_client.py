@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from typing import cast
 
 import aiohttp
@@ -39,7 +40,7 @@ async def test_resolve_configuration_errors():
     with pytest.raises(ConfigurationError):
         AsyncOutlineClient._resolve_configuration(None, None, None, {})
     with pytest.raises(ConfigurationError):
-        AsyncOutlineClient._resolve_configuration(None, 123, 456, {})  # type: ignore[arg-type]
+        AsyncOutlineClient._resolve_configuration(None, 123, 456, {})
 
 
 def test_client_init_with_config():
@@ -678,6 +679,16 @@ async def test_client_status_and_repr(monkeypatch):
     assert "rate_limit" in status
     assert "AsyncOutlineClient" in repr(client)
 
+    task = asyncio.create_task(asyncio.sleep(0.01))
+    client._active_requests.add(task)
+    try:
+        assert "requests=" in repr(client)
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        client._active_requests.clear()
+
 
 @pytest.mark.asyncio
 async def test_client_aexit_handles_errors(monkeypatch, caplog):
@@ -907,10 +918,13 @@ async def test_multi_server_manager_aenter_logs_warning(monkeypatch, caplog):
         raise RuntimeError("fail")
 
     monkeypatch.setattr(AsyncOutlineClient, "__aenter__", bad_enter)
-    with caplog.at_level(
-        logging.WARNING,
-        logger="pyoutlineapi.client",
-    ), pytest.raises(ConfigurationError):
+    with (
+        caplog.at_level(
+            logging.WARNING,
+            logger="pyoutlineapi.client",
+        ),
+        pytest.raises(ConfigurationError),
+    ):
         async with manager:
             pass
     assert any("Failed to initialize server" in r.message for r in caplog.records)

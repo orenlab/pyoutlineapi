@@ -57,7 +57,7 @@ def _as_client(client: object) -> AsyncOutlineClient:
 
 
 @pytest.mark.asyncio
-async def test_batch_processor_success_and_fail():
+async def test_batch_processor_success_and_fail() -> None:
     processor: BatchProcessor[int, int] = BatchProcessor(max_concurrent=2)
 
     async def double(x: int) -> int:
@@ -76,7 +76,7 @@ async def test_batch_processor_success_and_fail():
 
 
 @pytest.mark.asyncio
-async def test_batch_processor_cancels_pending_tasks():
+async def test_batch_processor_cancels_pending_tasks() -> None:
     processor: BatchProcessor[int, int] = BatchProcessor(max_concurrent=2)
     started = asyncio.Event()
     cancelled = asyncio.Event()
@@ -136,7 +136,7 @@ def test_validation_helper_key_id():
         helper.validate_key_id("bad id", 0, True)
 
 
-def test_batch_result_properties():
+def test_batch_result_properties() -> None:
     result = BatchResult(
         total=2,
         successful=1,
@@ -202,7 +202,7 @@ async def test_batch_operations_other_actions():
 
 
 @pytest.mark.asyncio
-async def test_batch_fail_fast_and_custom_ops():
+async def test_batch_fail_fast_and_custom_ops() -> None:
     ops = BatchOperations(_as_client(DummyClient()), max_concurrent=1)
 
     async def bad(_: int) -> int:
@@ -298,7 +298,9 @@ def test_batch_processor_invalid_concurrency():
 
 
 @pytest.mark.asyncio
-async def test_batch_processor_set_concurrency_logs(caplog):
+async def test_batch_processor_set_concurrency_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     processor: BatchProcessor[int, int] = BatchProcessor(max_concurrent=1)
     with caplog.at_level(logging.DEBUG, logger="pyoutlineapi.batch_operations"):
         await processor.set_concurrency(2)

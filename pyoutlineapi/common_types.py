@@ -188,9 +188,10 @@ class SSRFProtection:
             return False
 
     @classmethod
-    @lru_cache(maxsize=256)
-    def _resolve_hostname(cls, hostname: str) -> tuple[ipaddress._BaseAddress, ...]:
-        """Resolve hostname to IPs (cached).
+    def _resolve_hostname_inner(
+        cls, hostname: str
+    ) -> tuple[ipaddress._BaseAddress, ...]:
+        """Resolve hostname to IPs.
 
         :param hostname: Hostname to resolve
         :return: Tuple of resolved IP addresses
@@ -215,6 +216,17 @@ class SSRFProtection:
         return tuple(addresses)
 
     @classmethod
+    @lru_cache(maxsize=256)
+    def _resolve_hostname(cls, hostname: str) -> tuple[ipaddress._BaseAddress, ...]:
+        """Resolve hostname to IPs (cached).
+
+        :param hostname: Hostname to resolve
+        :return: Tuple of resolved IP addresses
+        :raises ValueError: If resolution fails
+        """
+        return cls._resolve_hostname_inner(hostname)
+
+    @classmethod
     def _resolve_hostname_uncached(
         cls, hostname: str
     ) -> tuple[ipaddress._BaseAddress, ...]:
@@ -224,23 +236,7 @@ class SSRFProtection:
         :return: Tuple of resolved IP addresses
         :raises ValueError: If resolution fails
         """
-        try:
-            infos = socket.getaddrinfo(hostname, None)
-        except socket.gaierror as e:
-            raise ValueError(f"Unable to resolve hostname: {hostname}") from e
-
-        addresses: list[ipaddress._BaseAddress] = []
-        for info in infos:
-            ip_str = info[4][0]
-            try:
-                addresses.append(ipaddress.ip_address(ip_str))
-            except ValueError:
-                continue
-
-        if not addresses:
-            raise ValueError(f"Unable to resolve hostname: {hostname}")
-
-        return tuple(addresses)
+        return cls._resolve_hostname_inner(hostname)
 
     @classmethod
     def is_blocked_hostname(cls, hostname: str) -> bool:

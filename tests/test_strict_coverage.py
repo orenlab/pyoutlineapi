@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Any, cast
 
 import pytest
 
@@ -118,7 +119,7 @@ async def test_audit_logger_shutdown_timeout_branches(caplog):
         # Raise timeout to trigger the warning
         raise asyncio.TimeoutError()
 
-    logger._queue.join = mock_join  # type: ignore
+    cast(Any, logger._queue).join = mock_join
 
     with caplog.at_level(logging.WARNING, logger="pyoutlineapi.audit"):
         # Use a very short timeout for the shutdown call

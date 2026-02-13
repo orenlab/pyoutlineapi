@@ -247,7 +247,7 @@ class AuditLogger(Protocol):
         correlation_id: str | None = None,
     ) -> None:
         """Log auditable action asynchronously (primary method)."""
-        ...
+        ...  # pragma: no cover
 
     def log_action(
         self,
@@ -259,11 +259,11 @@ class AuditLogger(Protocol):
         correlation_id: str | None = None,
     ) -> None:
         """Log auditable action synchronously (fallback method)."""
-        ...
+        ...  # pragma: no cover
 
     async def shutdown(self) -> None:
         """Gracefully shutdown logger."""
-        ...
+        ...  # pragma: no cover
 
 
 # ===== Default Implementation =====
