@@ -1254,9 +1254,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.2" },
-    { name = "pydantic", specifier = ">=2.12.3" },
-    { name = "pydantic-settings", specifier = ">=2.11.0" },
+    { name = "aiohttp", specifier = ">=3.13.3" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pydantic-settings", specifier = ">=2.12.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1266,7 +1266,7 @@ dev = [
     { name = "codeclone", specifier = ">=1.4.0" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pdoc", specifier = ">=15.0" },
-    { name = "pytest", specifier = ">=8.4" },
+    { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-asyncio", specifier = ">=0.25" },
     { name = "pytest-cov", specifier = ">=6.0" },
     { name = "pytest-timeout", specifier = ">=2.3" },
