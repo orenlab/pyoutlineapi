@@ -133,3 +133,10 @@ tmp/
 temp/
 
 main.py
+/.uv-cache/
+/.cache/codeclone/cache.json
+/AGENTS.md
+/comprehensive_demo.py
+/.cache/codeclone/report.html
+/.cache/codeclone/report.txt
+/api.yml

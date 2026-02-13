@@ -45,14 +45,11 @@ To contribute code:
 
 2. **Set Up Development Environment**:
    ```bash
-   # Install Poetry if you haven't already
-   curl -sSL https://install.python-poetry.org | python3 -
+   # Create a virtual environment
+   uv venv
 
    # Install dependencies
-   poetry install --with dev
-
-   # Activate virtual environment
-   poetry shell
+   uv sync --dev
    ```
 
 3. **Create a Feature Branch**:
@@ -71,16 +68,16 @@ To contribute code:
 5. **Test Your Changes**:
    ```bash
    # Run tests with coverage
-   poetry run pytest
+   uv run pytest
 
    # Type checking
-   poetry run mypy pyoutlineapi
+   uv run mypy pyoutlineapi
 
    # Code formatting
-   poetry run black pyoutlineapi tests
+   uv run ruff format pyoutlineapi tests
 
    # Linting
-   poetry run flake8 pyoutlineapi tests
+   uv run ruff check pyoutlineapi tests
    ```
 
 6. **Submit a Pull Request**:
@@ -173,15 +170,15 @@ Closes #123
 
 1. **Required Dependencies**:
     - Python 3.10 or higher
-    - Poetry for package management
+    - uv for package management
     - Outline VPN server (for integration testing)
 
 2. **Development Tools**:
-   All development dependencies are managed by Poetry and include:
+   All development dependencies are managed by uv and include:
     - pytest-cov for test coverage
     - black for code formatting
     - mypy for type checking
-    - flake8 for linting
+    - ruff for linting
 
 ## Project Configuration
 
@@ -189,8 +186,8 @@ Key project settings are managed in `pyproject.toml`, including:
 
 - Python version requirement (3.10+)
 - Dependencies:
-    - pydantic (^2.9.2)
-    - aiohttp (^3.11.11)
+    - pydantic (>=2.12.3)
+    - aiohttp (>=3.13.2)
 - Development dependencies for testing and code quality
 - Pytest configuration with coverage reporting
 
